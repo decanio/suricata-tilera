@@ -114,6 +114,10 @@ static const char *RunModeTranslateModeToName(int runmode)
             return "ERF_DAG";
         case RUNMODE_UNITTEST:
             return "UNITTEST";
+	case RUNMODE_TILERA_NETIO:
+	    return "NETIO";
+	case RUNMODE_TILERA_MPIPE:
+	    return "MPIPE";
         case RUNMODE_AFP_DEV:
             return "AF_PACKET_DEV";
         default:
@@ -153,6 +157,11 @@ void RunModeRegisterRunModes(void)
     RunModeIdsPcapRegister();
     RunModeFilePcapRegister();
     RunModeIdsPfringRegister();
+#ifdef __tilegx__
+    RunModeIdsTileMpipeRegister();
+#elif defined(__tile__)
+    RunModeIdsTileNetioRegister();
+#endif
     RunModeIpsNFQRegister();
     RunModeIpsIPFWRegister();
     RunModeErfFileRegister();
@@ -241,6 +250,15 @@ void RunModeDispatch(int runmode, const char *custom_mode, DetectEngineCtx *de_c
             case RUNMODE_DAG:
                 custom_mode = RunModeErfDagGetDefaultMode();
                 break;
+#ifdef __tilegx__
+            case RUNMODE_TILERA_MPIPE:
+                custom_mode = RunModeIdsTileMpipeGetDefaultMode();
+                break;
+#elif defined(__tile__)
+            case RUNMODE_TILERA_NETIO:
+                custom_mode = RunModeIdsTileNetioGetDefaultMode();
+                break;
+#endif
             case RUNMODE_AFP_DEV:
                 custom_mode = RunModeAFPGetDefaultMode();
                 break;

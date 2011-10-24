@@ -105,6 +105,12 @@
 
 #include "source-af-packet.h"
 
+#ifdef __tilegx__
+#include "source-mpipe.h"
+#elif defined(__tile__)
+#include "source-netio.h"
+#endif
+
 #include "respond-reject.h"
 
 #include "flow.h"
@@ -396,6 +402,11 @@ void usage(const char *progname)
 #endif
     printf("USAGE: %s\n\n", progname);
     printf("\t-c <path>                    : path to configuration file\n");
+#ifdef __tilegx__
+    printf("\t-I <dev>                     : run in tilera mpipe mode\n");
+#elif defined(__tile__)
+    printf("\t-I <dev>                     : run in tilera netio mode\n");
+#endif
     printf("\t-i <dev or ip>               : run in pcap live mode\n");
     printf("\t-F <bpf filter file>         : bpf filter file\n");
     printf("\t-r <path>                    : run in pcap file/offline mode\n");
@@ -569,6 +580,9 @@ int main(int argc, char **argv)
 {
     int opt;
     char pcap_dev[128];
+#ifdef __tile__
+    char tile_dev[128];
+#endif
     char *sig_file = NULL;
     char *conf_filename = NULL;
     char *pid_filename = NULL;
@@ -676,7 +690,7 @@ int main(int argc, char **argv)
     /* getopt_long stores the option index here. */
     int option_index = 0;
 
-    char short_opts[] = "c:Dhi:l:q:d:r:us:U:VF:";
+    char short_opts[] = "c:DhI:i:l:q:d:r:us:U:VF:";
 
     while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
         switch (opt) {
@@ -936,6 +950,26 @@ int main(int argc, char **argv)
             memset(pcap_dev, 0, sizeof(pcap_dev));
             strlcpy(pcap_dev, optarg, ((strlen(optarg) < sizeof(pcap_dev)) ? (strlen(optarg)+1) : (sizeof(pcap_dev))));
             break;
+#ifdef __tile__
+        case 'I':
+            if (run_mode == RUNMODE_UNKNOWN) {
+#ifdef __tilegx__
+                run_mode = RUNMODE_TILERA_MPIPE;
+                MpipeLiveRegisterDevice(optarg);
+#elif defined(__tile__)
+                run_mode = RUNMODE_TILERA_NETIO;
+                NetioLiveRegisterDevice(optarg);
+#endif
+            } else {
+                SCLogError(SC_ERR_MULTIPLE_RUN_MODE, "more than one run mode "
+                                                     "has been specified");
+                usage(argv[0]);
+                exit(EXIT_FAILURE);
+            }
+            memset(tile_dev, 0, sizeof(tile_dev));
+            strncpy(tile_dev, optarg, ((strlen(optarg) < sizeof(tile_dev)) ? (strlen(optarg)) : (sizeof(tile_dev)-1)));
+            break;
+#endif
         case 'l':
             if (ConfSet("default-log-dir", optarg, 0) != 1) {
                 fprintf(stderr, "ERROR: Failed to set log directory.\n");
@@ -1190,6 +1224,13 @@ int main(int argc, char **argv)
     TmModuleDecodeIPFWRegister();
     TmModuleReceivePcapRegister();
     TmModuleDecodePcapRegister();
+#ifdef __tilegx__
+    TmModuleReceiveMpipeRegister();
+    TmModuleDecodeMpipeRegister();
+#elif defined(__tile__)
+    TmModuleReceiveNetioRegister();
+    TmModuleDecodeNetioRegister();
+#endif
     TmModuleReceiveAFPRegister();
     TmModuleDecodeAFPRegister();
     TmModuleReceivePfringRegister();
@@ -1469,6 +1510,19 @@ int main(int argc, char **argv)
                 exit(EXIT_FAILURE);
             }
         }
+#ifdef __tilegx__
+    } else if (run_mode == RUNMODE_TILERA_MPIPE) {
+        if (ConfSet("netio.single_mpipe_dev", tile_dev, 0) != 1) {
+            fprintf(stderr, "ERROR: Failed to set netio.single_mpipe_dev\n");
+            exit(EXIT_FAILURE);
+        }
+#elif defined(__tile__)
+    } else if (run_mode == RUNMODE_TILERA_NETIO) {
+        if (ConfSet("netio.single_netio_dev", tile_dev, 0) != 1) {
+            fprintf(stderr, "ERROR: Failed to set netio.single_netio_dev\n");
+            exit(EXIT_FAILURE);
+        }
+#endif
 #ifdef HAVE_PFRING
     } else if (run_mode == RUNMODE_PFRING) {
         /* FIXME add backward compat support */
@@ -1531,6 +1585,11 @@ int main(int argc, char **argv)
     }
 
     SC_ATOMIC_CAS(&engine_stage, SURICATA_INIT, SURICATA_RUNTIME);
+
+#ifdef __tilegx__
+    /* Temporary for Tilera profiling */
+    ReceiveMpipeGo();
+#endif
 
     /* Un-pause all the paused threads */
     TmThreadContinueThreads();

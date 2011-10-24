@@ -30,6 +30,10 @@
 #include "counters.h"
 #include "threads.h"
 
+#if defined(__tile__) && !defined(__tilegx__)
+#include <netio/netio.h>
+#endif
+
 struct TmSlot_;
 
 /** Thread flags set and read by threads to control the threads */
@@ -78,6 +82,10 @@ typedef struct ThreadVars_ {
     struct Packet_ * (*tmqh_in)(struct ThreadVars_ *);
     void (*InShutdownHandler)(struct ThreadVars_ *);
     void (*tmqh_out)(struct ThreadVars_ *, struct Packet_ *);
+
+#if defined(__tile__) && !defined(__tilegx__)
+    netio_queue_t netio_queue;
+#endif
 
     /** slot functions */
     void *(*tm_func)(void *);

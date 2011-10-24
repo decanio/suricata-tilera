@@ -36,10 +36,20 @@ typedef enum {
     TMM_RECEIVENFQ,
     TMM_RECEIVEPCAP,
     TMM_RECEIVEPCAPFILE,
+#ifdef __tilegx__
+    TMM_RECEIVEMPIPE,
+#elif defined(__tile__)
+    TMM_RECEIVENETIO,
+#endif
     TMM_DECODEPCAP,
     TMM_DECODEPCAPFILE,
     TMM_RECEIVEPFRING,
     TMM_DECODEPFRING,
+#ifdef __tilegx__
+    TMM_DECODEMPIPE,
+#elif defined(__tile__)
+    TMM_DECODENETIO,
+#endif
     TMM_DETECT,
     TMM_ALERTFASTLOG,
     TMM_ALERTFASTLOG4,

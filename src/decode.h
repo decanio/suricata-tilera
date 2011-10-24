@@ -55,6 +55,12 @@
 
 #include "app-layer-protos.h"
 
+#ifdef __tilegx__
+#include <gxio/mpipe.h>
+#elif defined(__tile__)
+#include <netio/netio.h>
+#endif
+
 #ifdef __SC_CUDA_SUPPORT__
 #define CUDA_MAX_PAYLOAD_SIZE 1500
 #endif
@@ -352,6 +358,11 @@ typedef struct Packet_
 
         /** libpcap vars: shared by Pcap Live mode and Pcap File mode */
         PcapPacketVars pcap_v;
+
+#ifdef __tilegx__
+        /* TileGX mpipe stuff */
+        gxio_mpipe_idesc_t idesc;
+#endif
     };
 
     /** data linktype in host order */
@@ -395,6 +406,9 @@ typedef struct Packet_
 
     VLANHdr *vlanh;
 
+#if defined(__tile__) && !defined(__tilegx__)
+    netio_pkt_t netio_packet;
+#endif
     /* ptr to the payload of the packet
      * with it's length. */
     uint8_t *payload;
@@ -868,6 +882,9 @@ void AddressDebugPrint(Address *);
 
 #define PKT_TUNNEL                      0x1000
 #define PKT_TUNNEL_VERDICTED            0x2000
+
+#define PKT_NETIO                       0x4000     /**< Packet payload from netio */
+#define PKT_MPIPE                       0x8000     /**< Packet payload from mpipe */
 
 /** \brief return 1 if the packet is a pseudo packet */
 #define PKT_IS_PSEUDOPKT(p) ((p)->flags & PKT_PSEUDO_STREAM_END)
