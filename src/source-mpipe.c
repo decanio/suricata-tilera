@@ -30,7 +30,6 @@
 #include "threads.h"
 #include "threadvars.h"
 #include "tm-queuehandlers.h"
-//#include "tm-modules.h"
 #include "tm-threads.h"
 #include "source-mpipe.h"
 #include "conf.h"
@@ -60,8 +59,6 @@
 // Align "p" mod "align", assuming "p" is a "void*".
 #define ALIGN(p, align) do { (p) += -(long)(p) & ((align) - 1); } while(0)
 
-//#define ROUND_UP(n, align) (((n) + (align) - 1) & -(align))
-
 #define VERIFY(VAL, WHAT)                                       \
   do {                                                          \
     int __val = (VAL);                                          \
@@ -69,8 +66,6 @@
       tmc_task_die("Failure in '%s': %d: %s.",                  \
                    (WHAT), __val, gxio_strerror(__val));        \
   } while (0)
-
-
 
 extern uint8_t suricata_ctl_flags;
 extern int max_pending_packets;
@@ -81,7 +76,7 @@ static int mpipe_max_read_packets = 0;
 
 /** storage for mpipe device names */
 typedef struct MpipeDevice_ {
-    char *dev;  /**< the device (e.g. "gbe/0") */
+    char *dev;  /**< the device (e.g. "xgbe1") */
     TAILQ_ENTRY(MpipeDevice_) next;
 } MpipeDevice;
 
@@ -120,21 +115,8 @@ TmEcode DecodeMpipeThreadInit(ThreadVars *, void *, void **);
 TmEcode DecodeMpipe(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
 
 //========================================
-// NetIO configuration.
+// mpipe configuration.
 
-#define IPP_HUGE_PAGES 12
-//static char *interface = "xgbe/0";
-#if 0
-static int max_receive_packets = 1500;  /* default to largest possible value */
-static int max_small_packets = 8, max_large_packets = 8, max_jumbo_packets = 8;
-static int opt_huge_ipp_pages = 8;
-static int work_size = 1;
-static int work_rank = 0;
-static int hash_mac = 1;
-static int hash_ip = 1;
-static int hash_ports = 1;
-static int flows = 1;
-#endif
 static gxio_mpipe_context_t context_body;
 static gxio_mpipe_context_t* context = &context_body;
 static gxio_mpipe_iqueue_t iqueue_body;
@@ -155,92 +137,6 @@ static int tilera_fast_gettimeofday(struct timeval *tv) {
     }
     return 0;
 }
-
-#if 0
-// Configure a queue.
-// For a shared queue, we are careful to register workers serially.
-//
-static void
-queue_config(netio_queue_t *queue, int qid, char *interface)
-{
-  netio_input_config_t config = {
-    .queue_id = 0,
-    .num_receive_packets = 128 /* 1500 on xgbe */,
-    .interface = interface,
-
-    .total_buffer_size = 2 * (16 * 1024 * 1024),
-    .buffer_node_weights[0] = 0,
-    .buffer_node_weights[1] = 1,
-    .buffer_node_weights[2] = 1,
-    .buffer_node_weights[3] = 0,
-    .flags = /*NETIO_NOREQUIRE_LINK_UP|*/NETIO_STRICT_HOMING,
-  };
-
-  // Register workers in turn.
-  //
-#ifdef NOTYET
-  tmc_sync_barrier_wait(&shared->work_barrier);
-#endif
-  // Loop on netio_input_register() in case the link is down.
-  while (1)
-  {
-    netio_error_t err = netio_input_register(&config, queue);
-    if (err == NETIO_NO_ERROR)
-      break;
-    else if (err == NETIO_LINK_DOWN)
-    {
-      fprintf(stderr, "Link %s is down, retrying.\n", interface);
-      sleep(2);
-      continue;
-    }
-    else
-      tmc_task_die("netio input_register %d failed, status %d(%s)\n",
-                   work_rank, err, netio_strerror(err));
-  }
-#ifdef NOTYET
-    tmc_sync_barrier_wait(&shared->work_barrier);
-#endif
-}
-
-// Define a flow hash across a set of buckets.
-// Map the buckets to our worker queues.
-// There should be at least as many buckets as workers.
-//
-static inline void
-flow_config(netio_queue_t *queue, netio_group_t* flowtbl,
-            int base, unsigned count)
-{
-    netio_bucket_t map[1024];
-    for (unsigned b = 0; b < count; ++b)
-        map[b] = b % work_size;
-    netio_error_t err = netio_input_bucket_configure(queue, base, map, count);
-    if (err != NETIO_NO_ERROR)
-        tmc_task_die("netio_input_bucket_configure(%d) returned: %d(%s)\n",
-                count, err, netio_strerror(err));
-
-    flowtbl->word = 0;
-    flowtbl->bits.__balance_on_l4 = hash_ports; // Hash on ports? (hashing on ports breaks things like ftp tracking)
-    flowtbl->bits.__balance_on_l3 = hash_ip;    // Hash on IP addresses?
-    flowtbl->bits.__balance_on_l2 = hash_mac;   // Hash on Ethernet Mac address
-    flowtbl->bits.__bucket_base = base;   // Hash table
-    flowtbl->bits.__bucket_mask = count-1;
-}
-
-// Configure a flow for a range of VLANs.
-//
-static void
-vlan_config(netio_queue_t *queue, netio_group_t* flowtbl,
-            int base, int count)
-{
-  for (int v = base; v < count; ++v)
-  {
-    netio_error_t err = netio_input_group_configure(queue, v, flowtbl, 1);
-    if (err != NETIO_NO_ERROR)
-      tmc_task_die("netio_input_group_configure(%d) failed, status: %d(%s)\n",
-        v, err, netio_strerror(err));
-  }
-}
-#endif
 
 /**
  * \brief Registration Function for ReceiveMpipe.
@@ -270,37 +166,16 @@ void TmModuleDecodeMpipeRegister (void) {
     tmm_modules[TMM_DECODEMPIPE].cap_flags = 0;
 }
 
-#if 1
-/*
-static __attribute__((always_inline)) int
-packet_pull(gxio_mpipe_iqueue_t *iqueue,  gxio_mpipe_idesc_t *idesc)
-{
-    int result;
-
-    result = gxio_mpipe_iqueue_get(iqueue, idesc);
-
-    return (result == 0);   
-}
-*/
-#else
-static __attribute__((always_inline)) int
-packet_pull(netio_queue_t *queue, netio_pkt_t *packet)
-{
-    return netio_get_packet(queue, packet) == NETIO_PKT;
-}
-#endif
-
 void MpipeFreePacket(Packet *p) {
-#ifdef __TILEGX_SIMULATION__
-    static uint32_t packet_count = 0;
-#endif
 #ifdef MPIPE_DEBUG
     SCLogInfo("MpipeFreePacket %p", p);
 #endif
     gxio_mpipe_push_buffer(context, p->idesc.stack_idx, (void *)(intptr_t)p->idesc.va);
 
 #ifdef __TILEGX_SIMULATION__
-    // disable profiling at end of input
+    static uint32_t packet_count = 0;
+
+    // disable profiling at end of simulation input
     if (++packet_count == 10000) {
         SCLogInfo("Mpipe disabling profiler\n");
         sim_profiler_disable();
@@ -320,28 +195,11 @@ void MpipeFreePacket(Packet *p) {
  * \param h pointer to pcap packet header
  * \param pkt pointer to raw packet data
  */
-//void MpipeCallback(u_char *user,  netio_queue_t *queue, netio_pkt_t *packet) {
 void MpipeCallback(u_char *user,   gxio_mpipe_idesc_t *idesc, Packet *p) {
-    //netio_pkt_metadata_t *mda = NETIO_PKT_METADATA(packet);
-    //int caplen = NETIO_PKT_L2_LENGTH_M(mda, packet);
-    //u_char *pkt = NETIO_PKT_L2_DATA_M(mda, packet);
     int caplen = idesc->l2_size;
     u_char *pkt = (void *)(intptr_t)idesc->va;
     SCLogDebug("user %p, q %p, pkt %p", user, queue, packet);
     MpipeThreadVars *ptv = (MpipeThreadVars *)user;
-
-#if 0
-    Packet *p = NULL;
-    if (ptv->array_idx == 0) {
-        p = ptv->in_p;
-    } else {
-        p = PacketGetFromQueueOrAlloc();
-    }
-
-    if (p == NULL) {
-        SCReturn;
-    }
-#endif
 
     tilera_fast_gettimeofday(&p->ts);
     /*
@@ -354,21 +212,8 @@ void MpipeCallback(u_char *user,   gxio_mpipe_idesc_t *idesc, Packet *p) {
 
     p->datalink = ptv->datalink;
     p->flags |= PKT_MPIPE;
-#if 1
     SET_PKT_LEN(p, caplen);
-#if 1
     p->pkt = pkt;
-#else
-    if (PacketCopyData(p, pkt, GET_PKT_LEN(p)) == -1)
-        SCReturn;
-#endif
-#else
-    p->pktlen = caplen;
-    //memcpy(p->pkt, pkt, p->pktlen);
-    p->pkt = pkt;
-    p->ext_pkt = NULL;
-#endif
-    //SCLogDebug("p->pktlen: %" PRIu32 " (pkt %02x, p->pkt %02x)", p->pktlen, *pkt, *p->pkt);
 #ifdef MPIPE_DEBUG
     SCLogInfo("p->pktlen: %" PRIu32 " (pkt %02x, p->pkt %02x)", p->pktlen, *pkt, *p->pkt);
 #endif
@@ -384,7 +229,6 @@ void MpipeCallback(u_char *user,   gxio_mpipe_idesc_t *idesc, Packet *p) {
  * \brief Receives packets from an interface via gxio mpipe.
  */
 TmEcode ReceiveMpipe(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq) {
-    //gxio_mpipe_idesc_t idesc;
     SCEnter();
     uint16_t packet_q_len = 0;
 
@@ -423,7 +267,7 @@ TmEcode ReceiveMpipe(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pac
                 MpipeCallback((u_char *)ptv,  &p->idesc, p);
                 r = 1;
             }
-	}
+        }
         if (suricata_ctl_flags != 0) {
             break;
         }
@@ -469,171 +313,130 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
     SCLogInfo("using interface %s", (char *)initdata);
 
-#if 1
-
-  int result;
-  char *link_name = (char *)initdata;
+    int result;
+    char *link_name = (char *)initdata;
   
-  // Bind to a single cpu.
-  cpu_set_t cpus;
-  result = tmc_cpus_get_my_affinity(&cpus);
-  VERIFY(result, "tmc_cpus_get_my_affinity()");
-  result = tmc_cpus_set_my_cpu(tmc_cpus_find_first_cpu(&cpus));
-  VERIFY(result, "tmc_cpus_set_my_cpu()");
+    // Bind to a single cpu.
+    cpu_set_t cpus;
+    result = tmc_cpus_get_my_affinity(&cpus);
+    VERIFY(result, "tmc_cpus_get_my_affinity()");
+    result = tmc_cpus_set_my_cpu(tmc_cpus_find_first_cpu(&cpus));
+    VERIFY(result, "tmc_cpus_set_my_cpu()");
 
 
-  // Start the driver.
-  //result = gxio_mpipe_init(context, 0);
-  result = gxio_mpipe_init(context, gxio_mpipe_link_instance(link_name));
-//printf("gxio_mpipe_init returned: %d\n", result);
-  VERIFY(result, "gxio_mpipe_init()");
+    // Start the driver.
+    result = gxio_mpipe_init(context, gxio_mpipe_link_instance(link_name));
+    VERIFY(result, "gxio_mpipe_init()");
 
-  gxio_mpipe_link_t link;
-  result = gxio_mpipe_link_open(&link, context, link_name, 0);
-//printf("gxio_mpipe_link_open returned: %d\n", result);
-  VERIFY(result, "gxio_mpipe_link_open()");
+    gxio_mpipe_link_t link;
+    result = gxio_mpipe_link_open(&link, context, link_name, 0);
+    VERIFY(result, "gxio_mpipe_link_open()");
 
-  // Allocate one huge page to hold our buffer stack, notif ring, and
-  // packets.  This should be more than enough space.
-  size_t page_size = (1 << 24);
-  tmc_alloc_t alloc = TMC_ALLOC_INIT;
-  tmc_alloc_set_huge(&alloc);
-  void* page = tmc_alloc_map(&alloc, page_size);
-  assert(page);
+    // Allocate one huge page to hold our buffer stack, notif ring, and
+    // packets.  This should be more than enough space.
+    size_t page_size = (1 << 24);
+    tmc_alloc_t alloc = TMC_ALLOC_INIT;
+    tmc_alloc_set_huge(&alloc);
+    void* page = tmc_alloc_map(&alloc, page_size);
+    assert(page);
 
 
-  void* mem = page;
+    void* mem = page;
 
 
-  // Allocate a NotifRing.
-  result = gxio_mpipe_alloc_notif_rings(context, 1, 0, 0);
-  VERIFY(result, "gxio_mpipe_alloc_notif_rings()");
-  int ring = result;
+    // Allocate a NotifRing.
+    result = gxio_mpipe_alloc_notif_rings(context, 1, 0, 0);
+    VERIFY(result, "gxio_mpipe_alloc_notif_rings()");
+    int ring = result;
 
-  // Init the NotifRing.
-  size_t notif_ring_entries = 128;
-  size_t notif_ring_size = notif_ring_entries * sizeof(gxio_mpipe_idesc_t);
-  result = gxio_mpipe_iqueue_init(iqueue, context, ring,
-                                  mem, notif_ring_size, 0);
-  VERIFY(result, "gxio_mpipe_iqueue_init()");
-  //mem += ROUND_UP(notif_ring_size, PAGE_SIZE);
-  mem += notif_ring_size;
+    // Init the NotifRing.
+    size_t notif_ring_entries = 128;
+    size_t notif_ring_size = notif_ring_entries * sizeof(gxio_mpipe_idesc_t);
+    result = gxio_mpipe_iqueue_init(iqueue, context, ring,
+                                    mem, notif_ring_size, 0);
+    VERIFY(result, "gxio_mpipe_iqueue_init()");
+    mem += notif_ring_size;
 
 
-  // Allocate a NotifGroup.
-  result = gxio_mpipe_alloc_notif_groups(context, 1, 0, 0);
-  VERIFY(result, "gxio_mpipe_alloc_notif_groups()");
-  int group = result;
+    // Allocate a NotifGroup.
+    result = gxio_mpipe_alloc_notif_groups(context, 1, 0, 0);
+    VERIFY(result, "gxio_mpipe_alloc_notif_groups()");
+    int group = result;
 
-  // Allocate a bucket.
-  result = gxio_mpipe_alloc_buckets(context, 1, 0, 0);
-  VERIFY(result, "gxio_mpipe_alloc_buckets()");
-  int bucket = result;
+    // Allocate a bucket.
+    result = gxio_mpipe_alloc_buckets(context, 1, 0, 0);
+    VERIFY(result, "gxio_mpipe_alloc_buckets()");
+    int bucket = result;
 
-  // Init group and bucket.
-  gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_ROUND_ROBIN;
-  result = gxio_mpipe_init_notif_group_and_buckets(context, group,
+    // Init group and bucket.
+    gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_ROUND_ROBIN;
+    result = gxio_mpipe_init_notif_group_and_buckets(context, group,
                                                    ring, 1,
                                                    bucket, 1, mode);
-  VERIFY(result, "gxio_mpipe_init_notif_group_and_buckets()");
+    VERIFY(result, "gxio_mpipe_init_notif_group_and_buckets()");
 
 
-  // Allocate a buffer stack.
-  result = gxio_mpipe_alloc_buffer_stacks(context, 1, 0, 0);
-  VERIFY(result, "gxio_mpipe_alloc_buffer_stacks()");
-  int stack = result;
+    // Allocate a buffer stack.
+    result = gxio_mpipe_alloc_buffer_stacks(context, 1, 0, 0);
+    VERIFY(result, "gxio_mpipe_alloc_buffer_stacks()");
+    int stack = result;
 
-  // Total number of buffers.
-  int num_buffers = 256;
+    // Total number of buffers.
+    int num_buffers = 256;
 
-  // Initialize the buffer stack.
-  ALIGN(mem, 0x10000);
-  size_t stack_bytes = gxio_mpipe_calc_buffer_stack_bytes(num_buffers);
-  gxio_mpipe_buffer_size_enum_t buf_size = GXIO_MPIPE_BUFFER_SIZE_1664;
-  result = gxio_mpipe_init_buffer_stack(context, stack, buf_size,
-                                        mem, stack_bytes, 0);
-  VERIFY(result, "gxio_mpipe_init_buffer_stack()");
-  //mem += ROUND_UP(stack_bytes, PAGE_SIZE);
-  mem += stack_bytes;
+    // Initialize the buffer stack.
+    ALIGN(mem, 0x10000);
+    size_t stack_bytes = gxio_mpipe_calc_buffer_stack_bytes(num_buffers);
+    gxio_mpipe_buffer_size_enum_t buf_size = GXIO_MPIPE_BUFFER_SIZE_1664;
+    result = gxio_mpipe_init_buffer_stack(context, stack, buf_size,
+                                          mem, stack_bytes, 0);
+    VERIFY(result, "gxio_mpipe_init_buffer_stack()");
+    mem += stack_bytes;
 
-  ALIGN(mem, 0x10000);
+    ALIGN(mem, 0x10000);
 
-  // Register the entire huge page of memory which contains all the buffers.
-  result = gxio_mpipe_register_page(context, stack, page, page_size, 0);
-  VERIFY(result, "gxio_mpipe_register_page()");
+    // Register the entire huge page of memory which contains all the buffers.
+    result = gxio_mpipe_register_page(context, stack, page, page_size, 0);
+    VERIFY(result, "gxio_mpipe_register_page()");
 
-  // Push some buffers onto the stack.
-  for (int i = 0; i < num_buffers; i++)
-  {
-    gxio_mpipe_push_buffer(context, stack, mem);
-    mem += 1664;
-  }
-
-  // Paranoia.
-  assert(mem <= page + page_size);
-
-
-  // Register for packets.
-  gxio_mpipe_rules_t rules;
-  gxio_mpipe_rules_init(&rules, context);
-  gxio_mpipe_rules_begin(&rules, bucket, 1, NULL);
-  result = gxio_mpipe_rules_commit(&rules);
-  VERIFY(result, "gxio_mpipe_rules_commit()");
-
-#else
-    /*
-     * TBD: put all of the netio initialization stuff here
-     */
-    if (flows) {
-        // Configure one queue to each worker.
-        //
-        queue_config(&queue, work_rank, (char *)initdata);
-        SCLogError(SC_ERR_DATALINK_UNIMPLEMENTED, "netio queue_config done");
-
-        // Only one worker configures the flow
-        //
-        if (work_rank == 0) {
-            netio_group_t flowtbl;
-            flow_config(&queue, &flowtbl, 0, flows);
-            vlan_config(&queue, &flowtbl, 0, 0x1000);
-        }
-    } else {
-        // Configure all workers to the same queue.
-        //
-        queue_config(&queue, 0, (char *)initdata);
+    // Push some buffers onto the stack.
+    for (int i = 0; i < num_buffers; i++)
+    {
+        gxio_mpipe_push_buffer(context, stack, mem);
+        mem += 1664;
     }
 
-#ifdef NOTYET
-    // Have worker 0 start the network driver.
-    //
-    tmc_sync_barrier_wait(&shared->work_barrier);
-#endif
-    //SCLogError(SC_ERR_DATALINK_UNIMPLEMENTED, "Calling netio_input_initialize");
-    SCLogInfo("Calling netio_input_initialize");
-    if (work_rank == 0)
-        netio_input_initialize(&queue);
-#endif
+    // Paranoia.
+    assert(mem <= page + page_size);
 
-    //SCLogError(SC_ERR_DATALINK_UNIMPLEMENTED, "ReceiveMpipe initialization complete!!!");
+
+    // Register for packets.
+    gxio_mpipe_rules_t rules;
+    gxio_mpipe_rules_init(&rules, context);
+    gxio_mpipe_rules_begin(&rules, bucket, 1, NULL);
+    result = gxio_mpipe_rules_commit(&rules);
+    VERIFY(result, "gxio_mpipe_rules_commit()");
+
+
     SCLogInfo("ReceiveMpipe initialization complete!!!");
     *data = (void *)ptv;
     SCReturnInt(TM_ECODE_OK);
 }
 
 TmEcode ReceiveMpipeGo(void) {
-  SCEnter();
-  SCLogInfo("Mpipe enabling input and profiling\n");
-  // Turn on all the links on mpipe0.
-  sim_enable_mpipe_links(0, -1);
+    SCEnter();
+    SCLogInfo("Mpipe enabling input and profiling\n");
+    // Turn on all the links on mpipe0.
+    sim_enable_mpipe_links(0, -1);
 
 #ifdef __TILEGX_SIMULATION__
-  // Clear any old profiler data
-  sim_profiler_clear();
+    // Clear any old profiler data
+    sim_profiler_clear();
 
-  // Enable the profiler
-  sim_profiler_enable();
+    // Enable the profiler
+    sim_profiler_enable();
 #endif
-  SCReturnInt(TM_ECODE_OK);
+    SCReturnInt(TM_ECODE_OK);
 }
 
 /**
@@ -673,7 +476,6 @@ TmEcode DecodeMpipe(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pack
     SCEnter()
     DecodeThreadVars *dtv = (DecodeThreadVars *)data;
 
-    //SCLogInfo("DecodeNetio p %p", p);
     /* update counters */
     SCPerfCounterIncr(dtv->counter_pkts, tv->sc_perf_pca);
     SCPerfCounterIncr(dtv->counter_pkts_per_sec, tv->sc_perf_pca);
@@ -695,16 +497,17 @@ TmEcode DecodeMpipe(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pack
         DecodeEthernet(tv, dtv, p, p->pkt, p->pktlen, pq);
         break;
     default:
-        //SCLogError(SC_ERR_DATALINK_UNIMPLEMENTED, "Error: datalink type %" PRId32 " not yet supported in module DecodeNetio", p->datalink);
+#ifdef DEBUG_MPIPE
+        SCLogError(SC_ERR_DATALINK_UNIMPLEMENTED, "Error: datalink type %" PRId32 " not yet supported in module DecodeNetio", p->datalink);
+#endif
         break;
     }
-
  
     SCReturnInt(TM_ECODE_OK);
 }
 
 /**
- *  \brief Add a pcap device for monitoring
+ *  \brief Add a mpipe device for monitoring
  *
  *  \param dev string with the device name
  *
@@ -713,7 +516,6 @@ TmEcode DecodeMpipe(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pack
  */
 int MpipeLiveRegisterDevice(char *dev)
 {
-    //printf("MpipeLiveRegisterDevice(\"%s\")\n", dev);
     MpipeDevice *nd = SCMalloc(sizeof(MpipeDevice));
     if (nd == NULL) {
         return -1;

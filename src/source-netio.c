@@ -55,6 +55,7 @@ extern unsigned int NetioNumPipes;
 
 static int netio_max_read_packets = 0;
 
+//#define NETIO_DEBUG
 #define NETIO_FAST_CALLBACK
 #define NETIO_MAX_PKTS	32
 
@@ -100,23 +101,10 @@ void ReceiveNetioThreadExitStats(ThreadVars *, void *);
 TmEcode DecodeNetioThreadInit(ThreadVars *, void *, void **);
 TmEcode DecodeNetio(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
 
-//========================================
-// NetIO configuration.
-
+/*
+ * NetIO configuration.
+ */
 #define IPP_HUGE_PAGES 12
-#if 0
-//static char *interface = "xgbe/0";
-static int max_receive_packets = 1500;  /* default to largest possible value */
-static int max_small_packets = 8, max_large_packets = 8, max_jumbo_packets = 8;
-static int opt_huge_ipp_pages = 8;
-static int work_size = 1;
-static int work_rank = 0;
-static int hash_mac = 1;
-static int hash_ip = 1;
-static int hash_ports = 1;
-static int flows = 1;
-//static netio_queue_t queue;
-#endif
 static unsigned long long tilera_gtod_fast_boot = 0;
 static const unsigned long tilera_gtod_fast_mhz = /* tmc_perf_get_cpu_speed() */ 866000000 / 1000000;
 
@@ -134,92 +122,6 @@ static int tilera_fast_gettimeofday(struct timeval *tv) {
     }
     return 0;
 }
-
-#if 0
-// Configure a queue.
-// For a shared queue, we are careful to register workers serially.
-//
-static void
-queue_config(netio_queue_t *queue, int qid, char *interface)
-{
-  netio_input_config_t config = {
-    .queue_id = 0,
-    .num_receive_packets = 128 /* 1500 on xgbe */,
-    .interface = interface,
-
-    .total_buffer_size = 2 * (16 * 1024 * 1024),
-    .buffer_node_weights[0] = 0,
-    .buffer_node_weights[1] = 1,
-    .buffer_node_weights[2] = 1,
-    .buffer_node_weights[3] = 0,
-    .flags = /*NETIO_NOREQUIRE_LINK_UP|*/NETIO_STRICT_HOMING,
-  };
-
-  // Register workers in turn.
-  //
-#ifdef NOTYET
-  tmc_sync_barrier_wait(&shared->work_barrier);
-#endif
-  // Loop on netio_input_register() in case the link is down.
-  while (1)
-  {
-    netio_error_t err = netio_input_register(&config, queue);
-    if (err == NETIO_NO_ERROR)
-      break;
-    else if (err == NETIO_LINK_DOWN)
-    {
-      fprintf(stderr, "Link %s is down, retrying.\n", interface);
-      sleep(2);
-      continue;
-    }
-    else
-      tmc_task_die("netio input_register %d failed, status %d(%s)\n",
-                   work_rank, err, netio_strerror(err));
-  }
-#ifdef NOTYET
-    tmc_sync_barrier_wait(&shared->work_barrier);
-#endif
-}
-
-// Define a flow hash across a set of buckets.
-// Map the buckets to our worker queues.
-// There should be at least as many buckets as workers.
-//
-static inline void
-flow_config(netio_queue_t *queue, netio_group_t* flowtbl,
-            int base, unsigned count)
-{
-    netio_bucket_t map[1024];
-    for (unsigned b = 0; b < count; ++b)
-        map[b] = b % work_size;
-    netio_error_t err = netio_input_bucket_configure(queue, base, map, count);
-    if (err != NETIO_NO_ERROR)
-        tmc_task_die("netio_input_bucket_configure(%d) returned: %d(%s)\n",
-                count, err, netio_strerror(err));
-
-    flowtbl->word = 0;
-    flowtbl->bits.__balance_on_l4 = hash_ports; // Hash on ports? (hashing on ports breaks things like ftp tracking)
-    flowtbl->bits.__balance_on_l3 = hash_ip;    // Hash on IP addresses?
-    flowtbl->bits.__balance_on_l2 = hash_mac;   // Hash on Ethernet Mac address
-    flowtbl->bits.__bucket_base = base;   // Hash table
-    flowtbl->bits.__bucket_mask = count-1;
-}
-
-// Configure a flow for a range of VLANs.
-//
-static void
-vlan_config(netio_queue_t *queue, netio_group_t* flowtbl,
-            int base, int count)
-{
-  for (int v = base; v < count; ++v)
-  {
-    netio_error_t err = netio_input_group_configure(queue, v, flowtbl, 1);
-    if (err != NETIO_NO_ERROR)
-      tmc_task_die("netio_input_group_configure(%d) failed, status: %d(%s)\n",
-        v, err, netio_strerror(err));
-  }
-}
-#endif
 
 /**
  * \brief Registration Function for ReceiveNetio.
@@ -260,7 +162,6 @@ cycle_pause(unsigned int delay)
 static __attribute__((always_inline)) int
 packet_pull(netio_queue_t *queue, netio_pkt_t *packet)
 {
-#if 1
     netio_error_t err = netio_get_packet(queue, packet);
 
     switch (err) {
@@ -273,9 +174,6 @@ packet_pull(netio_queue_t *queue, netio_pkt_t *packet)
         tmc_task_die("error from netio_get_packet: %s", netio_strerror(err));
         return 0;
     }
-#else
-    return netio_get_packet(queue, packet) == NETIO_PKT;
-#endif
 }
 
 /**
@@ -295,17 +193,22 @@ void NetioCallback(u_char *user,  netio_queue_t *queue, netio_pkt_t *packet) {
     netio_pkt_metadata_t *mda = NETIO_PKT_METADATA(packet);
     int caplen = NETIO_PKT_L2_LENGTH_M(mda, packet);
     u_char *pkt = NETIO_PKT_L2_DATA_M(mda, packet);
-    //SCLogDebug("user %p, q %p, pkt %p", user, queue, packet);
+#ifdef NETIO_DEBUG
     static uint32_t bad_cnt = 0;
+#endif
 
     if (NETIO_PKT_BAD(packet) != 0) {
-	if (++bad_cnt > 1024) {
+#ifdef NETIO_DEBUG
+	    if (++bad_cnt > 1024) {
            SCLogInfo("Dumped 1K bad packets");
            bad_cnt = 0;
-	}
+	    }
+#endif
         SCReturn;
     }
+#ifdef NETIO_DEBUG
     bad_cnt = 0;
+#endif
 
     /*
      * Invalidate any previously cached version of the packet 
@@ -317,7 +220,9 @@ void NetioCallback(u_char *user,  netio_queue_t *queue, netio_pkt_t *packet) {
         p = ptv->in_p;
     } else {
         p = PacketGetFromQueueOrAlloc();
-       SCLogInfo("Allocated p %p\n", p);
+#ifdef NETIO_DEBUG
+        SCLogInfo("Allocated p %p\n", p);
+#endif
     }
 
     if (p == NULL) {
@@ -335,20 +240,8 @@ void NetioCallback(u_char *user,  netio_queue_t *queue, netio_pkt_t *packet) {
 
     p->datalink = ptv->datalink;
 
-    //SCLogInfo("copying to pkt %p ext_pkt %p size %d\n", p->pkt, p->ext_pkt, sizeof(Packet));
-#if 0
-int i;
-for (i = 0; i < caplen; i++) {
-  if ((i % 16) == 0) printf("\n%x ", i);
-  printf("%02x ", pkt[i]);
-}
-printf("\n");
-#endif
     if (PacketCopyData(p, pkt, caplen) == -1)
       SCReturn;
-
-    //SCLogDebug("p->pktlen: %" PRIu32 " (pkt %02x, p->pkt %02x)", p->pktlen, *pkt, *p->pkt);
-    //SCLogInfo("p->pktlen: %" PRIu32 " (pkt %02x, p->pkt %02x)", p->pktlen, *pkt, *p->pkt);
 
     /* store the packet in our array */
     ptv->array[ptv->array_idx] = p;
@@ -366,37 +259,28 @@ static inline int NetioFastCallback(u_char *user,  netio_queue_t *queue, Packet 
     netio_pkt_metadata_t *mda = NETIO_PKT_METADATA(packet);
     int caplen = NETIO_PKT_L2_LENGTH_M(mda, packet);
     u_char *pkt = NETIO_PKT_L2_DATA_M(mda, packet);
-    //SCLogDebug("user %p, q %p, pkt %p", user, queue, packet);
+#ifdef NETIO_DEBUG
     static uint32_t bad_cnt = 0;
+#endif
 
     if (NETIO_PKT_BAD(packet) != 0) {
         netio_free_buffer(&ptv->queue, packet);
-	if (++bad_cnt > 1024) {
+#ifdef NETIO_DEBUG
+	    if (++bad_cnt > 1024) {
            SCLogInfo("Dumped 1K bad packets");
            bad_cnt = 0;
-	}
+    	}
+#endif
         SCReturnInt(0);
     }
+#ifdef NETIO_DEBUG
     bad_cnt = 0;
+#endif
 
     /*
      * Invalidate any previously cached version of the packet 
      */
     netio_pkt_inv(pkt, caplen);
-
-#if 0
-    Packet *p = NULL;
-    if (ptv->array_idx == 0) {
-        p = ptv->in_p;
-    } else {
-        p = PacketGetFromQueueOrAlloc();
-       SCLogInfo("Allocated p %p\n", p);
-    }
-
-    if (p == NULL) {
-        SCReturn;
-    }
-#endif
 
     tilera_fast_gettimeofday(&p->ts);
     /*
@@ -409,22 +293,9 @@ static inline int NetioFastCallback(u_char *user,  netio_queue_t *queue, Packet 
 
     p->datalink = ptv->datalink;
     p->flags |= PKT_NETIO;
-    //p->netio_queue = queue;
 
-    //SCLogInfo("copying to pkt %p ext_pkt %p size %d\n", p->pkt, p->ext_pkt, sizeof(Packet));
-#if 0
-int i;
-for (i = 0; i < caplen; i++) {
-  if ((i % 16) == 0) printf("\n%x ", i);
-  printf("%02x ", pkt[i]);
-}
-printf("\n");
-#endif
     SET_PKT_LEN(p, caplen);
     p->pkt = pkt;
-
-    //SCLogDebug("p->pktlen: %" PRIu32 " (pkt %02x, p->pkt %02x)", p->pktlen, *pkt, *p->pkt);
-    //SCLogInfo("p->pktlen: %" PRIu32 " (pkt %02x, p->pkt %02x)", p->pktlen, *pkt, *p->pkt);
 
     /* store the packet in our array */
     ptv->array[ptv->array_idx] = p;
@@ -438,7 +309,6 @@ printf("\n");
  * \brief Receivews packets from an interface via netio.
  */
 TmEcode ReceiveNetio(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq) {
-    //netio_pkt_t packet;
     SCEnter();
     uint16_t packet_q_len = 0;
 #ifdef __TILERAP__
@@ -468,29 +338,13 @@ TmEcode ReceiveNetio(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pac
 
     ptv->array_idx = 0;
     ptv->in_p = p;
-    //SCLogInfo("ReceiveNetio p %p", p);
-
-    //SCLogInfo("ReceiveNetio!!!");
 
 #ifdef NETIO_FAST_CALLBACK
-#if 0
-    Packet *p = NULL;
-    if (ptv->array_idx == 0) {
-        p = ptv->in_p;
-    } else {
-        p = PacketGetFromQueueOrAlloc();
-    }
-
-    if (p == NULL) {
-        SCReturnInt(TM_ECODE_FAILED);
-    }
-#endif
     /* Right now we just support reading packets one at a time. */
     int r = 0;
     while (r == 0) {
         if (packet_pull(&ptv->queue, &p->netio_packet)) {
             r = NetioFastCallback((u_char *)ptv,  &ptv->queue, p);
-            //r = 1;
 	} else {
             r = 0;
 	}
@@ -507,7 +361,6 @@ TmEcode ReceiveNetio(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pac
             netio_free_buffer(&ptv->queue, &packet);
             r = 1;
 	} else {
-            //r = 1;
             r = 0;
 	}
         if (suricata_ctl_flags != 0) {
@@ -523,7 +376,6 @@ TmEcode ReceiveNetio(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pac
         /* enqueue all but the first in the postpq, the first
          * pkt is handled by the tv "out handler" */
         if (cnt > 0) {
-            //SCLogInfo("PacketEnqueue packet p %p", pp);
             PacketEnqueue(postpq, pp);
         }
     }
@@ -580,21 +432,18 @@ TmEcode ReceiveNetioThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
     SCLogInfo("using interface %s", (char *)initdata);
 
-#if 1
     int cpu = tmc_cpus_get_my_cpu();
-    //int rank = (cpu-1)/6;
     int rank = (cpu-1)/TILES_PER_PIPELINE;
     SCLogInfo("cpu %d rank %d interface %s\n", cpu, rank, (char *)initdata);
 
-    //
-    // Register for packets.
-    // Note that by ensuring the queue is located on this thread's stack,
-    // we guarantee that references to it will be cached locally.
-    //
+    /*
+     * Register for packets.
+     * Note that by ensuring the queue is located on this thread's stack,
+     * we guarantee that references to it will be cached locally.
+     */
     netio_input_config_t config = {
       .flags = NETIO_RECV | NETIO_NO_XMIT | NETIO_TAG_NONE,
       .num_receive_packets = 1024,
-      //.interface = "xgbe/0",
       .interface = (char *)initdata,
       .num_send_buffers_small_total = 8,
       .num_send_buffers_large_total = 8,
@@ -602,16 +451,15 @@ TmEcode ReceiveNetioThreadInit(ThreadVars *tv, void *initdata, void **data) {
       .queue_id = rank
     };
 
-    //netio_queue_t queue;
     netio_error_t err = netio_input_register(&config, &ptv->queue);
     if (err != NETIO_NO_ERROR)
       tmc_task_die("input_register failed: %s", netio_strerror(err));
 
     if (rank == 0) {
-      //
-      // Set up packet distribution; we do flow hashing so that we have a chance
-      // of getting packets delivered back-to-back to one tile.
-      //
+      /*
+       * Set up packet distribution; we do flow hashing so that we have a chance
+       * of getting packets delivered back-to-back to one tile.
+       */
       netio_group_t group = {
         .bits.__balance_on_l4 = 1,
         .bits.__balance_on_l3 = 1,
@@ -638,54 +486,33 @@ TmEcode ReceiveNetioThreadInit(ThreadVars *tv, void *initdata, void **data) {
         tmc_task_die("bucket_configure failed: %s", netio_strerror(err));
 
     }
-#else
-    /*
-     * TBD: put all of the netio initialization stuff here
-     */
-    if (flows) {
-        // Configure one queue to each worker.
-        //
-        queue_config(&queue, work_rank, (char *)initdata);
-        //SCLogError(SC_ERR_DATALINK_UNIMPLEMENTED, "netio queue_config done");
-        SCLogInfo("netio queue_config done");
 
-        // Only one worker configures the flow
-        //
-        if (work_rank == 0) {
-            netio_group_t flowtbl;
-            flow_config(&queue, &flowtbl, 0, flows);
-            vlan_config(&queue, &flowtbl, 0, 0x1000);
-        }
-    } else {
-        // Configure all workers to the same queue.
-        //
-        queue_config(&queue, 0, (char *)initdata);
-    }
-#endif
-
+#ifdef NETIO_DEBUG
     SCLogInfo("Before barrier");
+#endif
     pthread_barrier_wait(&barrier);
+#ifdef NETIO_DEBUG
     SCLogInfo("After barrier");
+#endif
 #ifdef NOTYET
-    // Have worker 0 start the network driver.
-    //
+    /* Have worker 0 start the network driver. */
     tmc_sync_barrier_wait(&shared->work_barrier);
 #endif
-    //SCLogError(SC_ERR_DATALINK_UNIMPLEMENTED, "Calling netio_input_initialize");
+#ifdef NETIO_DEBUG
     SCLogInfo("Calling netio_input_initialize");
-    //if (work_rank == 0)
+#endif
     if (rank == 0) {
-      //
-      // Start the packets flowing.
-      //
+      /*
+       * Start the packets flowing.
+       */
       err = netio_input_initialize(&ptv->queue);
       if (err != NETIO_NO_ERROR)
         tmc_task_die("input_initialize failed: %s", netio_strerror(err));
     }
-    //    netio_input_initialize(&queue);
 
-    //SCLogError(SC_ERR_DATALINK_UNIMPLEMENTED, "ReceiveNetio initialization complete!!!");
+#ifdef NETIO_DEBUG
     SCLogInfo("ReceiveNetio initialization complete!!!");
+#endif
     *data = (void *)ptv;
     SCReturnInt(TM_ECODE_OK);
 }
@@ -695,67 +522,6 @@ TmEcode ReceiveNetioInit(void) {
 
     pthread_barrier_init(&barrier, NULL, NetioNumPipes*2);
 
-#if 0
-    //
-    // Register a queue so we can configure the IPP.
-    //
-    netio_error_t err;
-    netio_queue_t queue;
-    netio_input_config_t config = {
-      .flags = NETIO_RECV | NETIO_NO_XMIT | NETIO_TAG_NONE,
-      .num_receive_packets = 16,
-      .interface = "xgbe/0", /* FIXME */
-      .queue_id = NETIO_MAX_QUEUE_ID,
-    };
-
-    //
-    // Loop on netio_input_register() until the link is up.
-    //
-    while (1)
-    {
-      err = netio_input_register(&config, &queue);
-      if (err == NETIO_NO_ERROR)
-        break;
-      if (err == NETIO_LINK_DOWN)
-      {
-        fprintf(stderr, "Link %s is down, retrying.\n", config.interface);
-        sleep(2);
-      }
-      else
-      {
-        tmc_task_die("input_register failed: %s", netio_strerror(err));
-      }
-    }
-  
-    //
-    // Set up packet distribution; we do flow hashing so that we have a chance
-    // of getting packets delivered back-to-back to one tile.
-    //
-    netio_group_t group = {
-      .bits.__balance_on_l4 = 1,
-      .bits.__balance_on_l3 = 1,
-      .bits.__balance_on_l2 = 0,
-      .bits.__bucket_base = 0,
-      .bits.__bucket_mask = 0xFF
-    };
-    err = netio_input_group_configure(&queue, 0, &group, 1);
-    if (err != NETIO_NO_ERROR)
-      tmc_task_die("group_configure failed: %s", netio_strerror(err));
-
-    netio_bucket_t buckets[256];
-    unsigned int next_queue = 0;
-    unsigned int num_buckets = sizeof (buckets) / sizeof (buckets[0]);
-    for (int j = 0; j < num_buckets; j++)
-    {
-      buckets[j] = next_queue++;
-      if (next_queue == NetioNumPipes)
-        next_queue = 0;
-    }
-
-    err = netio_input_bucket_configure(&queue, 0, buckets, num_buckets);
-    if (err != NETIO_NO_ERROR)
-      tmc_task_die("bucket_configure failed: %s", netio_strerror(err));
-#endif
     SCReturnInt(TM_ECODE_OK);
 }
 
@@ -766,9 +532,6 @@ TmEcode ReceiveNetioInit(void) {
  */
 void ReceiveNetioThreadExitStats(ThreadVars *tv, void *data) {
     SCEnter();
-#if 0
-    NetioThreadVars *ptv = (NetioThreadVars *)data;
-#endif
     SCReturn;
 }
 
@@ -785,7 +548,9 @@ TmEcode DecodeNetioThreadInit(ThreadVars *tv, void *initdata, void **data)
     DecodeRegisterPerfCounters(dtv, tv);
 
     *data = (void *)dtv;
+#ifdef NETIO_DEBUG
     SCLogInfo("DecodeNetioThreadInit using interface");
+#endif
 
     SCReturnInt(TM_ECODE_OK);
 
@@ -796,20 +561,18 @@ TmEcode DecodeNetio(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pack
     SCEnter()
     DecodeThreadVars *dtv = (DecodeThreadVars *)data;
 
-    //SCLogInfo("DecodeNetio p %p", p);
     /* update counters */
     SCPerfCounterIncr(dtv->counter_pkts, tv->sc_perf_pca);
     SCPerfCounterIncr(dtv->counter_pkts_per_sec, tv->sc_perf_pca);
 
     SCPerfCounterAddUI64(dtv->counter_bytes, tv->sc_perf_pca, p->pktlen);
-#if 1
     /* pfring skips this too */
     SCPerfCounterAddDouble(dtv->counter_bytes_per_sec, tv->sc_perf_pca, p->pktlen);
-#endif
-#if 0
+    /*
+     * takes too much time to compute for each packet
     SCPerfCounterAddDouble(dtv->counter_mbit_per_sec, tv->sc_perf_pca,
                            (p->pktlen * 8)/1000000.0);
-#endif
+    */
 
     SCPerfCounterAddUI64(dtv->counter_avg_pkt_size, tv->sc_perf_pca, p->pktlen);
     SCPerfCounterSetUI64(dtv->counter_max_pkt_size, tv->sc_perf_pca, p->pktlen);
@@ -817,11 +580,12 @@ TmEcode DecodeNetio(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pack
     /* call the decoder */
     switch(p->datalink) {
     case LINKTYPE_ETHERNET:
-        //SCLogInfo("DecodeNetio Decode Ethernet p %p", p);
         DecodeEthernet(tv, dtv, p, p->pkt, p->pktlen, pq);
         break;
     default:
+#ifdef NETIO_DEBUG
         SCLogInfo("Error: datalink type %" PRId32 " not yet supported in module DecodeNetio", p->datalink);
+#endif
         break;
     }
  
