@@ -50,14 +50,9 @@
 #include <tmc/perf.h>
 
 extern uint8_t suricata_ctl_flags;
-extern int max_pending_packets;
 extern unsigned int NetioNumPipes;
 
-static int netio_max_read_packets = 0;
-
 //#define NETIO_DEBUG
-#define NETIO_FAST_CALLBACK
-#define NETIO_MAX_PKTS	32
 
 /** storage for netio device names */
 typedef struct NetioDevice_ {
@@ -86,15 +81,13 @@ typedef struct NetioThreadVars_
     uint32_t errs;
 
     ThreadVars *tv;
+    TmSlot *slot;
 
     Packet *in_p;
 
-    /* TBD: is this really necessary? */
-    Packet *array[NETIO_MAX_PKTS];
-    uint16_t array_idx;
 } NetioThreadVars;
 
-TmEcode ReceiveNetio(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
+TmEcode ReceiveNetioLoop(ThreadVars *, void *, void *);
 TmEcode ReceiveNetioThreadInit(ThreadVars *, void *, void **);
 void ReceiveNetioThreadExitStats(ThreadVars *, void *);
 
@@ -130,11 +123,13 @@ static int tilera_fast_gettimeofday(struct timeval *tv) {
 void TmModuleReceiveNetioRegister (void) {
     tmm_modules[TMM_RECEIVENETIO].name = "ReceiveNetio";
     tmm_modules[TMM_RECEIVENETIO].ThreadInit = ReceiveNetioThreadInit;
-    tmm_modules[TMM_RECEIVENETIO].Func = ReceiveNetio;
+    tmm_modules[TMM_RECEIVENETIO].Func = NULL;
+    tmm_modules[TMM_RECEIVENETIO].PktAcqLoop = ReceiveNetioLoop;
     tmm_modules[TMM_RECEIVENETIO].ThreadExitPrintStats = ReceiveNetioThreadExitStats;
     tmm_modules[TMM_RECEIVENETIO].ThreadDeinit = NULL;
     tmm_modules[TMM_RECEIVENETIO].RegisterTests = NULL;
     tmm_modules[TMM_RECEIVENETIO].cap_flags = SC_CAP_NET_RAW;
+    tmm_modules[TMM_RECEIVENETIO].flags = TM_FLAG_RECEIVE_TM;
 }
 
 /**
@@ -177,82 +172,16 @@ packet_pull(netio_queue_t *queue, netio_pkt_t *packet)
 }
 
 /**
- * \brief Netio "callback" function.
+ * \brief Netio Packet Process function.
  *
- * This function fills in our packet structure from libpcap.
- * From here the packets are picked up by the  DecodePcap thread.
+ * This function fills in our packet structure from netio.
+ * From here the packets are picked up by the  DecodeNetio thread.
  *
- * \param user pointer to PcapThreadVars passed from pcap_dispatch
- * \param h pointer to pcap packet header
- * \param pkt pointer to raw packet data
+ * \param user pointer to MpipeThreadVars passed from pcap_dispatch
+ * \param h pointer to gxio packet header
+ * \param pkt pointer to current packet
  */
-#ifndef NETIO_FAST_CALLBACK
-void NetioCallback(u_char *user,  netio_queue_t *queue, netio_pkt_t *packet) {
-    SCEnter();
-    NetioThreadVars *ptv = (NetioThreadVars *)user;
-    netio_pkt_metadata_t *mda = NETIO_PKT_METADATA(packet);
-    int caplen = NETIO_PKT_L2_LENGTH_M(mda, packet);
-    u_char *pkt = NETIO_PKT_L2_DATA_M(mda, packet);
-#ifdef NETIO_DEBUG
-    static uint32_t bad_cnt = 0;
-#endif
-
-    if (NETIO_PKT_BAD(packet) != 0) {
-#ifdef NETIO_DEBUG
-	    if (++bad_cnt > 1024) {
-           SCLogInfo("Dumped 1K bad packets");
-           bad_cnt = 0;
-	    }
-#endif
-        SCReturn;
-    }
-#ifdef NETIO_DEBUG
-    bad_cnt = 0;
-#endif
-
-    /*
-     * Invalidate any previously cached version of the packet 
-     */
-    netio_pkt_inv(pkt, caplen);
-
-    Packet *p = NULL;
-    if (ptv->array_idx == 0) {
-        p = ptv->in_p;
-    } else {
-        p = PacketGetFromQueueOrAlloc();
-#ifdef NETIO_DEBUG
-        SCLogInfo("Allocated p %p\n", p);
-#endif
-    }
-
-    if (p == NULL) {
-        SCReturn;
-    }
-
-    tilera_fast_gettimeofday(&p->ts);
-    /*
-    p->ts.tv_sec = h->ts.tv_sec;
-    p->ts.tv_usec = h->ts.tv_usec;
-    */
-
-    ptv->pkts++;
-    ptv->bytes += caplen;
-
-    p->datalink = ptv->datalink;
-
-    if (PacketCopyData(p, pkt, caplen) == -1)
-      SCReturn;
-
-    /* store the packet in our array */
-    ptv->array[ptv->array_idx] = p;
-    ptv->array_idx++;
-
-    SCReturn;
-}
-#endif
-
-#ifdef NETIO_FAST_CALLBACK
-static inline int NetioFastCallback(u_char *user,  netio_queue_t *queue, Packet *p) {
+static inline int NetioProcessPacket(u_char *user,  netio_queue_t *queue, Packet *p) {
     SCEnter();
     netio_pkt_t *packet = &p->netio_packet;
     NetioThreadVars *ptv = (NetioThreadVars *)user;
@@ -297,91 +226,64 @@ static inline int NetioFastCallback(u_char *user,  netio_queue_t *queue, Packet 
     SET_PKT_LEN(p, caplen);
     p->pkt = pkt;
 
-    /* store the packet in our array */
-    ptv->array[ptv->array_idx] = p;
-    ptv->array_idx++;
-
     SCReturnInt(1);
 }
-#endif
 
 /**
  * \brief Receivews packets from an interface via netio.
  */
-TmEcode ReceiveNetio(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq) {
-    SCEnter();
+TmEcode ReceiveNetioLoop(ThreadVars *tv, void *data, void *slot) {
     uint16_t packet_q_len = 0;
+    NetioThreadVars *ptv = (NetioThreadVars *)data;
+    TmSlot *s = (TmSlot *)slot;
+    ptv->slot = s->slot_next;
+    Packet *p = NULL;
+
+    SCEnter();
 #ifdef __TILERAP__
     int pool = p->pool;
 #endif
 
-    NetioThreadVars *ptv = (NetioThreadVars *)data;
+    for (;;) {
+        if (suricata_ctl_flags & SURICATA_STOP ||
+                suricata_ctl_flags & SURICATA_KILL) {
+            SCReturnInt(TM_ECODE_FAILED);
+        }
 
-    /* make sure we have at least one packet in the packet pool, to prevent
-     * us from alloc'ing packets at line rate */
-    while (packet_q_len == 0) {
+        /* make sure we have at least one packet in the packet pool, to prevent
+         * us from alloc'ing packets at line rate */
+        do {
 #ifdef __TILERAP__
-        packet_q_len = PacketPoolSize(pool);
-        if (packet_q_len == 0) {
-            PacketPoolWait(pool);
-        }
+            packet_q_len = PacketPoolSize(pool);
+            if (packet_q_len == 0) {
+                PacketPoolWait(pool);
+            }
 #else
-        packet_q_len = PacketPoolSize();
-        if (packet_q_len == 0) {
-            PacketPoolWait();
-        }
+            packet_q_len = PacketPoolSize();
+            if (packet_q_len == 0) {
+                PacketPoolWait();
+            }
 #endif
-    }
+        } while (packet_q_len == 0);
 
-    if (postpq == NULL)
-        netio_max_read_packets = 1;
-
-    ptv->array_idx = 0;
-    ptv->in_p = p;
-
-#ifdef NETIO_FAST_CALLBACK
-    /* Right now we just support reading packets one at a time. */
-    int r = 0;
-    while (r == 0) {
-        if (packet_pull(&ptv->queue, &p->netio_packet)) {
-            r = NetioFastCallback((u_char *)ptv,  &ptv->queue, p);
-	} else {
-            r = 0;
-	}
-        if (suricata_ctl_flags != 0) {
-            break;
+        p = PacketGetFromQueueOrAlloc();
+        if (p == NULL) {
+            SCReturnInt(TM_ECODE_FAILED);
         }
-    }
-#else
-    /* Right now we just support reading packets one at a time. */
-    int r = 0;
-    while (r == 0) {
-        if (packet_pull(&ptv->queue, &packet)) {
-            NetioCallback((u_char *)ptv,  &ptv->queue, &packet);
-            netio_free_buffer(&ptv->queue, &packet);
-            r = 1;
-	} else {
-            r = 0;
-	}
-        if (suricata_ctl_flags != 0) {
-            break;
+
+        int r = 0;
+        while (r == 0) {
+            if (packet_pull(&ptv->queue, &p->netio_packet)) {
+                r = NetioProcessPacket((u_char *)ptv,  &ptv->queue, p);
+                if (r) {
+                    TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+                }
+	    } else if (suricata_ctl_flags & SURICATA_STOP ||
+                    suricata_ctl_flags & SURICATA_KILL) {
+                SCReturnInt(TM_ECODE_FAILED);
+            }
         }
-    }
-#endif
-
-    uint16_t cnt = 0;
-    for (cnt = 0; cnt < ptv->array_idx; cnt++) {
-        Packet *pp = ptv->array[cnt];
-
-        /* enqueue all but the first in the postpq, the first
-         * pkt is handled by the tv "out handler" */
-        if (cnt > 0) {
-            PacketEnqueue(postpq, pp);
-        }
-    }
-
-    if (suricata_ctl_flags != 0) {
-        SCReturnInt(TM_ECODE_FAILED);
+        SCPerfSyncCountersIfSignalled(tv, 0);
     }
 
     SCReturnInt(TM_ECODE_OK);

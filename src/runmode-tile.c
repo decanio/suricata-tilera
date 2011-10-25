@@ -139,11 +139,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
                  TmThreadCreatePacketHandler("ReceiveMpipe",
                                               "packetpool", "packetpool",
                                               "pickup-queue","simple", 
-#if 0
                                               "pktacqloop");
-#else
-                                              "1slot");
-#endif
             if (tv_receivempipe == NULL) {
                 printf("ERROR: TmThreadsCreate failed\n");
                 exit(EXIT_FAILURE);
@@ -382,7 +378,7 @@ int RunModeIdsTileNetioAuto(DetectEngineCtx *de_ctx) {
                  TmThreadCreatePacketHandler(thread_name,
                                              "packetpool", "packetpool",
                                              pickup_queue[pipe],"simple", 
-                                             "1slot");
+                                             "pktacqloop");
             if (tv_receivenetio == NULL) {
                 printf("ERROR: TmThreadsCreate failed\n");
                 exit(EXIT_FAILURE);

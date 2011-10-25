@@ -7,6 +7,18 @@
 #ifndef __SOURCE_MPIPE_H__
 #define __SOURCE_MPIPE_H__
 
+#ifdef __tilegx__
+#define MPIPE_FREE_PACKET(p) \
+    { \
+    if ((p)->flags & PKT_MPIPE) { \
+        MpipeFreePacket((p)); \
+        (p)->flags &= ~PKT_MPIPE; \
+    } \
+    }
+#else
+#define MPIPE_FREE_PACKET(p)
+#endif
+
 void TmModuleReceiveMpipeRegister (void);
 void TmModuleDecodeMpipeRegister (void);
 

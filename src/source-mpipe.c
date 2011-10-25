@@ -70,10 +70,6 @@
 extern uint8_t suricata_ctl_flags;
 extern int max_pending_packets;
 
-static int mpipe_max_read_packets = 0;
-
-#define MPIPE_MAX_PKTS	256
-
 /** storage for mpipe device names */
 typedef struct MpipeDevice_ {
     char *dev;  /**< the device (e.g. "xgbe1") */
@@ -99,15 +95,14 @@ typedef struct MpipeThreadVars_
     uint32_t errs;
 
     ThreadVars *tv;
+    TmSlot *slot;
 
     Packet *in_p;
 
-    /* TBD: is this really necessary? */
-    Packet *array[MPIPE_MAX_PKTS];
-    uint16_t array_idx;
 } MpipeThreadVars;
 
-TmEcode ReceiveMpipe(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
+//TmEcode ReceiveMpipe(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
+TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot);
 TmEcode ReceiveMpipeThreadInit(ThreadVars *, void *, void **);
 void ReceiveMpipeThreadExitStats(ThreadVars *, void *);
 
@@ -145,11 +140,13 @@ static int tilera_fast_gettimeofday(struct timeval *tv) {
 void TmModuleReceiveMpipeRegister (void) {
     tmm_modules[TMM_RECEIVEMPIPE].name = "ReceiveMpipe";
     tmm_modules[TMM_RECEIVEMPIPE].ThreadInit = ReceiveMpipeThreadInit;
-    tmm_modules[TMM_RECEIVEMPIPE].Func = ReceiveMpipe;
+    tmm_modules[TMM_RECEIVEMPIPE].Func = NULL; /* was ReceiveMpipe; */
+    tmm_modules[TMM_RECEIVEMPIPE].PktAcqLoop = ReceiveMpipeLoop;
     tmm_modules[TMM_RECEIVEMPIPE].ThreadExitPrintStats = ReceiveMpipeThreadExitStats;
     tmm_modules[TMM_RECEIVEMPIPE].ThreadDeinit = NULL;
     tmm_modules[TMM_RECEIVEMPIPE].RegisterTests = NULL;
     tmm_modules[TMM_RECEIVEMPIPE].cap_flags = SC_CAP_NET_RAW;
+    tmm_modules[TMM_RECEIVEMPIPE].flags = TM_FLAG_RECEIVE_TM;
 }
 
 /**
@@ -186,20 +183,22 @@ void MpipeFreePacket(Packet *p) {
 }
 
 /**
- * \brief Mpipe "callback" function.
+ * \brief Mpipe Packet Process function.
  *
- * This function fills in our packet structure from libpcap.
- * From here the packets are picked up by the  DecodePcap thread.
+ * This function fills in our packet structure from mpipe.
+ * From here the packets are picked up by the  DecodeMpipe thread.
  *
- * \param user pointer to PcapThreadVars passed from pcap_dispatch
- * \param h pointer to pcap packet header
- * \param pkt pointer to raw packet data
+ * \param user pointer to MpipeThreadVars passed from pcap_dispatch
+ * \param h pointer to gxio packet header
+ * \param pkt pointer to current packet
  */
-void MpipeCallback(u_char *user,   gxio_mpipe_idesc_t *idesc, Packet *p) {
+static inline void MpipeProcessPacket(u_char *user, gxio_mpipe_idesc_t *idesc, Packet *p) {
     int caplen = idesc->l2_size;
     u_char *pkt = (void *)(intptr_t)idesc->va;
-    SCLogDebug("user %p, q %p, pkt %p", user, queue, packet);
     MpipeThreadVars *ptv = (MpipeThreadVars *)user;
+
+    ptv->bytes += caplen;
+    ptv->pkts++;
 
     tilera_fast_gettimeofday(&p->ts);
     /*
@@ -207,86 +206,74 @@ void MpipeCallback(u_char *user,   gxio_mpipe_idesc_t *idesc, Packet *p) {
     p->ts.tv_usec = h->ts.tv_usec;
     */
 
-    ptv->pkts++;
-    ptv->bytes += caplen;
-
     p->datalink = ptv->datalink;
     p->flags |= PKT_MPIPE;
     SET_PKT_LEN(p, caplen);
     p->pkt = pkt;
+
 #ifdef MPIPE_DEBUG
     SCLogInfo("p->pktlen: %" PRIu32 " (pkt %02x, p->pkt %02x)", p->pktlen, *pkt, *p->pkt);
 #endif
-
-    /* store the packet in our array */
-    ptv->array[ptv->array_idx] = p;
-    ptv->array_idx++;
-
-    SCReturn;
 }
 
 /**
  * \brief Receives packets from an interface via gxio mpipe.
  */
-TmEcode ReceiveMpipe(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq) {
-    SCEnter();
+//TmEcode ReceiveMpipe(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq) {
+TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
     uint16_t packet_q_len = 0;
-
     MpipeThreadVars *ptv = (MpipeThreadVars *)data;
+    TmSlot *s = (TmSlot *)slot;
+    ptv->slot = s->slot_next;
+    Packet *p = NULL;
+    int result;
 
-    /* make sure we have at least one packet in the packet pool, to prevent
-     * us from alloc'ing packets at line rate */
-    while (packet_q_len == 0) {
-        packet_q_len = PacketPoolSize();
-        if (packet_q_len == 0) {
-            PacketPoolWait();
+    SCEnter();
+
+    for (;;) {
+        if (suricata_ctl_flags & SURICATA_STOP ||
+                suricata_ctl_flags & SURICATA_KILL) {
+            SCReturnInt(TM_ECODE_FAILED);
         }
-    }
 
-    if (postpq == NULL)
-        mpipe_max_read_packets = 1;
+        /* make sure we have at least one packet in the packet pool, to prevent
+         * us from alloc'ing packets at line rate */
+        do {
+            packet_q_len = PacketPoolSize();
+            if (packet_q_len == 0) {
+                PacketPoolWait();
+            }
+        } while (packet_q_len == 0);
 
-    ptv->array_idx = 0;
-    ptv->in_p = p;
+        p = PacketGetFromQueueOrAlloc();
+        if (p == NULL) {
+            SCReturnInt(TM_ECODE_FAILED);
+        }
 
 #ifdef MPIPE_DEBUG
-    SCLogInfo("ReceiveMpipe!!!");
+        SCLogInfo("ReceiveMpipe!!!");
 #endif
 
-    /* Right now we just support reading packets one at a time. */
-    int r = 0;
-    while (r == 0) {
-        int result = gxio_mpipe_iqueue_try_get(iqueue, &p->idesc);
-        if (result == 0) {
+        int r = 0;
+        while (r == 0) {
+            result = gxio_mpipe_iqueue_try_get(iqueue, &p->idesc);
+            if (result == 0) {
 #ifdef MPIPE_DEBUG
-            char buf[128];
-            sprintf(buf, "Got a packet size: %d", p->idesc.l2_size);
-            SCLogInfo(buf);
+                char buf[128];
+                sprintf(buf, "Got a packet size: %d", p->idesc.l2_size);
+                SCLogInfo(buf);
 #endif
-            if (!p->idesc.be) {
-                MpipeCallback((u_char *)ptv,  &p->idesc, p);
-                r = 1;
+                if (!p->idesc.be) {
+                    MpipeProcessPacket((u_char *)ptv,  &p->idesc, p);
+                    TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+                    r = 1;
+                }
+            } else if (suricata_ctl_flags & SURICATA_STOP ||
+                    suricata_ctl_flags & SURICATA_KILL) {
+                SCReturnInt(TM_ECODE_FAILED);
             }
         }
-        if (suricata_ctl_flags != 0) {
-            break;
-        }
-    }
-
-    uint16_t cnt = 0;
-    for (cnt = 0; cnt < ptv->array_idx; cnt++) {
-        Packet *pp = ptv->array[cnt];
-
-        /* enqueue all but the first in the postpq, the first
-         * pkt is handled by the tv "out handler" */
-        if (cnt > 0) {
-            SCLogInfo("PacketEnqueue packet p %p", pp);
-            PacketEnqueue(postpq, pp);
-        }
-    }
-
-    if (suricata_ctl_flags != 0) {
-        SCReturnInt(TM_ECODE_FAILED);
+        SCPerfSyncCountersIfSignalled(tv, 0);
     }
 
     SCReturnInt(TM_ECODE_OK);

@@ -50,11 +50,8 @@
 #include "util-error.h"
 #include "util-profiling.h"
 
-#ifdef __tilegx__
 #include "source-mpipe.h"
-#elif defined(__tile__)
 #include "source-netio.h"
-#endif
 
 static RingBuffer16 *ringbuffer = NULL;
 /**
@@ -223,20 +220,8 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
             SCFree(p->root->ext_pkt);
             p->root->ext_pkt = NULL;
         }
-#ifdef __tilegx___
-        if (p->root->flags & PKT_MPIPE) {
-            MpipeFreePacket(p->root);
-            p->root->flags &= ~PKT_MPIPE;
-        }
-#elif defined(__tile___)
-        if (p->root->flags & PKT_NETIO) {
-            netio_error_t err;
-            if ((err = netio_free_buffer(&t->netio_queue, &p->root->netio_packet)) != NETIO_NO_ERROR) {
-                SCLogInfo("netio_free_buffer errored %s", netio_strerror(err));
-            }
-            p->root->flags &= ~PKT_NETIO;
-        }
-#endif
+        MPIPE_FREE_PACKET(p->root);
+        NETIO_FREE_PACKET(p->root)
         if (p->root->flags & PKT_ALLOC) {
             PACKET_CLEANUP(p->root);
             SCFree(p->root);
@@ -256,20 +241,8 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
     PACKET_PROFILING_END(p);
 
     SCLogDebug("getting rid of tunnel pkt... alloc'd %s (root %p)", p->flags & PKT_ALLOC ? "true" : "false", p->root);
-#ifdef __tilegx__
-    if (p->flags & PKT_MPIPE) {
-        MpipeFreePacket(p);
-        p->flags &= ~PKT_MPIPE;
-    }
-#elif defined(__tile___)
-    if (p->flags & PKT_MPIPE) {
-        netio_error_t err;
-        if ((err = netio_free_buffer(&t->netio_queue, &p->netio_packet)) != NETIO_NO_ERROR) {
-            SCLogInfo("netio_free_buffer errored %s", netio_strerror(err));
-        }
-        p->flags &= ~PKT_MPIPE;
-    }
-#endif
+    MPIPE_FREE_PACKET(p);
+    NETIO_FREE_PACKET(p);
     if (p->flags & PKT_ALLOC) {
         PACKET_CLEANUP(p);
         SCFree(p);
