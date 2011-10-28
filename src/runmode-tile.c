@@ -222,14 +222,14 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             exit(EXIT_FAILURE);
         }
 
-        int thread_max = DETECT_THREADS_PER_NETIO_PIPELINE;
+        int thread_max = DETECT_THREADS_PER_MPIPE_PIPELINE;
 
         for (thread = 0; thread < thread_max; thread++) {
             snprintf(tname, sizeof(tname),"Detect%d-%"PRIu16, pipe+1, thread+1);
             if (tname == NULL)
                 break;
 
-            char *thread_name = SCStrdup(tname);
+            thread_name = SCStrdup(tname);
             SCLogDebug("Assigning %s affinity to cpu %u", thread_name, cpu);
 
             sprintf(verdict_queue[pipe], "verdict-queue%d", pipe);
@@ -273,6 +273,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
         sprintf(alert_queue[pipe], "alert-queue%d", pipe);
 
         snprintf(tname, sizeof(tname), "RespondReject%"PRIu16, pipe+1);
+        thread_name = SCStrdup(tname);
         ThreadVars *tv_rreject =
             TmThreadCreatePacketHandler(thread_name,
                                         verdict_queue[pipe],"simple", 

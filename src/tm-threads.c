@@ -132,6 +132,10 @@ void *TmThreadsSlot1NoIn(void *td)
 
     TmThreadsSetFlag(tv, THV_INIT_DONE);
 
+#ifdef __tilegx__
+    MpipeRegisterPipeStage(tv);
+#endif
+
     while (run) {
         TmThreadTestThreadUnPaused(tv);
 
@@ -226,6 +230,9 @@ void *TmThreadsSlot1NoOut(void *td)
 
     TmThreadsSetFlag(tv, THV_INIT_DONE);
 
+#ifdef __tilegx__
+    MpipeRegisterPipeStage(tv);
+#endif
     while (run) {
         TmThreadTestThreadUnPaused(tv);
 
@@ -299,6 +306,9 @@ void *TmThreadsSlot1NoInOut(void *td)
 
     TmThreadsSetFlag(tv, THV_INIT_DONE);
 
+#ifdef __tilegx__
+    MpipeRegisterPipeStage(tv);
+#endif
     while (run) {
         TmThreadTestThreadUnPaused(tv);
 
@@ -368,6 +378,9 @@ void *TmThreadsSlot1(void *td)
     SCMutexInit(&s->slot_post_pq.mutex_q, NULL);
 
     TmThreadsSetFlag(tv, THV_INIT_DONE);
+#ifdef __tilegx__
+    MpipeRegisterPipeStage(tv);
+#endif
     while (run) {
         TmThreadTestThreadUnPaused(tv);
 
@@ -643,6 +656,16 @@ void *TmThreadsSlotVar(void *td)
     TmThreadsSetFlag(tv, THV_INIT_DONE);
 
     s = (TmSlot *)tv->tm_slots;
+
+#ifdef __tile__
+#ifdef __tilegx__
+    MpipeRegisterPipeStage(tv);
+#else
+    if (strstr(tv->name, "Outputs") != NULL) {
+        NetioRegisterOutputs(tv);
+    }
+#endif
+#endif
 
     while (run) {
         TmThreadTestThreadUnPaused(tv);

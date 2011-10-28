@@ -170,6 +170,14 @@ void TmModuleDecodeMpipeRegister (void) {
     tmm_modules[TMM_DECODEMPIPE].cap_flags = 0;
 }
 
+static __attribute__((always_inline)) void
+cycle_pause(unsigned int delay)
+{
+  const unsigned int start = get_cycle_count_low();
+  while (get_cycle_count_low() - start < delay)
+    ;
+}
+
 void MpipeFreePacket(Packet *p) {
 #ifdef MPIPE_DEBUG
     SCLogInfo("MpipeFreePacket %p", p);
@@ -287,6 +295,14 @@ printf("ReceiveMpipeLoop(cpu: %d rank: %d)\n", cpu, rank);
         }
         SCPerfSyncCountersIfSignalled(tv, 0);
     }
+
+    SCReturnInt(TM_ECODE_OK);
+}
+
+TmEcode MpipeRegisterPipeStage(void *td) {
+    SCEnter()
+
+    //pthread_barrier_wait(&barrier);
 
     SCReturnInt(TM_ECODE_OK);
 }
@@ -430,13 +446,20 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         // Register for packets.
         gxio_mpipe_rules_t rules;
         gxio_mpipe_rules_init(&rules, context);
-        gxio_mpipe_rules_begin(&rules, bucket, 1, NULL);
+        gxio_mpipe_rules_begin(&rules, bucket, num_buckets, NULL);
         result = gxio_mpipe_rules_commit(&rules);
         VERIFY(result, "gxio_mpipe_rules_commit()");
     }
+    /*
+     * There is some initialization race condition that I haven't found
+     * yet.  This delay seems to prevent taking packets in until everything
+     * else has initialized avoiding a crash.
+     */
+    cycle_pause(2000*1000*1000); /* delay 2 secs */
+
     pthread_barrier_wait(&barrier);
 
-    SCLogInfo("ReceiveMpipe initialization complete!!!");
+    SCLogInfo("ReceiveMpipe-%d initialization complete!!!", rank);
     *data = (void *)ptv;
     SCReturnInt(TM_ECODE_OK);
 }
@@ -444,7 +467,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 TmEcode ReceiveMpipeInit(void) {
     SCEnter();
 
-    pthread_barrier_init(&barrier, NULL, MpipeNumPipes);
+    pthread_barrier_init(&barrier, NULL, MpipeNumPipes/* * TILES_PER_MPIPE_PIPELINE*/);
 
     SCReturnInt(TM_ECODE_OK);
 }
