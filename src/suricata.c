@@ -208,6 +208,11 @@ intmax_t max_pending_packets;
 /** set caps or not */
 int sc_set_caps;
 
+#ifdef __tile__
+/** Tilera used a separate mspace to utilize huge pages and hash for home. */
+tmc_mspace global_mspace;
+#endif
+
 int RunmodeIsUnittests(void) {
     if (run_mode == RUNMODE_UNITTEST)
         return 1;
@@ -609,6 +614,8 @@ int main(int argc, char **argv)
     sc_set_caps = FALSE;
 
     SC_ATOMIC_INIT(engine_stage);
+
+    SCMallocInit();
 
     /* initialize the logging subsys */
     SCLogInitLogModule(NULL);

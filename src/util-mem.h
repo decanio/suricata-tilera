@@ -31,6 +31,11 @@
 #define __UTIL_MEM_H__
 
 #include "util-atomic.h"
+#ifdef __tile__
+#include <pcre.h>
+#include <tmc/alloc.h>
+#include <tmc/mspace.h>
+#endif
 SC_ATOMIC_EXTERN(unsigned int, engine_stage);
 
 /* Use this only if you want to debug memory allocation and free()
@@ -146,6 +151,10 @@ SC_ATOMIC_EXTERN(unsigned int, engine_stage);
 
 #else /* !DBG_MEM_ALLOC */
 
+#ifndef __tile__
+
+#define SCMallocInit()
+
 #define SCMalloc(a) ({ \
     void *ptrmem = NULL; \
     \
@@ -239,6 +248,123 @@ SC_ATOMIC_EXTERN(unsigned int, engine_stage);
     free((a)); \
 })
 
+#else /* __tile__ */
+
+/*
+ * Tilera specific code to utilize a separate mspace for menaging memory
+ * using huge pages and hash-for-home caching
+ */
+extern tmc_mspace global_mspace;
+
+#define SCMallocInit() ({\
+    extern void *tile_pcre_malloc(size_t size); \
+    extern void tile_pcre_free(void *ptr); \
+    tmc_alloc_t attr = TMC_ALLOC_INIT; \
+    tmc_alloc_set_huge(&attr); \
+    tmc_alloc_set_home(&attr, TMC_ALLOC_HOME_HASH); \
+    global_mspace = tmc_mspace_create_special(1024*1024*1024, \
+                                              TMC_MSPACE_LOCKED, &attr); \
+    /* override the pcre memory allocator to use tmc functions */ \
+    pcre_malloc = tile_pcre_malloc; \
+    pcre_free = tile_pcre_free; \
+})
+
+#define SCMalloc(a) ({ \
+    void *ptrmem = NULL; \
+    \
+    ptrmem = tmc_mspace_malloc(global_mspace, (a)); \
+    if (ptrmem == NULL) { \
+        if (SC_ATOMIC_GET(engine_stage) == SURICATA_INIT) {\
+            SCLogError(SC_ERR_MEM_ALLOC, "SCMalloc failed: %s, while trying " \
+                "to allocate %"PRIuMAX" bytes", strerror(errno), (uintmax_t)(a)); \
+            SCLogError(SC_ERR_FATAL, "Out of memory. The engine cannot be initialized. Exiting..."); \
+            exit(EXIT_FAILURE); \
+        } \
+    } \
+    (void*)ptrmem; \
+})
+
+#define SCRealloc(x, a) ({ \
+    void *ptrmem = NULL; \
+    \
+    ptrmem = tmc_mspace_realloc(global_mspace, (x), (a)); \
+    if (ptrmem == NULL) { \
+        if (SC_ATOMIC_GET(engine_stage) == SURICATA_INIT) {\
+            SCLogError(SC_ERR_MEM_ALLOC, "SCRealloc failed: %s, while trying " \
+                "to allocate %"PRIuMAX" bytes", strerror(errno), (uintmax_t)(a)); \
+            SCLogError(SC_ERR_FATAL, "Out of memory. The engine cannot be initialized. Exiting..."); \
+            exit(EXIT_FAILURE); \
+        } \
+    } \
+    (void*)ptrmem; \
+})
+
+#define SCCalloc(nm, a) ({ \
+    void *ptrmem = NULL; \
+    \
+    ptrmem = tmc_mspace_calloc(global_mspace, (nm), (a)); \
+    if (ptrmem == NULL) { \
+        if (SC_ATOMIC_GET(engine_stage) == SURICATA_INIT) {\
+            SCLogError(SC_ERR_MEM_ALLOC, "SCCalloc failed: %s, while trying " \
+                "to allocate %"PRIuMAX" bytes", strerror(errno), (uintmax_t)(a)); \
+            SCLogError(SC_ERR_FATAL, "Out of memory. The engine cannot be initialized. Exiting..."); \
+            exit(EXIT_FAILURE); \
+        } \
+    } \
+    (void*)ptrmem; \
+})
+
+#define SCStrdup(a) ({ \
+    char *ptrmem = NULL; \
+    \
+    /* ptrmem = strdup((a)); */ \
+    ptrmem = SCMalloc(strlen((a))+1); \
+    if (ptrmem == NULL) { \
+        if (SC_ATOMIC_GET(engine_stage) == SURICATA_INIT) {\
+            size_t len = strlen((a)); \
+            SCLogError(SC_ERR_MEM_ALLOC, "SCStrdup failed: %s, while trying " \
+                "to allocate %"PRIuMAX" bytes", strerror(errno), (uintmax_t)len); \
+            SCLogError(SC_ERR_FATAL, "Out of memory. The engine cannot be initialized. Exiting..."); \
+            exit(EXIT_FAILURE); \
+        } \
+    } \
+    strcpy(ptrmem, (a)); \
+    (void*)ptrmem; \
+})
+
+/** \brief wrapper for allocing aligned mem
+ *  \param a size
+ *  \param b alignement
+ */
+#define SCMallocAligned(a, b) ({ \
+    void *ptrmem = NULL; \
+    \
+    if (ptrmem = tmc_mspace_memalign(global_mspace, (b), (a)) != 0) { \
+        if (SC_ATOMIC_GET(engine_stage) == SURICATA_INIT) {\
+            SCLogError(SC_ERR_MEM_ALLOC, "SCMallocAligned(posix_memalign) failed: %s, while trying " \
+                "to allocate %"PRIuMAX" bytes, alignment %"PRIuMAX, strerror(errno), (uintmax_t)(a), (uintmax_t)(b)); \
+            SCLogError(SC_ERR_FATAL, "Out of memory. The engine cannot be initialized. Exiting..."); \
+            exit(EXIT_FAILURE); \
+        } \
+    } \
+    (void*)ptrmem; \
+})
+
+#define SCFree(a) ({ \
+    tmc_mspace_free((a)); \
+})
+
+/** \brief Free aligned memory
+ *
+ * Not needed for mem alloc'd by posix_memalign,
+ * but for possible future use of _mm_malloc needing
+ * _mm_free.
+ */
+#define SCFreeAligned(a) ({ \
+    tmc_mspace_free((a)); \
+})
+
+#endif /* __tile__ */
 
 #endif /* DBG_MEM_ALLOC */
 

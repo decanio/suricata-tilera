@@ -25,9 +25,12 @@
 
 #include "suricata-common.h"
 
-#define DETECT_THREADS_PER_PIPELINE 8
-#define TILES_PER_PIPELINE (4 + DETECT_THREADS_PER_PIPELINE)
-#define NUM_TILERA_PIPELINES 1
+#define DETECT_THREADS_PER_NETIO_PIPELINE 4
+#define DETECT_THREADS_PER_MPIPE_PIPELINE 8
+#define TILES_PER_NETIO_PIPELINE (4 + DETECT_THREADS_PER_NETIO_PIPELINE)
+#define TILES_PER_MPIPE_PIPELINE (4 + DETECT_THREADS_PER_MPIPE_PIPELINE)
+#define NUM_TILERA_NETIO_PIPELINES 7
+#define NUM_TILERA_MPIPE_PIPELINES 1
 
 int RunModeIdsTileNetioAuto(DetectEngineCtx *);
 int RunModeIdsTileNetioAutoFp(DetectEngineCtx *de_ctx);
@@ -38,5 +41,8 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *);
 int RunModeIdsTileMpipeAutoFp(DetectEngineCtx *de_ctx);
 void RunModeIdsTileMpipeRegister(void);
 const char *RunModeIdsTileMpipeGetDefaultMode(void);
+
+extern void *tile_pcre_malloc(size_t size);
+extern void tile_pcre_free(void *ptr);
 
 #endif /* __RUNMODE_TILE_H__ */

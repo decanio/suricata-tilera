@@ -61,8 +61,18 @@
  * runmode support for tilegx
  */
 
+void *tile_pcre_malloc(size_t size)
+{
+    return SCMalloc(size);
+}
+
+void tile_pcre_free(void *ptr)
+{
+    SCFree(ptr);
+}
+
 static const char *mpipe_default_mode = NULL;
-unsigned int MpipeNumPipes = NUM_TILERA_PIPELINES;
+unsigned int MpipeNumPipes = NUM_TILERA_MPIPE_PIPELINES;
 
 const char *RunModeIdsTileMpipeGetDefaultMode(void)
 {
@@ -78,6 +88,13 @@ void RunModeIdsTileMpipeRegister(void)
 
     return;
 }
+
+#define MAX_MPIPE_PIPES 12
+
+static char pickup_queue[MAX_MPIPE_PIPES][32];
+static char stream_queue[MAX_MPIPE_PIPES][32];
+static char verdict_queue[MAX_MPIPE_PIPES][32];
+static char alert_queue[MAX_MPIPE_PIPES][32];
 
 /**
  * \brief RunModeIdsTileMpipeAuto set up the following thread packet handlers:
@@ -100,12 +117,14 @@ void RunModeIdsTileMpipeRegister(void)
  */
 int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
     SCEnter();
-    char tname[16];
+    char tname[32];
+    char *thread_name;
     uint16_t cpu = 0;
     TmModule *tm_module;
     uint16_t thread;
     uint32_t tile = 1;
     int pipe;
+    extern TmEcode ReceiveMpipeInit(void); // move this
 
     SCLogInfo("RunModeIdsTileMpipeAuto\n");
     RunModeInitialize();
@@ -118,6 +137,8 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
     int nmpipe = MpipeLiveGetDeviceCount();
 
     int pipe_max = MpipeNumPipes;
+
+    ReceiveMpipeInit();
 
     for (pipe = 0; pipe < pipe_max; pipe++) {
 
@@ -134,12 +155,17 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
 
             char *mpipe_devc = SCStrdup(mpipe_dev);
 
+            sprintf(pickup_queue[pipe], "pickup-queue%d", pipe);
+
+            snprintf(tname, sizeof(tname), "ReceiveMpipe%d", pipe+1);
+            thread_name = SCStrdup(tname);
+
             /* create the threads */
             ThreadVars *tv_receivempipe =
-                 TmThreadCreatePacketHandler("ReceiveMpipe",
-                                              "packetpool", "packetpool",
-                                              "pickup-queue","simple", 
-                                              "pktacqloop");
+                 TmThreadCreatePacketHandler(thread_name,
+                                             "packetpool", "packetpool",
+                                             pickup_queue[pipe],"simple", 
+                                             "pktacqloop");
             if (tv_receivempipe == NULL) {
                 printf("ERROR: TmThreadsCreate failed\n");
                 exit(EXIT_FAILURE);
@@ -161,10 +187,15 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
         } else {
         }
 
+        sprintf(stream_queue[pipe], "stream-queue%d", pipe);
+
+        snprintf(tname, sizeof(tname), "Decode & Stream%d", pipe+1);
+        thread_name = SCStrdup(tname);
+
         ThreadVars *tv_decode1 =
-	        TmThreadCreatePacketHandler("Decode & Stream",
-		                    		    "pickup-queue","simple",
-                                        "stream-queue1","simple",
+	        TmThreadCreatePacketHandler(thread_name,
+		                    		    pickup_queue[pipe],"simple",
+                                        stream_queue[pipe],"simple",
                                         "varslot");
         if (tv_decode1 == NULL) {
             printf("ERROR: TmThreadCreate failed for Decode1\n");
@@ -191,20 +222,22 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             exit(EXIT_FAILURE);
         }
 
-        int thread_max = DETECT_THREADS_PER_PIPELINE;
+        int thread_max = DETECT_THREADS_PER_NETIO_PIPELINE;
 
         for (thread = 0; thread < thread_max; thread++) {
-            snprintf(tname, sizeof(tname),"Detect%"PRIu16, thread+1);
+            snprintf(tname, sizeof(tname),"Detect%d-%"PRIu16, pipe+1, thread+1);
             if (tname == NULL)
                 break;
 
             char *thread_name = SCStrdup(tname);
             SCLogDebug("Assigning %s affinity to cpu %u", thread_name, cpu);
 
+            sprintf(verdict_queue[pipe], "verdict-queue%d", pipe);
+
             ThreadVars *tv_detect_ncpu =
                 TmThreadCreatePacketHandler(thread_name,
-                                            "stream-queue1","simple", 
-                                            "verdict-queue","simple",
+                                            stream_queue[pipe],"simple", 
+                                            verdict_queue[pipe],"simple",
                                             "1slot");
             if (tv_detect_ncpu == NULL) {
                 printf("ERROR: TmThreadsCreate failed\n");
@@ -237,11 +270,14 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
                 cpu++;
         }
 
+        sprintf(alert_queue[pipe], "alert-queue%d", pipe);
+
+        snprintf(tname, sizeof(tname), "RespondReject%"PRIu16, pipe+1);
         ThreadVars *tv_rreject =
-            TmThreadCreatePacketHandler("RespondReject",
-                                        "verdict-queue","simple", 
-                                         "alert-queue","simple",
-                                         "1slot");
+            TmThreadCreatePacketHandler(thread_name,
+                                        verdict_queue[pipe],"simple", 
+                                        alert_queue[pipe],"simple",
+                                        "1slot");
         if (tv_rreject == NULL) {
             printf("ERROR: TmThreadsCreate failed\n");
             exit(EXIT_FAILURE);
@@ -260,9 +296,12 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             exit(EXIT_FAILURE);
         }
 
+        snprintf(tname, sizeof(tname), "Outputs%"PRIu16, pipe+1);
+        thread_name = SCStrdup(tname);
+
         ThreadVars *tv_outputs =
-            TmThreadCreatePacketHandler("Outputs",
-                                        "alert-queue", "simple", 
+            TmThreadCreatePacketHandler(thread_name,
+                                        alert_queue[pipe], "simple", 
                                         "packetpool", "packetpool", 
                                         "varslot");
         SetupOutputs(tv_outputs);
@@ -285,7 +324,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
  * runmode support for tile64 and tilepro
  */
 static const char *netio_default_mode = NULL;
-unsigned int NetioNumPipes = NUM_TILERA_PIPELINES;
+unsigned int NetioNumPipes = NUM_TILERA_NETIO_PIPELINES;
 
 const char *RunModeIdsTileNetioGetDefaultMode(void)
 {
@@ -356,7 +395,7 @@ int RunModeIdsTileNetioAuto(DetectEngineCtx *de_ctx) {
     for (pipe = 0; pipe < pipe_max; pipe++) {
 
         if (nnetio == 1) {
-	    char *netio_dev = NULL;
+	        char *netio_dev = NULL;
 
             if (ConfGet("netio.single_netio_dev", &netio_dev) == 0) {
 	        SCLogError(SC_ERR_RUNMODE, "Failed retrieving "

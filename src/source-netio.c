@@ -335,7 +335,7 @@ TmEcode ReceiveNetioThreadInit(ThreadVars *tv, void *initdata, void **data) {
     SCLogInfo("using interface %s", (char *)initdata);
 
     int cpu = tmc_cpus_get_my_cpu();
-    int rank = (cpu-1)/TILES_PER_PIPELINE;
+    int rank = (cpu-1)/TILES_PER_NETIO_PIPELINE;
     SCLogInfo("cpu %d rank %d interface %s\n", cpu, rank, (char *)initdata);
 
     /*

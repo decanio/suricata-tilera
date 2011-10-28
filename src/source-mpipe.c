@@ -31,6 +31,7 @@
 #include "threadvars.h"
 #include "tm-queuehandlers.h"
 #include "tm-threads.h"
+#include "runmode-tile.h"
 #include "source-mpipe.h"
 #include "conf.h"
 #include "util-debug.h"
@@ -68,6 +69,7 @@
   } while (0)
 
 extern uint8_t suricata_ctl_flags;
+extern unsigned int MpipeNumPipes;
 extern int max_pending_packets;
 
 /** storage for mpipe device names */
@@ -80,6 +82,7 @@ typedef struct MpipeDevice_ {
 static TAILQ_HEAD(, MpipeDevice_) mpipe_devices =
     TAILQ_HEAD_INITIALIZER(mpipe_devices);
 
+static pthread_barrier_t barrier;
 
 /**
  * \brief Structure to hold thread specifc variables.
@@ -101,7 +104,6 @@ typedef struct MpipeThreadVars_
 
 } MpipeThreadVars;
 
-//TmEcode ReceiveMpipe(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
 TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot);
 TmEcode ReceiveMpipeThreadInit(ThreadVars *, void *, void **);
 void ReceiveMpipeThreadExitStats(ThreadVars *, void *);
@@ -109,13 +111,18 @@ void ReceiveMpipeThreadExitStats(ThreadVars *, void *);
 TmEcode DecodeMpipeThreadInit(ThreadVars *, void *, void **);
 TmEcode DecodeMpipe(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
 
-//========================================
-// mpipe configuration.
+/*
+ * mpipe configuration.
+ */
 
+/* The mpipe context (shared by all workers) */
 static gxio_mpipe_context_t context_body;
 static gxio_mpipe_context_t* context = &context_body;
-static gxio_mpipe_iqueue_t iqueue_body;
-static gxio_mpipe_iqueue_t* iqueue = &iqueue_body;
+
+/* The ingress queues (one per worker) */
+//static gxio_mpipe_iqueue_t iqueue_body;
+//static gxio_mpipe_iqueue_t* iqueue = &iqueue_body;
+static gxio_mpipe_iqueue_t** iqueues;
 
 static unsigned long long tilera_gtod_fast_boot = 0;
 static const unsigned long tilera_gtod_fast_mhz = /* tmc_perf_get_cpu_speed() */ 866000000 / 1000000;
@@ -219,16 +226,21 @@ static inline void MpipeProcessPacket(u_char *user, gxio_mpipe_idesc_t *idesc, P
 /**
  * \brief Receives packets from an interface via gxio mpipe.
  */
-//TmEcode ReceiveMpipe(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq) {
 TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
     uint16_t packet_q_len = 0;
     MpipeThreadVars *ptv = (MpipeThreadVars *)data;
     TmSlot *s = (TmSlot *)slot;
     ptv->slot = s->slot_next;
     Packet *p = NULL;
+    int cpu = tmc_cpus_get_my_cpu();
+    int rank = (cpu-1)/TILES_PER_MPIPE_PIPELINE;
     int result;
 
+printf("ReceiveMpipeLoop(cpu: %d rank: %d)\n", cpu, rank);
+
     SCEnter();
+
+    gxio_mpipe_iqueue_t* iqueue = iqueues[rank];
 
     for (;;) {
         if (suricata_ctl_flags & SURICATA_STOP ||
@@ -281,9 +293,13 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
 
 TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     SCEnter()
+    int cpu = tmc_cpus_get_my_cpu();
+    int rank = (cpu-1)/TILES_PER_MPIPE_PIPELINE;
 #ifdef MPIPE_DEBUG
     SCLogInfo("ReceiveMpipeThreadInit\n");
 #endif
+    unsigned int num_buffers = 2048;
+    unsigned int num_workers = NUM_TILERA_MPIPE_PIPELINES;
 
     if (initdata == NULL) {
         SCLogError(SC_ERR_INVALID_ARGUMENT, "initdata == NULL");
@@ -303,110 +319,133 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     int result;
     char *link_name = (char *)initdata;
   
-    // Bind to a single cpu.
+    /* Bind to a single cpu. */
     cpu_set_t cpus;
     result = tmc_cpus_get_my_affinity(&cpus);
     VERIFY(result, "tmc_cpus_get_my_affinity()");
     result = tmc_cpus_set_my_cpu(tmc_cpus_find_first_cpu(&cpus));
     VERIFY(result, "tmc_cpus_set_my_cpu()");
 
+    if (rank == 0) {
+        /* Start the driver. */
+        result = gxio_mpipe_init(context, gxio_mpipe_link_instance(link_name));
+        VERIFY(result, "gxio_mpipe_init()");
 
-    // Start the driver.
-    result = gxio_mpipe_init(context, gxio_mpipe_link_instance(link_name));
-    VERIFY(result, "gxio_mpipe_init()");
+        gxio_mpipe_link_t link;
+        result = gxio_mpipe_link_open(&link, context, link_name, 0);
+        VERIFY(result, "gxio_mpipe_link_open()");
 
-    gxio_mpipe_link_t link;
-    result = gxio_mpipe_link_open(&link, context, link_name, 0);
-    VERIFY(result, "gxio_mpipe_link_open()");
+        /* Allocate some iqueues. */
+        iqueues = calloc(num_workers, sizeof(*iqueues));
+        if (iqueues == NULL)
+             tmc_task_die("Failure in 'calloc()'.");
 
-    // Allocate one huge page to hold our buffer stack, notif ring, and
-    // packets.  This should be more than enough space.
-    size_t page_size = (1 << 24);
-    tmc_alloc_t alloc = TMC_ALLOC_INIT;
-    tmc_alloc_set_huge(&alloc);
-    void* page = tmc_alloc_map(&alloc, page_size);
-    assert(page);
+        /* Allocate some NotifRings. */
+        result = gxio_mpipe_alloc_notif_rings(context,
+                                              num_workers,
+                                              0, 0);
+        VERIFY(result, "gxio_mpipe_alloc_notif_rings()");
+        int ring = result;
+
+        /* Init the NotifRings. */
+        size_t notif_ring_entries = 128;
+        size_t notif_ring_size = notif_ring_entries * sizeof(gxio_mpipe_idesc_t);
+        for (unsigned int i = 0; i < num_workers; i++) {
+            tmc_alloc_t alloc = TMC_ALLOC_INIT;
+            tmc_alloc_set_home(&alloc, (i * TILES_PER_MPIPE_PIPELINE ) + 1);
+            if (notif_ring_size > (size_t)getpagesize())
+                tmc_alloc_set_huge(&alloc);
+            unsigned int needed = notif_ring_size + sizeof(gxio_mpipe_iqueue_t);
+            void *iqueue_mem = tmc_alloc_map(&alloc, needed);
+            if (iqueue_mem == NULL)
+                tmc_task_die("Failure in 'tmc_alloc_map()'.");
+            gxio_mpipe_iqueue_t *iqueue = iqueue_mem + notif_ring_size;
+            result = gxio_mpipe_iqueue_init(iqueue, context, ring + i,
+                                            iqueue_mem, notif_ring_size, 0);
+            VERIFY(result, "gxio_mpipe_iqueue_init()");
+            iqueues[i] = iqueue;
+        }
+
+        /* Allocate one huge page to hold our buffer stack, notif ring, and
+         * packets.  This should be more than enough space. */
+        size_t page_size = (1 << 24);
+        tmc_alloc_t alloc = TMC_ALLOC_INIT;
+        tmc_alloc_set_huge(&alloc);
+        void* page = tmc_alloc_map(&alloc, page_size);
+
+        assert(page);
+
+        void* mem = page;
+
+        // Allocate a NotifGroup.
+        result = gxio_mpipe_alloc_notif_groups(context, 1, 0, 0);
+        VERIFY(result, "gxio_mpipe_alloc_notif_groups()");
+        int group = result;
+
+        // Allocate a bucket.
+        int num_buckets = 1024;
+        result = gxio_mpipe_alloc_buckets(context, num_buckets, 0, 0);
+        VERIFY(result, "gxio_mpipe_alloc_buckets()");
+        int bucket = result;
+
+        // Init group and buckets, preserving packet order among flows.
+        gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_DYNAMIC_FLOW_AFFINITY;
+        result = gxio_mpipe_init_notif_group_and_buckets(context, group,
+                                                   ring, num_workers,
+                                                   bucket, num_buckets, mode);
+        VERIFY(result, "gxio_mpipe_init_notif_group_and_buckets()");
 
 
-    void* mem = page;
+        // Allocate a buffer stack.
+        result = gxio_mpipe_alloc_buffer_stacks(context, 1, 0, 0);
+        VERIFY(result, "gxio_mpipe_alloc_buffer_stacks()");
+        int stack = result;
+
+        // Initialize the buffer stack.
+        ALIGN(mem, 0x10000);
+        size_t stack_bytes = gxio_mpipe_calc_buffer_stack_bytes(num_buffers);
+        gxio_mpipe_buffer_size_enum_t buf_size = GXIO_MPIPE_BUFFER_SIZE_1664;
+        result = gxio_mpipe_init_buffer_stack(context, stack, buf_size,
+                                              mem, stack_bytes, 0);
+        VERIFY(result, "gxio_mpipe_init_buffer_stack()");
+        mem += stack_bytes;
+
+        ALIGN(mem, 0x10000);
+
+        // Register the entire huge page of memory which contains all the buffers.
+        result = gxio_mpipe_register_page(context, stack, page, page_size, 0);
+        VERIFY(result, "gxio_mpipe_register_page()");
+
+        // Push some buffers onto the stack.
+        for (unsigned int i = 0; i < num_buffers; i++)
+        {
+            gxio_mpipe_push_buffer(context, stack, mem);
+            mem += 1664;
+        }
+
+        // Paranoia.
+        assert(mem <= page + page_size);
 
 
-    // Allocate a NotifRing.
-    result = gxio_mpipe_alloc_notif_rings(context, 1, 0, 0);
-    VERIFY(result, "gxio_mpipe_alloc_notif_rings()");
-    int ring = result;
-
-    // Init the NotifRing.
-    size_t notif_ring_entries = 128;
-    size_t notif_ring_size = notif_ring_entries * sizeof(gxio_mpipe_idesc_t);
-    result = gxio_mpipe_iqueue_init(iqueue, context, ring,
-                                    mem, notif_ring_size, 0);
-    VERIFY(result, "gxio_mpipe_iqueue_init()");
-    mem += notif_ring_size;
-
-
-    // Allocate a NotifGroup.
-    result = gxio_mpipe_alloc_notif_groups(context, 1, 0, 0);
-    VERIFY(result, "gxio_mpipe_alloc_notif_groups()");
-    int group = result;
-
-    // Allocate a bucket.
-    result = gxio_mpipe_alloc_buckets(context, 1, 0, 0);
-    VERIFY(result, "gxio_mpipe_alloc_buckets()");
-    int bucket = result;
-
-    // Init group and bucket.
-    gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_ROUND_ROBIN;
-    result = gxio_mpipe_init_notif_group_and_buckets(context, group,
-                                                   ring, 1,
-                                                   bucket, 1, mode);
-    VERIFY(result, "gxio_mpipe_init_notif_group_and_buckets()");
-
-
-    // Allocate a buffer stack.
-    result = gxio_mpipe_alloc_buffer_stacks(context, 1, 0, 0);
-    VERIFY(result, "gxio_mpipe_alloc_buffer_stacks()");
-    int stack = result;
-
-    // Total number of buffers.
-    int num_buffers = 256;
-
-    // Initialize the buffer stack.
-    ALIGN(mem, 0x10000);
-    size_t stack_bytes = gxio_mpipe_calc_buffer_stack_bytes(num_buffers);
-    gxio_mpipe_buffer_size_enum_t buf_size = GXIO_MPIPE_BUFFER_SIZE_1664;
-    result = gxio_mpipe_init_buffer_stack(context, stack, buf_size,
-                                          mem, stack_bytes, 0);
-    VERIFY(result, "gxio_mpipe_init_buffer_stack()");
-    mem += stack_bytes;
-
-    ALIGN(mem, 0x10000);
-
-    // Register the entire huge page of memory which contains all the buffers.
-    result = gxio_mpipe_register_page(context, stack, page, page_size, 0);
-    VERIFY(result, "gxio_mpipe_register_page()");
-
-    // Push some buffers onto the stack.
-    for (int i = 0; i < num_buffers; i++)
-    {
-        gxio_mpipe_push_buffer(context, stack, mem);
-        mem += 1664;
+        // Register for packets.
+        gxio_mpipe_rules_t rules;
+        gxio_mpipe_rules_init(&rules, context);
+        gxio_mpipe_rules_begin(&rules, bucket, 1, NULL);
+        result = gxio_mpipe_rules_commit(&rules);
+        VERIFY(result, "gxio_mpipe_rules_commit()");
     }
-
-    // Paranoia.
-    assert(mem <= page + page_size);
-
-
-    // Register for packets.
-    gxio_mpipe_rules_t rules;
-    gxio_mpipe_rules_init(&rules, context);
-    gxio_mpipe_rules_begin(&rules, bucket, 1, NULL);
-    result = gxio_mpipe_rules_commit(&rules);
-    VERIFY(result, "gxio_mpipe_rules_commit()");
-
+    pthread_barrier_wait(&barrier);
 
     SCLogInfo("ReceiveMpipe initialization complete!!!");
     *data = (void *)ptv;
+    SCReturnInt(TM_ECODE_OK);
+}
+
+TmEcode ReceiveMpipeInit(void) {
+    SCEnter();
+
+    pthread_barrier_init(&barrier, NULL, MpipeNumPipes);
+
     SCReturnInt(TM_ECODE_OK);
 }
 
