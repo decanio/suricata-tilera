@@ -114,7 +114,11 @@ void PcapFileCallbackLoop(char *user, struct pcap_pkthdr *h, u_char *pkt) {
     SCEnter();
 
     PcapFileThreadVars *ptv = (PcapFileThreadVars *)user;
+#ifdef __tile__
+    Packet *p = PacketGetFromQueueOrAlloc(0);
+#else
     Packet *p = PacketGetFromQueueOrAlloc();
+#endif
 
     if (unlikely(p == NULL)) {
         SCReturn;
@@ -161,10 +165,17 @@ TmEcode ReceivePcapFileLoop(ThreadVars *tv, void *data, void *slot) {
         /* make sure we have at least one packet in the packet pool, to prevent
          * us from alloc'ing packets at line rate */
         do {
+#ifdef __tile__
+            packet_q_len = PacketPoolSize(0);
+            if (unlikely(packet_q_len == 0)) {
+                PacketPoolWait(0);
+            }
+#else
             packet_q_len = PacketPoolSize();
             if (unlikely(packet_q_len == 0)) {
                 PacketPoolWait();
             }
+#endif
         } while (packet_q_len == 0);
 
         /* Right now we just support reading packets one at a time. */

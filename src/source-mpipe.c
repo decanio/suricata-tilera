@@ -259,13 +259,13 @@ printf("ReceiveMpipeLoop(cpu: %d rank: %d)\n", cpu, rank);
         /* make sure we have at least one packet in the packet pool, to prevent
          * us from alloc'ing packets at line rate */
         do {
-            packet_q_len = PacketPoolSize();
+            packet_q_len = PacketPoolSize(rank);
             if (packet_q_len == 0) {
-                PacketPoolWait();
+                PacketPoolWait(rank);
             }
         } while (packet_q_len == 0);
 
-        p = PacketGetFromQueueOrAlloc();
+        p = PacketGetFromQueueOrAlloc(rank);
         if (p == NULL) {
             SCReturnInt(TM_ECODE_FAILED);
         }

@@ -39,6 +39,18 @@
 #include "util-atomic.h"
 #include "util-unittest.h"
 
+#ifdef __tile__
+#include <arch/cycle.h>
+
+static inline void
+cycle_pause(unsigned int delay)
+{
+  const unsigned int start = get_cycle_count_low();
+  while (get_cycle_count_low() - start < delay)
+    ;
+}
+#endif
+
 #define USLEEP_TIME 5
 
 /** \brief wait function for condition where ringbuffer is either
@@ -55,7 +67,11 @@ static inline void RingBuffer8DoWait(RingBuffer8 *rb) {
     SCCondWait(&rb->wait_cond, &rb->wait_mutex);
     SCMutexUnlock(&rb->wait_mutex);
 #else
+#ifdef __tile__
+    cycle_pause(50);
+#else
     usleep(USLEEP_TIME);
+#endif
 #endif
 }
 
@@ -108,9 +124,18 @@ void RingBuffer8Shutdown(RingBuffer8 *rb) {
  *  \retval 0 not empty
  */
 int RingBuffer8IsEmpty(RingBuffer8 *rb) {
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&rb->spin);
+    if (rb->write == rb->read) {
+        tmc_spin_queued_mutex_unlock(&rb->spin);
+        return 1;
+    }
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     if (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
         return 1;
     }
+#endif
 
     return 0;
 }
@@ -123,9 +148,18 @@ int RingBuffer8IsEmpty(RingBuffer8 *rb) {
  *  \retval 0 not empty
  */
 int RingBuffer8IsFull(RingBuffer8 *rb) {
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&rb->spin);
+    if ((unsigned char)(rb->write + 1) == rb->read) {
+        tmc_spin_queued_mutex_unlock(&rb->spin);
+        return 1;
+    }
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     if ((unsigned char)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
         return 1;
     }
+#endif
 
     return 0;
 }
@@ -144,7 +178,13 @@ void RingBufferShutdown(RingBuffer16 *rb) {
 /** \brief get number of items in the ringbuffer */
 uint16_t RingBufferSize(RingBuffer16 *rb) {
     SCEnter();
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&rb->spin);
+    uint16_t size = (uint16_t)(rb->write - rb->read);
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     uint16_t size = (uint16_t)(SC_ATOMIC_GET(rb->write) - SC_ATOMIC_GET(rb->read));
+#endif
     SCReturnUInt(size);
 }
 
@@ -156,9 +196,18 @@ uint16_t RingBufferSize(RingBuffer16 *rb) {
  *  \retval 0 not empty
  */
 int RingBufferIsEmpty(RingBuffer16 *rb) {
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&rb->spin);
+    if (rb->write == rb->read) {
+        tmc_spin_queued_mutex_unlock(&rb->spin);
+        return 1;
+    }
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     if (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
         return 1;
     }
+#endif
 
     return 0;
 }
@@ -171,9 +220,18 @@ int RingBufferIsEmpty(RingBuffer16 *rb) {
  *  \retval 0 not empty
  */
 int RingBufferIsFull(RingBuffer16 *rb) {
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&rb->spin);
+    if ((unsigned short)(rb->write + 1) == rb->read) {
+        tmc_spin_queued_mutex_unlock(&rb->spin);
+        return 1;
+    }
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     if ((unsigned short)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
         return 1;
     }
+#endif
 
     return 0;
 }
@@ -183,17 +241,43 @@ int RingBufferIsFull(RingBuffer16 *rb) {
 void *RingBufferSrSw8Get(RingBuffer8 *rb) {
     void *ptr = NULL;
 
+#ifdef __tile__
+    for (;;) {
+        tmc_spin_queued_mutex_lock(&rb->spin);
+        if (rb->write == rb->read) {
+#else
     /* buffer is empty, wait... */
-    while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
-        /* break out if the engine wants to shutdown */
-        if (rb->shutdown != 0)
-            return NULL;
+         while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
+#endif
+            /* break out if the engine wants to shutdown */
+            if (rb->shutdown != 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+                return NULL;
+            }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
 
-        RingBuffer8DoWait(rb);
+            RingBuffer8DoWait(rb);
+        }
+#ifdef __tile__
+        else
+            break;
     }
+#endif
 
+#ifdef __tile__
+    ptr = rb->array[rb->read];
+    rb->read += 1;
+#else
     ptr = rb->array[SC_ATOMIC_GET(rb->read)];
     SC_ATOMIC_ADD(rb->read, 1);
+#endif
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
 
 #ifdef RINGBUFFER_MUTEX_WAIT
     SCCondSignal(&rb->wait_cond);
@@ -203,16 +287,42 @@ void *RingBufferSrSw8Get(RingBuffer8 *rb) {
 
 int RingBufferSrSw8Put(RingBuffer8 *rb, void *ptr) {
     /* buffer is full, wait... */
-    while ((unsigned char)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
-        /* break out if the engine wants to shutdown */
-        if (rb->shutdown != 0)
-            return -1;
-
-        RingBuffer8DoWait(rb);
+#ifdef __tile__
+    for (;;) {
+        tmc_spin_queued_mutex_lock(&rb->spin);
+        if ((unsigned char)(rb->write + 1) == rb->read) {
+#else
+        while ((unsigned char)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
+#endif
+            /* break out if the engine wants to shutdown */
+            if (rb->shutdown != 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+                return -1;
+            }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+            RingBuffer8DoWait(rb);
+        }
+#ifdef __tile__
+        else
+            break;
     }
+#endif
 
+#ifdef __tile__
+    rb->array[rb->write] = ptr;
+    rb->write += 1;
+#else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
     SC_ATOMIC_ADD(rb->write, 1);
+#endif
+
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
 
 #ifdef RINGBUFFER_MUTEX_WAIT
     SCCondSignal(&rb->wait_cond);
@@ -226,16 +336,42 @@ void *RingBufferSrMw8Get(RingBuffer8 *rb) {
     void *ptr = NULL;
 
     /* buffer is empty, wait... */
-    while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
-        /* break out if the engine wants to shutdown */
-        if (rb->shutdown != 0)
-            return NULL;
+#ifdef __tile__
+    for (;;) {
+        tmc_spin_queued_mutex_lock(&rb->spin);
+        if (rb->write == rb->read) {
+#else
+        while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
+#endif
+            /* break out if the engine wants to shutdown */
+            if (rb->shutdown != 0) {
+#ifdef __tile__
+                 tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+                return NULL;
+            }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
 
-        RingBuffer8DoWait(rb);
+            RingBuffer8DoWait(rb);
+        }
+#ifdef __tile__
+        else
+            break;
     }
+#endif
 
+#ifdef __tile__
+    ptr = rb->array[rb->read];
+    rb->read += 1;
+#else
     ptr = rb->array[SC_ATOMIC_GET(rb->read)];
     SC_ATOMIC_ADD(rb->read, 1);
+#endif
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
 
 #ifdef RINGBUFFER_MUTEX_WAIT
     SCCondSignal(&rb->wait_cond);
@@ -266,7 +402,11 @@ int RingBufferSrMw8Put(RingBuffer8 *rb, void *ptr) {
 
     /* buffer is full, wait... */
 retry:
+#ifdef __tile__
+    while ((unsigned char)(rb->write + 1) == rb->read) {
+#else
     while ((unsigned char)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
+#endif
         /* break out if the engine wants to shutdown */
         if (rb->shutdown != 0)
             return -1;
@@ -275,19 +415,40 @@ retry:
     }
 
     /* get our lock */
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&rb->spin);
+#else
     SCSpinLock(&rb->spin);
+#endif
     /* if while we got our lock the buffer changed, we need to retry */
+#ifdef __tile__
+    if ((unsigned char)(rb->write + 1) == rb->read) {
+#else
     if ((unsigned char)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
+#endif
+#ifdef __tile__
+        tmc_spin_queued_mutex_lock(&rb->spin);
+#else
         SCSpinUnlock(&rb->spin);
+#endif
         goto retry;
     }
 
     SCLogDebug("rb->write %u, ptr %p", SC_ATOMIC_GET(rb->write), ptr);
 
     /* update the ring buffer */
+#ifdef __tile__
+    rb->array[rb->write] = ptr;
+    rb->write += 1;
+#else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
     SC_ATOMIC_ADD(rb->write, 1);
+#endif
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     SCSpinUnlock(&rb->spin);
+#endif
     SCLogDebug("ptr %p, done", ptr);
 
 #ifdef RINGBUFFER_MUTEX_WAIT
@@ -315,25 +476,60 @@ void *RingBufferMrSw8Get(RingBuffer8 *rb) {
 
     /* buffer is empty, wait... */
 retry:
-    while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
-        /* break out if the engine wants to shutdown */
-        if (rb->shutdown != 0)
-            return NULL;
+#ifdef __tile__
+    for (;;) {
+        tmc_spin_queued_mutex_lock(&rb->spin);
+        if (rb->write == rb->read) {
+#else
+        while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
+#endif
+            /* break out if the engine wants to shutdown */
+            if (rb->shutdown != 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+                return NULL;
+            }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
 
-        RingBuffer8DoWait(rb);
+            RingBuffer8DoWait(rb);
+        }
+#ifdef __tile__
+        else
+            break;
     }
+#endif
 
     /* atomically update rb->read */
+#ifdef __tile__
+    readp = rb->read - 1;
+#else
     readp = SC_ATOMIC_GET(rb->read) - 1;
+#endif
     do {
         /* with multiple readers we can get in the situation that we exitted
          * from the wait loop but the rb is empty again once we get here. */
+#ifdef __tile__
+        if (rb->write == rb->read) {
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+            goto retry;
+        }
+#else
         if (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read))
             goto retry;
+#endif
 
         readp++;
         ptr = rb->array[readp];
+#ifdef __tile__
+    } while (0);
+    rb->read = readp + 1;
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     } while (!(SC_ATOMIC_CAS(&rb->read, readp, (readp + 1))));
+#endif
 
     SCLogDebug("ptr %p", ptr);
 
@@ -350,16 +546,42 @@ int RingBufferMrSw8Put(RingBuffer8 *rb, void *ptr) {
     SCLogDebug("ptr %p", ptr);
 
     /* buffer is full, wait... */
-    while ((unsigned char)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
-        /* break out if the engine wants to shutdown */
-        if (rb->shutdown != 0)
-            return -1;
+#ifdef __tile__
+    for (;;) {
+        tmc_spin_queued_mutex_lock(&rb->spin);
+        if ((unsigned char)(rb->write + 1) == rb->read) {
 
-        RingBuffer8DoWait(rb);
+#else
+        while ((unsigned char)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
+#endif
+            /* break out if the engine wants to shutdown */
+            if (rb->shutdown != 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+                return -1;
+            }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+            RingBuffer8DoWait(rb);
+        }
+#ifdef __tile__
+        else
+            break;
     }
+#endif
 
+#ifdef __tile__
+    rb->array[rb->write] = ptr;
+    rb->write += 1;
+#else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
     SC_ATOMIC_ADD(rb->write, 1);
+#endif
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
 
 #ifdef RINGBUFFER_MUTEX_WAIT
     SCCondSignal(&rb->wait_cond);
@@ -387,25 +609,60 @@ void *RingBufferMrSwGet(RingBuffer16 *rb) {
 
     /* buffer is empty, wait... */
 retry:
-    while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
-        /* break out if the engine wants to shutdown */
-        if (rb->shutdown != 0)
-            return NULL;
+#ifdef __tile__
+    for (;;) {
+        tmc_spin_queued_mutex_lock(&rb->spin);
+        if (rb->write == rb->read) {
+#else
+        while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
+#endif
+            /* break out if the engine wants to shutdown */
+            if (rb->shutdown != 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+                return NULL;
+            }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
 
-        RingBufferDoWait(rb);
+            RingBufferDoWait(rb);
+        }
+#ifdef __tile__
+        else
+            break;
     }
+#endif
 
     /* atomically update rb->read */
+#ifdef __tile__
+    readp = rb->read - 1;
+#else
     readp = SC_ATOMIC_GET(rb->read) - 1;
+#endif
     do {
         /* with multiple readers we can get in the situation that we exitted
          * from the wait loop but the rb is empty again once we get here. */
+#ifdef __tile__
+        if (rb->write == rb->read) {
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+            goto retry;
+        }
+#else
         if (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read))
             goto retry;
+#endif
 
         readp++;
         ptr = rb->array[readp];
+#ifdef __tile__
+    } while (0);
+    rb->read = readp + 1;
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     } while (!(SC_ATOMIC_CAS(&rb->read, readp, (readp + 1))));
+#endif
 
     SCLogDebug("ptr %p", ptr);
 
@@ -422,17 +679,42 @@ int RingBufferMrSwPut(RingBuffer16 *rb, void *ptr) {
     SCLogDebug("ptr %p", ptr);
 
     /* buffer is full, wait... */
-    while ((unsigned short)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
-        /* break out if the engine wants to shutdown */
-        if (rb->shutdown != 0)
-            return -1;
-
-        RingBufferDoWait(rb);
+#ifdef __tile__
+     for (;;) {
+         tmc_spin_queued_mutex_lock(&rb->spin);
+         if ((unsigned short)(rb->write + 1) == rb->read) {
+#else
+         while ((unsigned short)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
+#endif
+            /* break out if the engine wants to shutdown */
+            if (rb->shutdown != 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+                return -1;
+            }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+            RingBufferDoWait(rb);
+        }
+#ifdef __tile__
+        else
+            break;
     }
+#endif
 
+#ifdef __tile__
+    rb->array[rb->write] = ptr;
+    rb->write += 1;
+#else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
     SC_ATOMIC_ADD(rb->write, 1);
+#endif
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
 #ifdef RINGBUFFER_MUTEX_WAIT
     SCCondSignal(&rb->wait_cond);
 #endif
@@ -446,16 +728,42 @@ void *RingBufferSrSwGet(RingBuffer16 *rb) {
     void *ptr = NULL;
 
     /* buffer is empty, wait... */
-    while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
-        /* break out if the engine wants to shutdown */
-        if (rb->shutdown != 0)
-            return NULL;
-
-        RingBufferDoWait(rb);
+#ifdef __tile__
+     for (;;) {
+         tmc_spin_queued_mutex_lock(&rb->spin);
+         if ((unsigned short)(rb->write + 1) == rb->read) {
+#else
+        while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
+#endif
+            /* break out if the engine wants to shutdown */
+            if (rb->shutdown != 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+                return NULL;
+            }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+            RingBufferDoWait(rb);
+        }
+#ifdef __tile__
+        else
+            break;
     }
+#endif
 
+#ifdef __tile__
+    ptr = rb->array[rb->read];
+    rb->read += 1;
+#else
     ptr = rb->array[SC_ATOMIC_GET(rb->read)];
     SC_ATOMIC_ADD(rb->read, 1);
+#endif
+
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
 
 #ifdef RINGBUFFER_MUTEX_WAIT
     SCCondSignal(&rb->wait_cond);
@@ -465,17 +773,42 @@ void *RingBufferSrSwGet(RingBuffer16 *rb) {
 
 int RingBufferSrSwPut(RingBuffer16 *rb, void *ptr) {
     /* buffer is full, wait... */
-    while ((unsigned short)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
-        /* break out if the engine wants to shutdown */
-        if (rb->shutdown != 0)
-            return -1;
-
-        RingBufferDoWait(rb);
+#ifdef __tile__
+    for (;;) {
+        tmc_spin_queued_mutex_lock(&rb->spin);
+        if (rb->write == rb->read) {
+#else
+        while ((unsigned short)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
+#endif
+            /* break out if the engine wants to shutdown */
+            if (rb->shutdown != 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+                return -1;
+            }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+            RingBufferDoWait(rb);
+        }
+#ifdef __tile__
+        else
+            break;
     }
+#endif
 
+#ifdef __tile__
+    rb->array[rb->write] = ptr;
+    rb->write += 1;
+#else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
     SC_ATOMIC_ADD(rb->write, 1);
+#endif
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
 #ifdef RINGBUFFER_MUTEX_WAIT
     SCCondSignal(&rb->wait_cond);
 #endif
@@ -492,10 +825,19 @@ RingBuffer8 *RingBuffer8Init(void) {
 
     memset(rb, 0x00, sizeof(RingBuffer8));
 
+#ifdef __tile__
+    rb->write = 0;
+    rb->read = 0;
+#else
     SC_ATOMIC_INIT(rb->write);
     SC_ATOMIC_INIT(rb->read);
+#endif
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_init(&rb->spin);
+#else
     SCSpinInit(&rb->spin, 0);
+#endif
 #ifdef RINGBUFFER_MUTEX_WAIT
     SCMutexInit(&rb->wait_mutex, NULL);
     SCCondInit(&rb->wait_cond, NULL);
@@ -505,10 +847,12 @@ RingBuffer8 *RingBuffer8Init(void) {
 
 void RingBuffer8Destroy(RingBuffer8 *rb) {
     if (rb != NULL) {
+#ifndef __tile__
         SC_ATOMIC_DESTROY(rb->write);
         SC_ATOMIC_DESTROY(rb->read);
 
         SCSpinDestroy(&rb->spin);
+#endif
 
 #ifdef RINGBUFFER_MUTEX_WAIT
         SCMutexDestroy(&rb->wait_mutex);
@@ -535,25 +879,59 @@ void *RingBufferMrMw8Get(RingBuffer8 *rb) {
 
     /* buffer is empty, wait... */
 retry:
-    while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
-        /* break out if the engine wants to shutdown */
-        if (rb->shutdown != 0)
-            return NULL;
-
-        RingBuffer8DoWait(rb);
+#ifdef __tile__
+    for (;;) {
+        tmc_spin_queued_mutex_lock(&rb->spin);
+        if (rb->write == rb->read) {
+#else
+        while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
+#endif
+            /* break out if the engine wants to shutdown */
+            if (rb->shutdown != 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+                return NULL;
+            }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+            RingBuffer8DoWait(rb);
+        }
+#ifdef __tile__
+        else
+            break;
     }
+#endif
 
     /* atomically update rb->read */
+#ifdef __tile__
+    readp = rb->read - 1;
+#else
     readp = SC_ATOMIC_GET(rb->read) - 1;
+#endif
     do {
         /* with multiple readers we can get in the situation that we exitted
          * from the wait loop but the rb is empty again once we get here. */
+#ifdef __tile__
+        if (rb->write == rb->read) {
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+            goto retry;
+        }
+#else
         if (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read))
             goto retry;
+#endif
 
         readp++;
         ptr = rb->array[readp];
+#ifdef __tile__
+    } while (0);
+    rb->read = readp + 1;
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     } while (!(SC_ATOMIC_CAS(&rb->read, readp, (readp + 1))));
+#endif
 
     SCLogDebug("ptr %p", ptr);
 #ifdef RINGBUFFER_MUTEX_WAIT
@@ -585,7 +963,11 @@ int RingBufferMrMw8Put(RingBuffer8 *rb, void *ptr) {
 
     /* buffer is full, wait... */
 retry:
+#ifdef __tile__
+    while ((unsigned char)(rb->write + 1) == rb->read) {
+#else
     while ((unsigned char)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
+#endif
         /* break out if the engine wants to shutdown */
         if (rb->shutdown != 0)
             return -1;
@@ -594,19 +976,40 @@ retry:
     }
 
     /* get our lock */
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&rb->spin);
+#else
     SCSpinLock(&rb->spin);
+#endif
     /* if while we got our lock the buffer changed, we need to retry */
+#ifdef __tile__
+    if ((unsigned char)(rb->write + 1) == rb->read) {
+#else
     if ((unsigned char)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
+#endif
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
         SCSpinUnlock(&rb->spin);
+#endif
         goto retry;
     }
 
     SCLogDebug("rb->write %u, ptr %p", SC_ATOMIC_GET(rb->write), ptr);
 
     /* update the ring buffer */
+#ifdef __tile__
+    rb->array[rb->write] = ptr;
+    rb->write += 1;
+#else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
     SC_ATOMIC_ADD(rb->write, 1);
+#endif
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     SCSpinUnlock(&rb->spin);
+#endif
     SCLogDebug("ptr %p, done", ptr);
 
 #ifdef RINGBUFFER_MUTEX_WAIT
@@ -625,10 +1028,19 @@ RingBuffer16 *RingBufferInit(void) {
 
     memset(rb, 0x00, sizeof(RingBuffer16));
 
+#ifdef __tile__
+    rb->write = 0;
+    rb->read = 0;
+#else
     SC_ATOMIC_INIT(rb->write);
     SC_ATOMIC_INIT(rb->read);
+#endif
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_init(&rb->spin);
+#else
     SCSpinInit(&rb->spin, 0);
+#endif
 #ifdef RINGBUFFER_MUTEX_WAIT
     SCMutexInit(&rb->wait_mutex, NULL);
     SCCondInit(&rb->wait_cond, NULL);
@@ -638,10 +1050,12 @@ RingBuffer16 *RingBufferInit(void) {
 
 void RingBufferDestroy(RingBuffer16 *rb) {
     if (rb != NULL) {
+#ifndef __tile__
         SC_ATOMIC_DESTROY(rb->write);
         SC_ATOMIC_DESTROY(rb->read);
 
         SCSpinDestroy(&rb->spin);
+#endif
 
 #ifdef RINGBUFFER_MUTEX_WAIT
         SCMutexDestroy(&rb->wait_mutex);
@@ -669,25 +1083,59 @@ void *RingBufferMrMwGet(RingBuffer16 *rb) {
 
     /* buffer is empty, wait... */
 retry:
-    while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
-        /* break out if the engine wants to shutdown */
-        if (rb->shutdown != 0)
-            return NULL;
-
-        RingBufferDoWait(rb);
+#ifdef __tile__
+    for (;;) {
+        tmc_spin_queued_mutex_lock(&rb->spin);
+        if (rb->write == rb->read) {
+#else
+        while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
+#endif
+            /* break out if the engine wants to shutdown */
+            if (rb->shutdown != 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+                return NULL;
+            }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+#endif
+            RingBufferDoWait(rb);
+        }
+#ifdef __tile__
+        else
+            break;
     }
+#endif
 
     /* atomically update rb->read */
+#ifdef __tile__
+    readp = rb->read - 1;
+#else
     readp = SC_ATOMIC_GET(rb->read) - 1;
+#endif
     do {
         /* with multiple readers we can get in the situation that we exitted
          * from the wait loop but the rb is empty again once we get here. */
+#ifdef __tile__
+        if (rb->write == rb->read) {
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+            goto retry;
+        }
+#else
         if (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read))
             goto retry;
+#endif
 
         readp++;
         ptr = rb->array[readp];
+#ifdef __tile__
+    } while (0);
+    rb->read = readp + 1;
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     } while (!(SC_ATOMIC_CAS(&rb->read, readp, (readp + 1))));
+#endif
 
     SCLogDebug("ptr %p", ptr);
 
@@ -717,22 +1165,45 @@ void *RingBufferMrMwGetNoWait(RingBuffer16 *rb) {
 
     /* buffer is empty, wait... */
 retry:
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&rb->spin);
+    if (rb->write == rb->read) {
+        tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     while (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read)) {
+#endif
         /* break if buffer is empty */
         return NULL;
     }
 
     /* atomically update rb->read */
+#ifdef __tile__
+    readp = rb->read - 1;
+#else
     readp = SC_ATOMIC_GET(rb->read) - 1;
+#endif
     do {
         /* with multiple readers we can get in the situation that we exitted
          * from the wait loop but the rb is empty again once we get here. */
+#ifdef __tile__
+        if (rb->write == rb->read) {
+            tmc_spin_queued_mutex_unlock(&rb->spin);
+            goto retry;
+        }
+#else
         if (SC_ATOMIC_GET(rb->write) == SC_ATOMIC_GET(rb->read))
             goto retry;
+#endif
 
         readp++;
         ptr = rb->array[readp];
+#ifdef __tile__
+    } while (0);
+    rb->read = readp + 1;
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     } while (!(SC_ATOMIC_CAS(&rb->read, readp, (readp + 1))));
+#endif
 
     SCLogDebug("ptr %p", ptr);
 
@@ -765,7 +1236,11 @@ int RingBufferMrMwPut(RingBuffer16 *rb, void *ptr) {
 
     /* buffer is full, wait... */
 retry:
+#ifdef __tile__
+    while ((unsigned short)(rb->write + 1) == rb->read) {
+#else
     while ((unsigned short)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
+#endif
         /* break out if the engine wants to shutdown */
         if (rb->shutdown != 0)
             return -1;
@@ -774,19 +1249,41 @@ retry:
     }
 
     /* get our lock */
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&rb->spin);
+#else
     SCSpinLock(&rb->spin);
+#endif
     /* if while we got our lock the buffer changed, we need to retry */
+#ifdef __tile__
+    if ((unsigned short)(rb->write + 1) == rb->read) {
+#else
     if ((unsigned short)(SC_ATOMIC_GET(rb->write) + 1) == SC_ATOMIC_GET(rb->read)) {
+#endif
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
         SCSpinUnlock(&rb->spin);
+#endif
         goto retry;
     }
 
     SCLogDebug("rb->write %u, ptr %p", SC_ATOMIC_GET(rb->write), ptr);
 
     /* update the ring buffer */
+#ifdef __tile__
+    rb->array[rb->write] = ptr;
+    rb->write += 1;
+#else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
     SC_ATOMIC_ADD(rb->write, 1);
+#endif
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&rb->spin);
+#else
     SCSpinUnlock(&rb->spin);
+#endif
+
     SCLogDebug("ptr %p, done", ptr);
 
 #ifdef RINGBUFFER_MUTEX_WAIT

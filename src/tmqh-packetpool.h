@@ -29,9 +29,15 @@ void TmqhOutputPacketpool(ThreadVars *, Packet *);
 void TmqhReleasePacketsToPacketPool(PacketQueue *);
 void TmqhPacketpoolRegister (void);
 void TmqhPacketpoolDestroy (void);
+#ifdef __tile__
+Packet *PacketPoolGetPacket(int pool);
+uint16_t PacketPoolSize(int pool);
+void PacketPoolWait(int pool);
+#else
 Packet *PacketPoolGetPacket(void);
 uint16_t PacketPoolSize(void);
-void PacketPoolStorePacket(Packet *);
 void PacketPoolWait(void);
+#endif
+void PacketPoolStorePacket(Packet *);
 
 #endif /* __TMQH_PACKETPOOL_H__ */

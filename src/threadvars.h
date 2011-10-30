@@ -73,6 +73,10 @@ typedef struct ThreadVars_ {
     /** no of times the thread has been restarted on failure */
     uint8_t restarted;
 
+#ifdef __tile__
+    uint8_t packetpool;
+#endif
+
     /** queue's */
     Tmq *inq;
     Tmq *outq;

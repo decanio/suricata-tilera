@@ -1448,6 +1448,11 @@ int main(int argc, char **argv)
             exit(EXIT_FAILURE);
         }
         PACKET_INITIALIZE(p);
+#ifdef __tilegx__
+	 p->pool = i % NUM_TILERA_MPIPE_PIPELINES;
+#elif defined(__tile__)
+	 p->pool = i % NUM_TILERA_NETIO_PIPELINES;
+#endif
 
         PacketPoolStorePacket(p);
     }
@@ -1632,18 +1637,37 @@ int main(int argc, char **argv)
 
                     /* if all packets are returned to the packetpool
                      * we are done */
+#ifdef __tile__
+                    /* TBD: this is temporary, it isn't quite correct */
+#ifdef __tilegx__
+                    for (int pool = 0; pool < NUM_TILERA_MPIPE_PIPELINES; pool++) {
+#else 
+                    for (int pool = 0; pool < NUM_TILERA_NETIO_PIPELINES; pool++) {
+#endif
+                        if (PacketPoolSize(pool) == max_pending_packets)
+                            done = 1;
+                    }
+#else
                     if (PacketPoolSize() == max_pending_packets)
                         done = 1;
+#endif
 
                     if (done == 0) {
                         memset(&ts_cur, 0x00, sizeof(ts_cur));
                         gettimeofday(&ts_cur, NULL);
 
                         if (ts_cur.tv_sec - ts_start.tv_sec >= 120) {
+#ifdef __tile__
+                            SCLogError(SC_ERR_SHUTDOWN, "shutdown taking too "
+                                    "long, likely a bug! (%"PRIuMAX
+                                    " != %"PRIuMAX").", (uintmax_t)PacketPoolSize(0),
+                                    (uintmax_t)max_pending_packets);
+#else
                             SCLogError(SC_ERR_SHUTDOWN, "shutdown taking too "
                                     "long, likely a bug! (%"PRIuMAX
                                     " != %"PRIuMAX").", (uintmax_t)PacketPoolSize(),
                                     (uintmax_t)max_pending_packets);
+#endif
 #ifdef DEBUG
                             BUG_ON(1);
 #endif

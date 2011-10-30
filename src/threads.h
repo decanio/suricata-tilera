@@ -27,6 +27,10 @@
 #ifndef __THREADS_H__
 #define __THREADS_H__
 
+#ifdef __tile__
+#include <tmc/spin.h>
+#endif
+
 #if defined OS_FREEBSD || __OpenBSD__
 
 #if ! defined __OpenBSD__

@@ -4442,7 +4442,11 @@ Packet *StreamTcpPseudoSetup(Packet *parent, uint8_t *pkt, uint32_t len)
 {
     SCEnter();
 
+#ifdef __tile__
+    Packet *p = PacketGetFromQueueOrAlloc(parent->pool);
+#else
     Packet *p = PacketGetFromQueueOrAlloc();
+#endif
     if (p == NULL || len == 0) {
         SCReturnPtr(NULL, "Packet");
     }

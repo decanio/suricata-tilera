@@ -270,6 +270,35 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
                 cpu++;
         }
 
+#define COMBINE_RESPOND_REJECT_AND_OUTPUT
+#ifdef COMBINE_RESPOND_REJECT_AND_OUTPUT
+        snprintf(tname, sizeof(tname), "RR & Output%d", pipe+1);
+        thread_name = SCStrdup(tname);
+        ThreadVars *tv_outputs =
+            TmThreadCreatePacketHandler(thread_name,
+                                        verdict_queue[pipe],"simple", 
+                                        "packetpool", "packetpool", 
+                                        "varslot");
+        if (tv_outputs == NULL) {
+            printf("ERROR: TmThreadsCreate failed\n");
+            exit(EXIT_FAILURE);
+        }
+        SetupOutputs(tv_outputs);
+        TmThreadSetCPUAffinity(tv_outputs, tile++);
+
+        tm_module = TmModuleGetByName("RespondReject");
+        if (tm_module == NULL) {
+            printf("ERROR: TmModuleGetByName for RespondReject failed\n");
+            exit(EXIT_FAILURE);
+        }
+        TmSlotSetFuncAppend(tv_outputs,tm_module,NULL);
+
+        if (TmThreadSpawn(tv_outputs) != TM_ECODE_OK) {
+            printf("ERROR: TmThreadSpawn failed\n");
+            exit(EXIT_FAILURE);
+        }
+
+#else
         sprintf(alert_queue[pipe], "alert-queue%d", pipe);
 
         snprintf(tname, sizeof(tname), "RespondReject%"PRIu16, pipe+1);
@@ -313,7 +342,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             printf("ERROR: TmThreadSpawn failed\n");
             exit(EXIT_FAILURE);
         }
-
+#endif
     }
 
     return 0;

@@ -52,27 +52,45 @@
 
 #define RING_BUFFER_8_SIZE 256
 typedef struct RingBuffer8_ {
+#ifdef __tile__
+    unsigned char write;  /**< idx where we put data */
+    unsigned char read;   /**< idx where we read data */
+#else
     SC_ATOMIC_DECLARE(unsigned char, write);  /**< idx where we put data */
     SC_ATOMIC_DECLARE(unsigned char, read);   /**< idx where we read data */
+#endif
     uint8_t shutdown;
 #ifdef RINGBUFFER_MUTEX_WAIT
     SCCondT wait_cond;
     SCMutex wait_mutex;
 #endif /* RINGBUFFER_MUTEX_WAIT */
+#ifdef __tile__
+    tmc_spin_queued_mutex_t spin; /**< lock protecting writes for multi writer mode*/
+#else
     SCSpinlock spin; /**< lock protecting writes for multi writer mode*/
+#endif
     void *array[RING_BUFFER_8_SIZE];
 } RingBuffer8;
 
 #define RING_BUFFER_16_SIZE 65536
 typedef struct RingBuffer16_ {
+#ifdef __tile__
+    unsigned short write;  /**< idx where we put data */
+    unsigned short read;   /**< idx where we read data */
+#else
     SC_ATOMIC_DECLARE(unsigned short, write);  /**< idx where we put data */
     SC_ATOMIC_DECLARE(unsigned short, read);   /**< idx where we read data */
+#endif
     uint8_t shutdown;
 #ifdef RINGBUFFER_MUTEX_WAIT
     SCCondT wait_cond;
     SCMutex wait_mutex;
 #endif /* RINGBUFFER_MUTEX_WAIT */
+#ifdef __tile__
+    tmc_spin_queued_mutex_t spin; /**< lock protecting writes for multi writer mode*/
+#else
     SCSpinlock spin; /**< lock protecting writes for multi writer mode*/
+#endif
     void *array[RING_BUFFER_16_SIZE];
 } RingBuffer16;
 

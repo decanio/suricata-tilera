@@ -81,14 +81,24 @@ Packet *PacketGetFromAlloc(void)
  *
  *  \retval p packet, NULL on error
  */
+#ifdef __tile__
+Packet *PacketGetFromQueueOrAlloc(int pool)
+#else
 Packet *PacketGetFromQueueOrAlloc(void)
+#endif
 {
     Packet *p = NULL;
 
     /* try the pool first */
+#ifdef __tile__
+    if (PacketPoolSize(pool) > 0) {
+        p = PacketPoolGetPacket(pool);
+    }
+#else
     if (PacketPoolSize() > 0) {
         p = PacketPoolGetPacket();
     }
+#endif
 
     if (p == NULL) {
         /* non fatal, we're just not processing a packet then */
@@ -115,7 +125,11 @@ Packet *PacketPseudoPktSetup(Packet *parent, uint8_t *pkt, uint16_t len, uint8_t
     SCEnter();
 
     /* get us a packet */
+#ifdef __tile__
+    Packet *p = PacketGetFromQueueOrAlloc(parent->pool);
+#else
     Packet *p = PacketGetFromQueueOrAlloc();
+#endif
     if (p == NULL) {
         SCReturnPtr(NULL, "Packet");
     }

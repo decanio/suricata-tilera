@@ -50,10 +50,19 @@
 #include "util-error.h"
 #include "util-profiling.h"
 
+#ifdef __tile__
+#include "runmode-tile.h"
+#endif
 #include "source-mpipe.h"
 #include "source-netio.h"
 
+#ifdef __tilegx__
+static RingBuffer16 *ringbuffer[NUM_TILERA_MPIPE_PIPELINES] = { NULL };
+#elif defined(__tile__)
+static RingBuffer16 *ringbuffer[NUM_TILERA_NETIO_PIPELINES] = { NULL };
+#else
 static RingBuffer16 *ringbuffer = NULL;
+#endif
 /**
  * \brief TmqhPacketpoolRegister
  * \initonly
@@ -63,47 +72,100 @@ void TmqhPacketpoolRegister (void) {
     tmqh_table[TMQH_PACKETPOOL].InHandler = TmqhInputPacketpool;
     tmqh_table[TMQH_PACKETPOOL].OutHandler = TmqhOutputPacketpool;
 
+#ifdef __tile__
+    for (int i = 0; i < NUM_TILERA_PIPELINES; i++) {
+        ringbuffer[i] = RingBufferInit();
+        if (ringbuffer[i] == NULL) {
+            SCLogError(SC_ERR_FATAL, "Error registering Packet pool handler (at ring buffer init)");
+            exit(EXIT_FAILURE);
+        }
+    }
+#else
     ringbuffer = RingBufferInit();
     if (ringbuffer == NULL) {
         SCLogError(SC_ERR_FATAL, "Error registering Packet pool handler (at ring buffer init)");
         exit(EXIT_FAILURE);
     }
+#endif
 }
 
 void TmqhPacketpoolDestroy (void) {
+#ifdef __tile__
+#else
     if (ringbuffer != NULL) {
        RingBufferDestroy(ringbuffer);
     }
+#endif
 }
 
+#ifdef __tile__
+int PacketPoolIsEmpty(int pool) {
+    return RingBufferIsEmpty(ringbuffer[pool]);
+}
+#else
 int PacketPoolIsEmpty(void) {
     return RingBufferIsEmpty(ringbuffer);
 }
+#endif
 
+#ifdef __tile__
+uint16_t PacketPoolSize(int pool) {
+    return RingBufferSize(ringbuffer[pool]);
+}
+#else
 uint16_t PacketPoolSize(void) {
     return RingBufferSize(ringbuffer);
 }
+#endif
 
+#ifdef __tile__
+void PacketPoolWait(int pool) {
+    RingBufferWait(ringbuffer[pool]);
+}
+#else
 void PacketPoolWait(void) {
     RingBufferWait(ringbuffer);
 }
+#endif
 
 /** \brief a initialized packet
  *
  *  \warning Use *only* at init, not at packet runtime
  */
 void PacketPoolStorePacket(Packet *p) {
+#ifdef __tile__
+    int pool = p->pool;
+    RingBuffer16 *rb = ringbuffer[pool];
+
+    if (RingBufferIsFull(rb)) {
+        exit(1);
+    }
+
+    RingBufferMrMwPut(rb, (void *)p);
+    SCLogDebug("buffersize %u", RingBufferSize(rb));
+#else
     if (RingBufferIsFull(ringbuffer)) {
         exit(1);
     }
 
     RingBufferMrMwPut(ringbuffer, (void *)p);
     SCLogDebug("buffersize %u", RingBufferSize(ringbuffer));
+#endif
 }
 
 /** \brief get a packet from the packet pool, but if the
  *         pool is empty, don't wait, just return NULL
  */
+#ifdef __tile__
+Packet *PacketPoolGetPacket(int pool) {
+    RingBuffer16 *rb = ringbuffer[pool];
+    if (RingBufferIsEmpty(rb))
+        return NULL;
+
+    Packet *p = RingBufferMrMwGetNoWait(rb);
+    return p;
+}
+#else
 Packet *PacketPoolGetPacket(void) {
     if (RingBufferIsEmpty(ringbuffer))
         return NULL;
@@ -111,14 +173,23 @@ Packet *PacketPoolGetPacket(void) {
     Packet *p = RingBufferMrMwGetNoWait(ringbuffer);
     return p;
 }
+#endif
 
 Packet *TmqhInputPacketpool(ThreadVars *t)
 {
     Packet *p = NULL;
 
+#ifdef __tile__
+    int pool = t->packetpool;
+    RingBuffer16 *rb = ringbuffer[pool];
+    while (p == NULL && rb->shutdown == FALSE) {
+        p = RingBufferMrMwGet(rb);
+    }
+#else
     while (p == NULL && ringbuffer->shutdown == FALSE) {
         p = RingBufferMrMwGet(ringbuffer);
     }
+#endif
 
     /* packet is clean */
 
@@ -130,6 +201,10 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
     int proot = 0;
 
     SCEnter();
+#ifdef __tile__
+    int pool = p->pool;
+    RingBuffer16 *rb = ringbuffer[pool];
+#endif
     SCLogDebug("Packet %p, p->root %p, alloced %s", p, p->root, p->flags & PKT_ALLOC ? "true" : "false");
 
     /* final alerts cleanup... return smsgs to pool if needed */
@@ -228,7 +303,11 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
             p->root = NULL;
         } else {
             PACKET_RECYCLE(p->root);
+#ifdef __tile__
+            RingBufferMrMwPut(rb, (void *)p->root);
+#else
             RingBufferMrMwPut(ringbuffer, (void *)p->root);
+#endif
         }
     }
 
@@ -248,7 +327,11 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
         SCFree(p);
     } else {
         PACKET_RECYCLE(p);
+#ifdef __tile__
+        RingBufferMrMwPut(rb, (void *)p);
+#else
         RingBufferMrMwPut(ringbuffer, (void *)p);
+#endif
     }
 
     SCReturn;

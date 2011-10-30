@@ -362,8 +362,15 @@ typedef struct Packet_
 #ifdef __tilegx__
         /* TileGX mpipe stuff */
         gxio_mpipe_idesc_t idesc;
+#elif defined(__tile__)
+        /* Tile64 netio stuff */
+    	netio_pkt_t netio_packet;
 #endif
     };
+
+#ifdef __tile__
+    uint32_t pool; /* packetpool this was allocated from */   
+#endif
 
     /** data linktype in host order */
     int datalink;
@@ -406,9 +413,6 @@ typedef struct Packet_
 
     VLANHdr *vlanh;
 
-#if defined(__tile__) && !defined(__tilegx__)
-    netio_pkt_t netio_packet;
-#endif
     /* ptr to the payload of the packet
      * with it's length. */
     uint8_t *payload;
@@ -764,7 +768,11 @@ typedef struct DecodeThreadVars_
 
 void DecodeRegisterPerfCounters(DecodeThreadVars *, ThreadVars *);
 Packet *PacketPseudoPktSetup(Packet *parent, uint8_t *pkt, uint16_t len, uint8_t proto);
+#ifdef __tile__
+Packet *PacketGetFromQueueOrAlloc(int pool);
+#else
 Packet *PacketGetFromQueueOrAlloc(void);
+#endif
 Packet *PacketGetFromAlloc(void);
 int PacketCopyData(Packet *p, uint8_t *pktdata, int pktlen);
 int PacketCopyDataOffset(Packet *p, int offset, uint8_t *data, int datalen);
