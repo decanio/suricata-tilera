@@ -274,7 +274,11 @@ int FlowForceReassemblyForFlowV2(Flow *f)
     }
 
     /* move this unlock after the strream reassemble call */
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&f->fb->s);
+#else
     SCSpinUnlock(&f->fb->s);
+#endif
 
     Packet *p1 = NULL, *p2 = NULL, *p3 = NULL;
 

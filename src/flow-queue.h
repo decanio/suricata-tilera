@@ -36,8 +36,13 @@ typedef struct FlowQueue_
 #ifdef DBG_PERF
     uint32_t dbg_maxlen;
 #endif /* DBG_PERF */
+#ifdef __tile__
+    tmc_spin_queued_mutex_t mutex_q;
+    unsigned cond_q;
+#else
     SCMutex mutex_q;
     SCCondT cond_q;
+#endif
 } FlowQueue;
 
 /* prototypes */

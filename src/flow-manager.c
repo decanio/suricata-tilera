@@ -195,11 +195,19 @@ void *FlowManagerThread(void *td)
             if (emerg == TRUE) {
                 uint32_t len = 0;
 
+#ifdef __tile__
+                tmc_spin_queued_mutex_lock(&flow_spare_q.mutex_q);
+#else
                 SCMutexLock(&flow_spare_q.mutex_q);
+#endif
 
                 len = flow_spare_q.len;
 
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&flow_spare_q.mutex_q);
+#else
                 SCMutexUnlock(&flow_spare_q.mutex_q);
+#endif
 
                 SCLogDebug("flow_sparse_q.len = %"PRIu32" prealloc: %"PRIu32
                            "flow_spare_q status: %"PRIu32"%% flows at the queue",

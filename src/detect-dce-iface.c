@@ -286,7 +286,11 @@ int DetectDceIfaceMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx, Flow *f,
         SCReturnInt(0);
     }
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&f->m);
+#else
     SCMutexLock(&f->m);
+#endif
 
     /* we still haven't seen a request */
     if (!dcerpc_state->dcerpc.dcerpcrequest.first_request_seen)
@@ -332,7 +336,11 @@ int DetectDceIfaceMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx, Flow *f,
     }
 
 end:
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&f->m);
+#else
     SCMutexUnlock(&f->m);
+#endif
     SCReturnInt(ret);
 }
 

@@ -229,7 +229,11 @@ void PacketAlertFinalize(DetectEngineCtx *de_ctx, DetectEngineThreadCtx *det_ctx
 
                     if (p->flow != NULL) {
                         /* Update flow flags for iponly */
+#ifdef __tile__
+                        tmc_spin_queued_mutex_lock(&p->flow->m);
+#else
                         SCMutexLock(&p->flow->m);
+#endif
                         FlowSetIPOnlyFlagNoLock(p->flow, p->flowflags & FLOW_PKT_TOSERVER ? 1 : 0);
 
                         if (s->action & ACTION_DROP)
@@ -242,7 +246,11 @@ void PacketAlertFinalize(DetectEngineCtx *de_ctx, DetectEngineThreadCtx *det_ctx
                             p->flow->flags |= FLOW_ACTION_DROP;
                         if (s->action & ACTION_PASS)
                             p->flow->flags |= FLOW_ACTION_PASS;
+#ifdef __tile__
+                        tmc_spin_queued_mutex_unlock(&p->flow->m);
+#else
                         SCMutexUnlock(&p->flow->m);
+#endif
                     }
                 }
             }
@@ -262,10 +270,18 @@ void PacketAlertFinalize(DetectEngineCtx *de_ctx, DetectEngineThreadCtx *det_ctx
                          (s->flags & SIG_FLAG_APPLAYER))
                        && p->flow != NULL)
             {
+#ifdef __tile__
+                tmc_spin_queued_mutex_lock(&p->flow->m);
+#else
                 SCMutexLock(&p->flow->m);
+#endif
                 /* This will apply only on IPS mode (check StreamTcpPacket) */
                 p->flow->flags |= FLOW_ACTION_DROP;
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&p->flow->m);
+#else
                 SCMutexUnlock(&p->flow->m);
+#endif
             }
         }
         /* Because we removed the alert from the array, we should

@@ -118,7 +118,11 @@ TmEcode LogHttpLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, P
     }
 
     /* check if we have HTTP state or not */
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&p->flow->m);
+#else
     SCMutexLock(&p->flow->m);
+#endif
     uint16_t proto = AppLayerGetProtoFromPacket(p);
     if (proto != ALPROTO_HTTP)
         goto end;
@@ -217,7 +221,11 @@ TmEcode LogHttpLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, P
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
 
 end:
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&p->flow->m);
+#else
     SCMutexUnlock(&p->flow->m);
+#endif
     SCReturnInt(TM_ECODE_OK);
 }
 
@@ -234,7 +242,11 @@ TmEcode LogHttpLogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, P
     }
 
     /* check if we have HTTP state or not */
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&p->flow->m);
+#else
     SCMutexLock(&p->flow->m);
+#endif
     uint16_t proto = AppLayerGetProtoFromPacket(p);
     if (proto != ALPROTO_HTTP)
         goto end;
@@ -332,7 +344,11 @@ TmEcode LogHttpLogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, P
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
 
 end:
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&p->flow->m);
+#else
     SCMutexUnlock(&p->flow->m);
+#endif
     SCReturnInt(TM_ECODE_OK);
 }
 

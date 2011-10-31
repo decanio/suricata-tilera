@@ -141,7 +141,11 @@ int DetectSslStateMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
         return 0;
     }
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&f->m);
+#else
     SCMutexLock(&f->m);
+#endif
 
     if (ssd->flags & SSL_AL_FLAG_STATE_CLIENT_HELLO &&
         !(ssl_state->flags & SSL_AL_FLAG_STATE_CLIENT_HELLO)) {
@@ -165,7 +169,11 @@ int DetectSslStateMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
     }
 
  end:
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&f->m);
+#else
     SCMutexUnlock(&f->m);
+#endif
     return result;
 }
 

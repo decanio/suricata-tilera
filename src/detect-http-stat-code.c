@@ -98,7 +98,11 @@ int DetectHttpStatCodeMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx,
     int ret = 0;
     size_t idx;
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&f->m);
+#else
     SCMutexLock(&f->m);
+#endif
     SCLogDebug("got lock %p", &f->m);
 
     DetectHttpStatCodeData *co = (DetectHttpStatCodeData *)sm->ctx;
@@ -162,11 +166,19 @@ int DetectHttpStatCodeMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx,
         }
     }
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&f->m);
+#else
     SCMutexUnlock(&f->m);
+#endif
     SCReturnInt(ret ^ ((co->flags & DETECT_AL_HTTP_STAT_CODE_NEGATED) ? 1 : 0));
 
 end:
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&f->m);
+#else
     SCMutexUnlock(&f->m);
+#endif
     SCLogDebug("released lock %p", &f->m);
     SCReturnInt(ret);
 }

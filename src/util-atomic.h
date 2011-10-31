@@ -44,9 +44,11 @@
 /* test if we have atomic operations support */
 /* NOTE: tile-gcc for tilegx seems to drop the ball on this */
 #ifndef __GCC_HAVE_SYNC_COMPARE_AND_SWAP_2
-//#if !defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_2) && !defined(__tilegx__)
-// NOTE: using atomics doesnt seem stable on tilegx not sure why
-#warning Using locked atomics
+/**
+ * #if !defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_2) && !defined(__tilegx__)
+  * NOTE: using atomics doesnt seem stable on tilegx not sure why
+ * #warning Using locked atomics
+ */
 /**
  *  \brief wrapper to declare an atomic variable including a (spin) lock
  *         to protect it.

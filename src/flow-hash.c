@@ -355,7 +355,11 @@ static Flow *FlowGetNew(Packet *p) {
 
     FlowIncrUsecnt(f);
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&f->m);
+#else
     SCMutexLock(&f->m);
+#endif
     return f;
 }
 
@@ -380,7 +384,11 @@ Flow *FlowGetFlowFromHash (Packet *p)
     uint32_t key = FlowGetKey(p);
     /* get our hash bucket and lock it */
     FlowBucket *fb = &flow_hash[key];
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&fb->s);
+#else
     SCSpinLock(&fb->s);
+#endif
 
     SCLogDebug("fb %p fb->f %p", fb, fb->f);
 
@@ -390,7 +398,11 @@ Flow *FlowGetFlowFromHash (Packet *p)
     if (fb->f == NULL) {
         f = fb->f = FlowGetNew(p);
         if (f == NULL) {
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&fb->s);
+#else
             SCSpinUnlock(&fb->s);
+#endif
             FlowHashCountUpdate;
             return NULL;
         }
@@ -404,7 +416,11 @@ Flow *FlowGetFlowFromHash (Packet *p)
 
         FlowRequeue(f, NULL, &flow_new_q[f->protomap], 1);
 
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&fb->s);
+#else
         SCSpinUnlock(&fb->s);
+#endif
         FlowHashCountUpdate;
         return f;
     }
@@ -425,7 +441,11 @@ Flow *FlowGetFlowFromHash (Packet *p)
             if (f == NULL) {
                 f = pf->hnext = FlowGetNew(p);
                 if (f == NULL) {
+#ifdef __tile__
+                    tmc_spin_queued_mutex_unlock(&fb->s);
+#else
                     SCSpinUnlock(&fb->s);
+#endif
                     FlowHashCountUpdate;
                     return NULL;
                 }
@@ -442,7 +462,11 @@ Flow *FlowGetFlowFromHash (Packet *p)
 
                 FlowRequeue(f, NULL, &flow_new_q[f->protomap], 1);
 
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&fb->s);
+#else
                 SCSpinUnlock(&fb->s);
+#endif
                 FlowHashCountUpdate;
                 return f;
             }
@@ -460,8 +484,13 @@ Flow *FlowGetFlowFromHash (Packet *p)
 
                 /* found our flow, lock & return */
                 FlowIncrUsecnt(f);
+#ifdef __tile__
+                tmc_spin_queued_mutex_lock(&f->m);
+                tmc_spin_queued_mutex_unlock(&fb->s);
+#else
                 SCMutexLock(&f->m);
                 SCSpinUnlock(&fb->s);
+#endif
                 FlowHashCountUpdate;
                 return f;
             }
@@ -470,8 +499,13 @@ Flow *FlowGetFlowFromHash (Packet *p)
 
     /* lock & return */
     FlowIncrUsecnt(f);
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&f->m);
+    tmc_spin_queued_mutex_unlock(&fb->s);
+#else
     SCMutexLock(&f->m);
     SCSpinUnlock(&fb->s);
+#endif
     FlowHashCountUpdate;
     return f;
 }

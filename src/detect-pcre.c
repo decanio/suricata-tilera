@@ -202,7 +202,11 @@ int DetectPcreALDoMatchMethod(DetectEngineThreadCtx *det_ctx, Signature *s,
     DetectPcreData *pe = (DetectPcreData *)m->ctx;
 
     /* define ptr & len */
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&f->m);
+#else
     SCMutexLock(&f->m);
+#endif
     SCLogDebug("got lock %p", &f->m);
 
     HtpState *htp_state = (HtpState *)state;
@@ -276,7 +280,11 @@ int DetectPcreALDoMatchMethod(DetectEngineThreadCtx *det_ctx, Signature *s,
     }
 
 end:
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&f->m);
+#else
     SCMutexUnlock(&f->m);
+#endif
     SCLogDebug("released lock %p", &f->m);
 
     SCReturnInt(toret);
@@ -312,7 +320,11 @@ int DetectPcreALDoMatchCookie(DetectEngineThreadCtx *det_ctx, Signature *s,
     DetectPcreData *pe = (DetectPcreData *)m->ctx;
 
     /* define ptr & len */
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&f->m);
+#else
     SCMutexLock(&f->m);
+#endif
     SCLogDebug("got lock %p", &f->m);
 
     HtpState *htp_state = (HtpState *)state;
@@ -402,7 +414,11 @@ int DetectPcreALDoMatchCookie(DetectEngineThreadCtx *det_ctx, Signature *s,
     }
 
 end:
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&f->m);
+#else
     SCMutexUnlock(&f->m);
+#endif
     SCLogDebug("released lock %p", &f->m);
 
     SCReturnInt(toret);

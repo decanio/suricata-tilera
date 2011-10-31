@@ -126,7 +126,11 @@ int DetectSslVersionMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
         SCReturnInt(0);
     }
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&f->m);
+#else
     SCMutexLock(&f->m);
+#endif
 
     int ret = 0;
     uint16_t ver = 0;
@@ -168,7 +172,11 @@ int DetectSslVersionMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
             break;
     }
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&f->m);
+#else
     SCMutexUnlock(&f->m);
+#endif
 
     SCReturnInt(ret ^ ((ssl->data[sig_ver].flags & DETECT_SSL_VERSION_NEGATED) ? 1 : 0));
 }

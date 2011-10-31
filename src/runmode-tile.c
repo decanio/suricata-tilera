@@ -57,6 +57,7 @@
 
 #ifdef __tilegx__
 
+#define COMBINE_RESPOND_REJECT_AND_OUTPUT
 /*
  * runmode support for tilegx
  */
@@ -94,7 +95,9 @@ void RunModeIdsTileMpipeRegister(void)
 static char pickup_queue[MAX_MPIPE_PIPES][32];
 static char stream_queue[MAX_MPIPE_PIPES][32];
 static char verdict_queue[MAX_MPIPE_PIPES][32];
+#ifndef COMBINE_RESPOND_REJECT_AND_OUTPUT
 static char alert_queue[MAX_MPIPE_PIPES][32];
+#endif
 
 /**
  * \brief RunModeIdsTileMpipeAuto set up the following thread packet handlers:
@@ -270,7 +273,6 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
                 cpu++;
         }
 
-#define COMBINE_RESPOND_REJECT_AND_OUTPUT
 #ifdef COMBINE_RESPOND_REJECT_AND_OUTPUT
         snprintf(tname, sizeof(tname), "RR & Output%d", pipe+1);
         thread_name = SCStrdup(tname);

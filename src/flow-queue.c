@@ -46,8 +46,13 @@ FlowQueue *FlowQueueNew() {
 FlowQueue *FlowQueueInit (FlowQueue *q) {
     if (q != NULL) {
         memset(q, 0, sizeof(FlowQueue));
+#ifdef __tile__
+        tmc_spin_queued_mutex_init(&q->mutex_q);
+        q->cond_q = 0;
+#else
         SCMutexInit(&q->mutex_q, NULL);
         SCCondInit(&q->cond_q, NULL);
+#endif
     }
     return q;
 }
@@ -58,8 +63,11 @@ FlowQueue *FlowQueueInit (FlowQueue *q) {
  *  \param q the flow queue to destroy
  */
 void FlowQueueDestroy (FlowQueue *q) {
+#ifdef __tile__
+#else
     SCMutexDestroy(&q->mutex_q);
     SCCondDestroy(&q->cond_q);
+#endif
 }
 
 void FlowEnqueue (FlowQueue *q, Flow *f) {
@@ -81,11 +89,19 @@ void FlowEnqueue (FlowQueue *q, Flow *f) {
 }
 
 Flow *FlowDequeue (FlowQueue *q) {
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&q->mutex_q);
+#else
     SCMutexLock(&q->mutex_q);
+#endif
 
     Flow *f = q->bot;
     if (f == NULL) {
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&q->mutex_q);
+#else
         SCMutexUnlock(&q->mutex_q);
+#endif
         return NULL;
     }
 
@@ -104,7 +120,11 @@ Flow *FlowDequeue (FlowQueue *q) {
     f->lnext = NULL;
     f->lprev = NULL;
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&q->mutex_q);
+#else
     SCMutexUnlock(&q->mutex_q);
+#endif
     return f;
 }
 
@@ -126,7 +146,11 @@ void FlowRequeue(Flow *f, FlowQueue *srcq, FlowQueue *dstq, uint8_t need_srclock
 
     if (srcq != NULL) {
         if (need_srclock == 1) {
+#ifdef __tile__
+            tmc_spin_queued_mutex_lock(&srcq->mutex_q);
+#else
             SCMutexLock(&srcq->mutex_q);
+#endif
         }
         /* remove from old queue */
         if (srcq->top == f)
@@ -145,13 +169,21 @@ void FlowRequeue(Flow *f, FlowQueue *srcq, FlowQueue *dstq, uint8_t need_srclock
 
         /* don't unlock if src and dst are the same */
         if (srcq != dstq && need_srclock == 1) {
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&srcq->mutex_q);
+#else
             SCMutexUnlock(&srcq->mutex_q);
+#endif
         }
     }
 
     /* now put it in dst */
     if (srcq != dstq) {
+#ifdef __tile__
+        tmc_spin_queued_mutex_lock(&dstq->mutex_q);
+#else
         SCMutexLock(&dstq->mutex_q);
+#endif
     }
 
     /* add to new queue (append) */
@@ -169,6 +201,10 @@ void FlowRequeue(Flow *f, FlowQueue *srcq, FlowQueue *dstq, uint8_t need_srclock
         dstq->dbg_maxlen = dstq->len;
 #endif /* DBG_PERF */
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&dstq->mutex_q);
+#else
     SCMutexUnlock(&dstq->mutex_q);
+#endif
 }
 

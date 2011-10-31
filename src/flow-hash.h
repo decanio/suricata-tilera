@@ -31,7 +31,11 @@
 typedef struct FlowBucket_ {
     Flow *f;
 //    SCMutex m;
+#ifdef __tile__
+    tmc_spin_queued_mutex_t s;
+#else
     SCSpinlock s;
+#endif
 } FlowBucket;
 
 /* prototypes */

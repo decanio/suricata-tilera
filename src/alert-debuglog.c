@@ -209,7 +209,11 @@ TmEcode AlertDebugLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq
         p->flowflags & FLOW_PKT_TOCLIENT ? "TRUE" : "FALSE");
 
     if (p->flow != NULL) {
+#ifdef __tile__
+        tmc_spin_queued_mutex_lock(&p->flow->m);
+#else
         SCMutexLock(&p->flow->m);
+#endif
         CreateTimeString(&p->flow->startts, timebuf, sizeof(timebuf));
         fprintf(aft->file_ctx->fp, "FLOW Start TS:     %s\n",timebuf);
 #ifdef DEBUG
@@ -231,7 +235,11 @@ TmEcode AlertDebugLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq
                 (p->flow->alproto != ALPROTO_UNKNOWN) ? "TRUE" : "FALSE", p->flow->alproto);
         AlertDebugLogFlowVars(aft, p);
         AlertDebugLogFlowBits(aft, p);
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&p->flow->m);
+#else
         SCMutexUnlock(&p->flow->m);
+#endif
     }
 
     AlertDebugLogPktVars(aft, p);
@@ -312,7 +320,11 @@ TmEcode AlertDebugLogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq
         p->flowflags & FLOW_PKT_TOCLIENT ? "TRUE" : "FALSE");
 
     if (p->flow != NULL) {
+#ifdef __tile__
+        tmc_spin_queued_mutex_lock(&p->flow->m);
+#else
         SCMutexLock(&p->flow->m);
+#endif
         CreateTimeString(&p->flow->startts, timebuf, sizeof(timebuf));
         fprintf(aft->file_ctx->fp, "FLOW Start TS:     %s\n",timebuf);
 #ifdef DEBUG
@@ -334,7 +346,11 @@ TmEcode AlertDebugLogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq
                 (p->flow->alproto != ALPROTO_UNKNOWN) ? "TRUE" : "FALSE", p->flow->alproto);
         AlertDebugLogFlowVars(aft, p);
         AlertDebugLogFlowBits(aft, p);
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&p->flow->m);
+#else
         SCMutexUnlock(&p->flow->m);
+#endif
     }
 
     AlertDebugLogPktVars(aft, p);

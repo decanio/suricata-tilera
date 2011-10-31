@@ -3750,9 +3750,17 @@ TmEcode StreamTcp (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Packe
 
     PACKET_PROFILING_APP_RESET(&stt->ra_ctx->dp_ctx);
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&p->flow->m);
+#else
     SCMutexLock(&p->flow->m);
+#endif
     ret = StreamTcpPacket(tv, p, stt, pq);
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&p->flow->m);
+#else
     SCMutexUnlock(&p->flow->m);
+#endif
 
     //if (ret)
       //  return TM_ECODE_FAILED;
