@@ -60,6 +60,10 @@
 #define CPU_ZERO(new_mask) ((*(new_mask)).affinity_tag = THREAD_AFFINITY_TAG_NULL)
 #endif /* OS_FREEBSD */
 
+#ifdef __tilegx__
+#include "source-mpipe.h"
+#endif
+
 /* prototypes */
 static int SetCPUAffinity(uint16_t cpu);
 
@@ -166,13 +170,21 @@ void *TmThreadsSlot1NoIn(void *td)
 
         /* handle post queue */
         if (s->slot_post_pq.top != NULL) {
+#ifdef __tile__
+            tmc_spin_queued_mutex_lock(&s->slot_post_pq.mutex_q);
+#else
             SCMutexLock(&s->slot_post_pq.mutex_q);
+#endif
             while (s->slot_post_pq.top != NULL) {
                 Packet *extra_p = PacketDequeue(&s->slot_post_pq);
                 if (extra_p != NULL)
                     tv->tmqh_out(tv, extra_p);
             }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&s->slot_post_pq.mutex_q);
+#else
             SCMutexUnlock(&s->slot_post_pq.mutex_q);
+#endif
         }
 
         if (TmThreadsCheckFlag(tv, THV_KILL)) {
@@ -373,9 +385,17 @@ void *TmThreadsSlot1(void *td)
         }
     }
     memset(&s->slot_pre_pq, 0, sizeof(PacketQueue));
+#ifdef __tile__
+    tmc_spin_queued_mutex_init(&s->slot_pre_pq.mutex_q);
+#else
     SCMutexInit(&s->slot_pre_pq.mutex_q, NULL);
+#endif
     memset(&s->slot_post_pq, 0, sizeof(PacketQueue));
+#ifdef __tile__
+    tmc_spin_queued_mutex_init(&s->slot_post_pq.mutex_q);
+#else
     SCMutexInit(&s->slot_post_pq.mutex_q, NULL);
+#endif
 
     TmThreadsSetFlag(tv, THV_INIT_DONE);
 #ifdef __tilegx__
@@ -414,7 +434,11 @@ void *TmThreadsSlot1(void *td)
             tv->tmqh_out(tv, p);
         }
         if (s->slot_post_pq.top != NULL) {
+#ifdef __tile__
+            tmc_spin_queued_mutex_lock(&s->slot_post_pq.mutex_q);
+#else
             SCMutexLock(&s->slot_post_pq.mutex_q);
+#endif
             while (s->slot_post_pq.top != NULL) {
                 /* handle new packets from this func */
                 Packet *extra_p = PacketDequeue(&s->slot_post_pq);
@@ -422,7 +446,11 @@ void *TmThreadsSlot1(void *td)
                     tv->tmqh_out(tv, extra_p);
                 }
             }
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&s->slot_post_pq.mutex_q);
+#else
             SCMutexUnlock(&s->slot_post_pq.mutex_q);
+#endif
         }
 
         if (TmThreadsCheckFlag(tv, THV_KILL)) {
@@ -568,9 +596,17 @@ void *TmThreadsSlotPktAcqLoop(void *td) {
             }
         }
         memset(&slot->slot_pre_pq, 0, sizeof(PacketQueue));
+#ifdef __tile__
+        tmc_spin_queued_mutex_init(&slot->slot_pre_pq.mutex_q);
+#else
         SCMutexInit(&slot->slot_pre_pq.mutex_q, NULL);
+#endif
         memset(&slot->slot_post_pq, 0, sizeof(PacketQueue));
+#ifdef __tile__
+        tmc_spin_queued_mutex_init(&slot->slot_post_pq.mutex_q);
+#else
         SCMutexInit(&slot->slot_post_pq.mutex_q, NULL);
+#endif
     }
 
     TmThreadsSetFlag(tv, THV_INIT_DONE);
@@ -648,9 +684,17 @@ void *TmThreadsSlotVar(void *td)
             }
         }
         memset(&s->slot_pre_pq, 0, sizeof(PacketQueue));
+#ifdef __tile__
+        tmc_spin_queued_mutex_init(&s->slot_pre_pq.mutex_q);
+#else
         SCMutexInit(&s->slot_pre_pq.mutex_q, NULL);
+#endif
         memset(&s->slot_post_pq, 0, sizeof(PacketQueue));
+#ifdef __tile__
+        tmc_spin_queued_mutex_init(&s->slot_post_pq.mutex_q);
+#else
         SCMutexInit(&s->slot_post_pq.mutex_q, NULL);
+#endif
     }
 
     TmThreadsSetFlag(tv, THV_INIT_DONE);
@@ -690,7 +734,11 @@ void *TmThreadsSlotVar(void *td)
         TmSlot *slot;
         for (slot = s; slot != NULL; slot = slot->slot_next) {
             if (slot->slot_post_pq.top != NULL) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_lock(&slot->slot_post_pq.mutex_q);
+#else
                 SCMutexLock(&slot->slot_post_pq.mutex_q);
+#endif
                 while (slot->slot_post_pq.top != NULL) {
                     Packet *extra_p = PacketDequeue(&slot->slot_post_pq);
                     if (extra_p == NULL)
@@ -708,7 +756,11 @@ void *TmThreadsSlotVar(void *td)
                     /* output the packet */
                     tv->tmqh_out(tv, extra_p);
                 } /* while */
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&slot->slot_post_pq.mutex_q);
+#else
                 SCMutexUnlock(&slot->slot_post_pq.mutex_q);
+#endif
             } /* if */
         } /* for */
 
@@ -1131,7 +1183,11 @@ ThreadVars *TmThreadCreate(char *name, char *inq_name, char *inqh_name,
     memset(tv, 0, sizeof(ThreadVars));
 
     SC_ATOMIC_INIT(tv->flags);
+#ifdef __tile__
+    tmc_spin_queued_mutex_init(&tv->sc_perf_pctx.m);
+#else
     SCMutexInit(&tv->sc_perf_pctx.m, NULL);
+#endif
 
     tv->name = name;
     /* default state for every newly created thread */
@@ -1383,9 +1439,26 @@ void TmThreadKillThread(ThreadVars *tv)
         }
         for (i = 0; i < (tv->inq->reader_cnt + tv->inq->writer_cnt); i++) {
             if (tv->inq->q_type == 0)
+#ifdef __tile__
+            {
+                tmc_spin_queued_mutex_lock(&trans_q[tv->inq->id].mutex_q);
+                trans_q[tv->inq->id].cond_q = 1;
+                tmc_spin_queued_mutex_unlock(&trans_q[tv->inq->id].mutex_q);
+
+            }
+#else
                 SCCondSignal(&trans_q[tv->inq->id].cond_q);
+#endif
             else
+#ifdef __tile__
+            {
+                tmc_spin_queued_mutex_lock(&data_queues[tv->inq->id].mutex_q);
+                data_queues[tv->inq->id].cond_q = 1;
+                tmc_spin_queued_mutex_unlock(&data_queues[tv->inq->id].mutex_q);
+            }
+#else
                 SCCondSignal(&data_queues[tv->inq->id].cond_q);
+#endif
         }
 
         /* to be sure, signal more */
@@ -1403,9 +1476,25 @@ void TmThreadKillThread(ThreadVars *tv)
             }
             for (i = 0; i < (tv->inq->reader_cnt + tv->inq->writer_cnt); i++) {
                 if (tv->inq->q_type == 0)
+#ifdef __tile__
+                {
+                    tmc_spin_queued_mutex_lock(&trans_q[tv->inq->id].mutex_q);
+                    trans_q[tv->inq->id].cond_q = 1;
+                    tmc_spin_queued_mutex_unlock(&trans_q[tv->inq->id].mutex_q);
+                }
+#else
                     SCCondSignal(&trans_q[tv->inq->id].cond_q);
+#endif
                 else
+#ifdef __tile__
+                {
+                    tmc_spin_queued_mutex_lock(&data_queues[tv->inq->id].mutex_q);
+                    data_queues[tv->inq->id].cond_q = 1;
+                    tmc_spin_queued_mutex_unlock(&data_queues[tv->inq->id].mutex_q);
+                }
+#else
                     SCCondSignal(&data_queues[tv->inq->id].cond_q);
+#endif
             }
             usleep(100);
         }

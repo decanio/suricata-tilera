@@ -85,7 +85,11 @@ static uint16_t segment_pool_poolsizes_prealloc[segment_pool_num] = {256, 512, 5
                                                             512, 512, 1024,
                                                             1024, 128};
 static Pool *segment_pool[segment_pool_num];
+#ifdef __tile__
+static tmc_spin_queued_mutex_t segment_pool_mutex[segment_pool_num];
+#else
 static SCMutex segment_pool_mutex[segment_pool_num];
+#endif
 #ifdef DEBUG
 static SCMutex segment_pool_cnt_mutex;
 static uint64_t segment_pool_cnt = 0;
@@ -239,11 +243,19 @@ void StreamTcpSegmentReturntoPool(TcpSegment *seg)
     seg->prev = NULL;
 
     uint16_t idx = segment_pool_idx[seg->pool_size];
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&segment_pool_mutex[idx]);
+#else
     SCMutexLock(&segment_pool_mutex[idx]);
+#endif
     PoolReturn(segment_pool[idx], (void *) seg);
     SCLogDebug("segment_pool[%"PRIu16"]->empty_list_size %"PRIu32"",
                idx,segment_pool[idx]->empty_list_size);
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&segment_pool_mutex[idx]);
+#else
     SCMutexUnlock(&segment_pool_mutex[idx]);
+#endif
 
 #ifdef DEBUG
     SCMutexLock(&segment_pool_cnt_mutex);
@@ -297,7 +309,11 @@ int StreamTcpReassembleInit(char quiet)
                                      TcpSegmentPoolAlloc, (void *) &
                                      segment_pool_pktsizes[u16],
                                      TcpSegmentPoolFree);
+#ifdef __tile__
+        tmc_spin_queued_mutex_init(&segment_pool_mutex[u16]);
+#else
         SCMutexInit(&segment_pool_mutex[u16], NULL);
+#endif
     }
 
     uint16_t idx = 0;
@@ -343,7 +359,9 @@ void StreamTcpReassembleFree(char quiet)
         }
         PoolFree(segment_pool[u16]);
 
+#ifndef __tile__
         SCMutexDestroy(&segment_pool_mutex[u16]);
+#endif
     }
 
     StreamMsgQueuesDeinit(quiet);
@@ -3632,14 +3650,22 @@ TcpSegment* StreamTcpGetSegment(ThreadVars *tv, TcpReassemblyThreadCtx *ra_ctx, 
     SCLogDebug("segment_pool_idx %" PRIu32 " for payload_len %" PRIu32 "",
                 idx, len);
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&segment_pool_mutex[idx]);
+#else
     SCMutexLock(&segment_pool_mutex[idx]);
+#endif
     TcpSegment *seg = (TcpSegment *) PoolGet(segment_pool[idx]);
 
     SCLogDebug("segment_pool[%u]->empty_list_size %u, segment_pool[%u]->alloc_"
                "list_size %u, alloc %u", idx, segment_pool[idx]->empty_list_size,
                idx, segment_pool[idx]->alloc_list_size,
                segment_pool[idx]->allocated);
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&segment_pool_mutex[idx]);
+#else
     SCMutexUnlock(&segment_pool_mutex[idx]);
+#endif
 
     SCLogDebug("seg we return is %p", seg);
     if (seg == NULL) {

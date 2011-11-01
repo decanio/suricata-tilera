@@ -32,6 +32,10 @@
 #include "util-debug.h"
 #include "suricata-common.h"
 
+#ifdef __tile__
+#include <arch/cycle.h>
+#endif
+
 /**
  * Ok, if they should use sysconf, check that they have the macro's
  * (syscalls) defined;
@@ -184,6 +188,8 @@ uint64_t UtilCpuGetTicks(void)
     uint32_t a, d;
     __asm__ __volatile__ ("rdtsc" : "=a" (a), "=d" (d));
     val = ((uint64_t)a) | (((uint64_t)d) << 32);
+#elif defined(__tile__)
+    val = get_cycle_count();
 #else
 #warning Using inferior version of UtilCpuGetTicks
     struct timeval now;

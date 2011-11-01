@@ -31,6 +31,10 @@
 
 #include "tm-queuehandlers.h"
 
+#ifdef __tile__
+#include <arch/cycle.h>
+#endif
+
 Packet *TmqhInputSimple(ThreadVars *t);
 void TmqhOutputSimple(ThreadVars *t, Packet *p);
 void TmqhInputSimpleShutdownHandler(ThreadVars *);
@@ -42,26 +46,60 @@ void TmqhSimpleRegister (void) {
     tmqh_table[TMQH_SIMPLE].OutHandler = TmqhOutputSimple;
 }
 
+#ifdef __tile__
+static __attribute__((always_inline)) void
+cycle_pause(unsigned int delay)
+{
+  const unsigned int start = get_cycle_count_low();
+  while (get_cycle_count_low() - start < delay)
+    ;
+}
+#endif
+
 Packet *TmqhInputSimple(ThreadVars *t)
 {
     PacketQueue *q = &trans_q[t->inq->id];
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&q->mutex_q);
+#else
     SCMutexLock(&q->mutex_q);
+#endif
 
     if (q->len == 0) {
         /* if we have no packets in queue, wait... */
+#ifdef __tile__
+        for (;;) {
+            if ((q->len > 0) || q->cond_q)
+                break;
+            tmc_spin_queued_mutex_unlock(&q->mutex_q);
+            cycle_pause(4300);
+            tmc_spin_queued_mutex_lock(&q->mutex_q);
+        }
+#else
         SCCondWait(&q->cond_q, &q->mutex_q);
+#endif
     }
 
     SCPerfSyncCountersIfSignalled(t, 0);
 
     if (q->len > 0) {
         Packet *p = PacketDequeue(q);
+#ifdef __tile__
+        if (q->len == 0) q->cond_q = 0;
+        tmc_spin_queued_mutex_unlock(&q->mutex_q);
+#else
         SCMutexUnlock(&q->mutex_q);
+#endif
         return p;
     } else {
         /* return NULL if we have no pkt. Should only happen on signals. */
+#ifdef __tile__
+        q->cond_q = 0;
+        tmc_spin_queued_mutex_unlock(&q->mutex_q);
+#else
         SCMutexUnlock(&q->mutex_q);
+#endif
         return NULL;
     }
 }
@@ -74,7 +112,11 @@ void TmqhInputSimpleShutdownHandler(ThreadVars *tv) {
     }
 
     for (i = 0; i < (tv->inq->reader_cnt + tv->inq->writer_cnt); i++)
+#ifdef __tile__
+        trans_q[tv->inq->id].cond_q = 1;
+#else
         SCCondSignal(&trans_q[tv->inq->id].cond_q);
+#endif
 }
 
 void TmqhOutputSimple(ThreadVars *t, Packet *p)
@@ -83,10 +125,19 @@ void TmqhOutputSimple(ThreadVars *t, Packet *p)
 
     PacketQueue *q = &trans_q[t->outq->id];
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&q->mutex_q);
+#else
     SCMutexLock(&q->mutex_q);
+#endif
     PacketEnqueue(q, p);
+#ifdef __tile__
+    q->cond_q = 1;
+    tmc_spin_queued_mutex_unlock(&q->mutex_q);
+#else
     SCCondSignal(&q->cond_q);
     SCMutexUnlock(&q->mutex_q);
+#endif
 }
 
 /*******************************Generic-Q-Handlers*****************************/
@@ -110,20 +161,44 @@ void TmqhOutputSimple(ThreadVars *t, Packet *p)
  */
 SCDQGenericQData *TmqhInputSimpleOnQ(SCDQDataQueue *q)
 {
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&q->mutex_q);
+#else
     SCMutexLock(&q->mutex_q);
+#endif
     if (q->len == 0) {
         /* if we have no packets in queue, wait... */
+#ifdef __tile__
+        for (;;) {
+            if ((q->len > 0) || q->cond_q)
+                break;
+            tmc_spin_queued_mutex_unlock(&q->mutex_q);
+            cycle_pause(4300);
+            tmc_spin_queued_mutex_lock(&q->mutex_q);
+        }
+#else
         SCCondWait(&q->cond_q, &q->mutex_q);
+#endif
     }
 
     if (q->len > 0) {
         SCDQGenericQData *data = SCDQDataDequeue(q);
+#ifdef __tile__
+        if (q->len == 0) q->cond_q = 0;
+        tmc_spin_queued_mutex_unlock(&q->mutex_q);
+#else
         SCMutexUnlock(&q->mutex_q);
+#endif
         return data;
     } else {
         /* return NULL if we have no data in the queue. Should only happen
          * on signals. */
+#ifdef __tile__
+        q->cond_q = 0;
+        tmc_spin_queued_mutex_unlock(&q->mutex_q);
+#else
         SCMutexUnlock(&q->mutex_q);
+#endif
         return NULL;
     }
 }
@@ -144,10 +219,19 @@ SCDQGenericQData *TmqhInputSimpleOnQ(SCDQDataQueue *q)
  */
 void TmqhOutputSimpleOnQ(SCDQDataQueue *q, SCDQGenericQData *data)
 {
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&q->mutex_q);
+#else
     SCMutexLock(&q->mutex_q);
+#endif
     SCDQDataEnqueue(q, data);
+#ifdef __tile__
+    q->cond_q = 0;
+    tmc_spin_queued_mutex_unlock(&q->mutex_q);
+#else
     SCCondSignal(&q->cond_q);
     SCMutexUnlock(&q->mutex_q);
+#endif
 
     return;
 }

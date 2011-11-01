@@ -143,7 +143,11 @@ static inline TmEcode TmThreadsSlotProcessPkt(ThreadVars *tv, TmSlot *s, Packet 
         TmSlot *slot = s;
         while (slot != NULL) {
             if (slot->slot_post_pq.top != NULL) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_lock(&slot->slot_post_pq.mutex_q);
+#else
                 SCMutexLock(&slot->slot_post_pq.mutex_q);
+#endif
                 while (slot->slot_post_pq.top != NULL) {
                     Packet *extra_p = PacketDequeue(&slot->slot_post_pq);
                     if (extra_p != NULL) {
@@ -159,7 +163,11 @@ static inline TmEcode TmThreadsSlotProcessPkt(ThreadVars *tv, TmSlot *s, Packet 
                         tv->tmqh_out(tv, extra_p);
                     }
                 } /* while (slot->slot_post_pq.top != NULL) */
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&slot->slot_post_pq.mutex_q);
+#else
                 SCMutexUnlock(&slot->slot_post_pq.mutex_q);
+#endif
             } /* if (slot->slot_post_pq.top != NULL) */
             slot = slot->slot_next;
         } /* while (slot != NULL) */

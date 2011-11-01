@@ -377,10 +377,14 @@ static void SCPerfInitOPCtx(void)
     sc_perf_op_ctx->club_tm = 1;
 
     /* init the lock used by SCPerfClubTMInst */
+#ifdef __tile__
+    tmc_spin_queued_mutex_init(&sc_perf_op_ctx->pctmi_lock);
+#else
     if (SCMutexInit(&sc_perf_op_ctx->pctmi_lock, NULL) != 0) {
         SCLogError(SC_ERR_INITIALIZATION, "error initializing pctmi mutex");
         exit(EXIT_FAILURE);
     }
+#endif
 
     SCReturn;
 }
@@ -531,7 +535,13 @@ static void *SCPerfWakeupThread(void *arg)
 
             if (tv->inq != NULL) {
                 q = &trans_q[tv->inq->id];
+#ifdef __tile__
+                tmc_spin_queued_mutex_lock(&q->mutex_q);
+                q->cond_q = 1;
+                tmc_spin_queued_mutex_unlock(&q->mutex_q);
+#else
                 SCCondSignal(&q->cond_q);
+#endif
             }
 
             tv = tv->next;
@@ -1036,7 +1046,11 @@ static int SCPerfOutputCounterFileIface()
             //    continue;
 
             while (tv != NULL) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_lock(&tv->sc_perf_pctx.m);
+#else
                 SCMutexLock(&tv->sc_perf_pctx.m);
+#endif
                 pc = tv->sc_perf_pctx.head;
 
                 while (pc != NULL) {
@@ -1065,7 +1079,11 @@ static int SCPerfOutputCounterFileIface()
                     pc = pc->next;
                 }
 
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&tv->sc_perf_pctx.m);
+#else
                 SCMutexUnlock(&tv->sc_perf_pctx.m);
+#endif
                 tv = tv->next;
             }
             fflush(sc_perf_op_ctx->fp);
@@ -1083,7 +1101,11 @@ static int SCPerfOutputCounterFileIface()
         for (u = 0; u < pctmi->size; u++) {
             pc_heads[u] = pctmi->head[u]->head;
 
+#ifdef __tile__
+            tmc_spin_queued_mutex_lock(&pctmi->head[u]->m);
+#else
             SCMutexLock(&pctmi->head[u]->m);
+#endif
 
             while(pc_heads[u] != NULL && strcmp(pctmi->tm_name, pc_heads[u]->name->tm_name)) {
                 pc_heads[u] = pc_heads[u]->next;
@@ -1140,7 +1162,11 @@ static int SCPerfOutputCounterFileIface()
         }
 
         for (u = 0; u < pctmi->size; u++)
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&pctmi->head[u]->m);
+#else
             SCMutexUnlock(&pctmi->head[u]->m);
+#endif
 
         pctmi = pctmi->next;
 
@@ -1448,7 +1474,11 @@ int SCPerfAddToClubbedTMTable(char *tm_name, SCPerfContext *pctx)
         return 0;
     }
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&sc_perf_op_ctx->pctmi_lock);
+#else
     SCMutexLock(&sc_perf_op_ctx->pctmi_lock);
+#endif
 
     pctmi = sc_perf_op_ctx->pctmi;
     SCLogDebug("pctmi %p", pctmi);
@@ -1481,7 +1511,11 @@ int SCPerfAddToClubbedTMTable(char *tm_name, SCPerfContext *pctx)
         else
             prev->next = temp;
 
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&sc_perf_op_ctx->pctmi_lock);
+#else
         SCMutexUnlock(&sc_perf_op_ctx->pctmi_lock);
+#endif
         return 1;
     }
 
@@ -1491,7 +1525,11 @@ int SCPerfAddToClubbedTMTable(char *tm_name, SCPerfContext *pctx)
         if (hpctx[u] != pctx)
             continue;
 
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&sc_perf_op_ctx->pctmi_lock);
+#else
         SCMutexUnlock(&sc_perf_op_ctx->pctmi_lock);
+#endif
         return 1;
     }
 
@@ -1512,7 +1550,11 @@ int SCPerfAddToClubbedTMTable(char *tm_name, SCPerfContext *pctx)
     }
     pctmi->size++;
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&sc_perf_op_ctx->pctmi_lock);
+#else
     SCMutexUnlock(&sc_perf_op_ctx->pctmi_lock);
+#endif
 
     return 1;
 }
@@ -1652,7 +1694,11 @@ int SCPerfUpdateCounterArray(SCPerfCounterArray *pca, SCPerfContext *pctx,
 
     pcae = pca->head;
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&pctx->m);
+#else
     SCMutexLock(&pctx->m);
+#endif
     pc = pctx->head;
 
     for (i = 1; i <= pca->size; i++) {
@@ -1671,7 +1717,11 @@ int SCPerfUpdateCounterArray(SCPerfCounterArray *pca, SCPerfContext *pctx,
         }
     }
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&pctx->m);
+#else
     SCMutexUnlock(&pctx->m);
+#endif
 
     pctx->perf_flag = 0;
 

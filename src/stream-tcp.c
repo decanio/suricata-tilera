@@ -101,7 +101,11 @@ static int StreamTcpValidateRst(TcpSession * , Packet *);
 static inline int StreamTcpValidateAck(TcpStream *, Packet *);
 
 static Pool *ssn_pool = NULL;
+#ifdef __tile__
+static tmc_spin_queued_mutex_t ssn_pool_mutex;
+#else
 static SCMutex ssn_pool_mutex;
+#endif
 #ifdef DEBUG
 static uint64_t ssn_pool_cnt = 0; /** counts ssns, protected by ssn_pool_mutex */
 #endif
@@ -214,12 +218,20 @@ void StreamTcpSessionClear(void *ssnptr)
     ssn->toclient_smsg_head = NULL;
 
     memset(ssn, 0, sizeof(TcpSession));
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&ssn_pool_mutex);
+#else
     SCMutexLock(&ssn_pool_mutex);
+#endif
     PoolReturn(ssn_pool, ssn);
 #ifdef DEBUG
     ssn_pool_cnt--;
 #endif
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&ssn_pool_mutex);
+#else
     SCMutexUnlock(&ssn_pool_mutex);
+#endif
 
     SCReturn;
 }
@@ -461,7 +473,11 @@ void StreamTcpInitConfig(char quiet)
         exit(EXIT_FAILURE);
     }
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_init(&ssn_pool_mutex);
+#else
     SCMutexInit(&ssn_pool_mutex, NULL);
+#endif
 
     StreamTcpReassembleInit(quiet);
 
@@ -490,7 +506,9 @@ void StreamTcpFreeConfig(char quiet)
             stream_memuse_max, stream_memuse);
         SCSpinUnlock(&stream_memuse_spinlock);
     }
+#ifndef __tile__
     SCMutexDestroy(&ssn_pool_mutex);
+#endif
 
     SCSpinDestroy(&stream_memuse_spinlock);
 }
@@ -507,13 +525,21 @@ TcpSession *StreamTcpNewSession (Packet *p)
     TcpSession *ssn = (TcpSession *)p->flow->protoctx;
 
     if (ssn == NULL) {
+#ifdef __tile__
+        tmc_spin_queued_mutex_lock(&ssn_pool_mutex);
+#else
         SCMutexLock(&ssn_pool_mutex);
+#endif
         p->flow->protoctx = PoolGet(ssn_pool);
 #ifdef DEBUG
         if (p->flow->protoctx != NULL)
             ssn_pool_cnt++;
 #endif
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&ssn_pool_mutex);
+#else
         SCMutexUnlock(&ssn_pool_mutex);
+#endif
 
         ssn = (TcpSession *)p->flow->protoctx;
         if (ssn == NULL) {

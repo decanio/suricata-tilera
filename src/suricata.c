@@ -274,11 +274,19 @@ void GlobalInits()
     int blah;
     int r = 0;
     for(blah=0;blah<256;blah++) {
+#ifdef __tile__
+        tmc_spin_queued_mutex_init(&trans_q[blah].mutex_q);
+        trans_q[blah].cond_q = 0;
+
+        tmc_spin_queued_mutex_init(&data_queues[blah].mutex_q);
+        data_queues[blah].cond_q = 0;
+#else
         r |= SCMutexInit(&trans_q[blah].mutex_q, NULL);
         r |= SCCondInit(&trans_q[blah].cond_q, NULL);
 
         r |= SCMutexInit(&data_queues[blah].mutex_q, NULL);
         r |= SCCondInit(&data_queues[blah].cond_q, NULL);
+#endif
    }
 
     if (r != 0) {

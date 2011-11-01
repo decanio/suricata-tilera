@@ -490,8 +490,13 @@ typedef struct PacketQueue_ {
 #ifdef DBG_PERF
     uint32_t dbg_maxlen;
 #endif /* DBG_PERF */
+#ifdef __tile__
+    tmc_spin_queued_mutex_t mutex_q;
+    uint32_t cond_q;
+#else
     SCMutex mutex_q;
     SCCondT cond_q;
+#endif
 } PacketQueue;
 
 /** \brief Specific ctx for AL proto detection */
