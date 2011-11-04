@@ -32,13 +32,17 @@ typedef struct FlowQueue_
 {
     Flow *top;
     Flow *bot;
+#ifdef __tile__
+    volatile uint32_t len;
+#else
     uint32_t len;
+#endif
 #ifdef DBG_PERF
     uint32_t dbg_maxlen;
 #endif /* DBG_PERF */
 #ifdef __tile__
+    volatile unsigned cond_q;
     tmc_spin_queued_mutex_t mutex_q;
-    unsigned cond_q;
 #else
     SCMutex mutex_q;
     SCCondT cond_q;

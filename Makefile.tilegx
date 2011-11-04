@@ -22,7 +22,7 @@ endif
 #
 # Local environment configuation.
 # Go ahead and modify these:
-BASE_DIR=/mnt/decanio
+BASE_DIR=/u/tdecanio.sc
 THREADMETER_DIR=$(BASE_DIR)/work/TileGX
 YAML_DIR=$(BASE_DIR)/work/TileGX/yamlgx-0.1.3
 PCAPFILE=$(BASE_DIR)/work/napatech/suricata1.pcap
@@ -135,10 +135,41 @@ TILE_MONITOR_WILDCAT_ARGS = \
   --upload $(YAML_DIR)/src/.libs/libyaml-0.so.2 /lib/libyaml-0.so.2 \
   --upload $(YAML_DIR)/src/.libs/libyaml.so /lib/libyaml.so \
   --upload ./src/.libs/suricata suricata \
-  --run -+- cat /proc/tile/hvconfig -+- \
-  --run -+- cat /proc/meminfo -+- \
   --run -+- mkdir -p /var/log/suricata -+- \
   --run -+- suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe3 -+-
+
+TILE_MONITOR_WILDCAT_PROFILE_ARGS = \
+  --hvx "dataplane=1-35" \
+  --hvd MEM_SPEED=750 \
+  --hvd CPU_SPEED=750 \
+  --huge-pages 100 \
+  --mount $(THREADMETER_DIR)/threatmeter /opt \
+  --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
+  --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
+  --upload $(TILERA_ROOT)/tile/lib/libz.so.1.2.3 /lib/libz.so.1 \
+  --upload $(TILERA_ROOT)/tile/lib/libnl.so.1.1 /lib/libnl.so.1 \
+  --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
+  --upload ./libhtp/htp/.libs/libhtp-0.2.so.1.0.2 /lib/libhtp-0.2.so.1.0.2 \
+  --upload ./libhtp/htp/.libs/libhtp-0.2.so.1 /lib/libhtp-0.2.so.1 \
+  --upload ./libhtp/htp/.libs/libhtp.so /lib/libhtp.so \
+  --upload $(YAML_DIR)/src/.libs/libyaml-0.so.2.0.1 /lib/libyaml-0.so.2.0.1 \
+  --upload $(YAML_DIR)/src/.libs/libyaml-0.so.2 /lib/libyaml-0.so.2 \
+  --upload $(YAML_DIR)/src/.libs/libyaml.so /lib/libyaml.so \
+  --upload ./src/.libs/suricata suricata \
+  --run -+- mkdir -p /var/log/suricata -+- \
+  --launch -+- suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe3 -+- \
+  --run -+- sleep 210 -+- \
+  --profile-init --profile-kernel \
+  --profile-reset \
+  --profile-events '--event=ONE:10000000 --event=INSTRUCTION_BUNDLE:10000000 --event=LOAD_STALL:10000000 --event=INSTRUCTION_STALL:10000000' \
+  --profile-start \
+  --run -+- sleep 300 -+- \
+  --profile-stop \
+  --profile-dump \
+  --profile-capture samples \
+  --profile-analyze samples \
+  --profile-shutdown \
+  --quit
 
 #SIZE = 4x4
 #SIZE = gx36
@@ -173,5 +204,11 @@ run_wc: $(SIM_DEPS) $(IMAGE_FILE)
         $(WILDCAT_ARGS) \
      --debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_ARGS)
+
+prof_wc: $(SIM_DEPS) $(IMAGE_FILE)
+	$(TILE_MONITOR) \
+        $(WILDCAT_ARGS) \
+     --debug-on-crash \
+	$(TILE_MONITOR_WILDCAT_PROFILE_ARGS)
 
 .PHONY: run_sim

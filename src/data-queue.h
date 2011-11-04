@@ -55,7 +55,7 @@ typedef struct SCDQDataQueue_ {
 
 #ifdef __tile__
     tmc_spin_queued_mutex_t mutex_q;
-    uint32_t cond_q;
+    volatile uint32_t cond_q;
 #else
     SCMutex mutex_q;
     SCCondT cond_q;
