@@ -34,9 +34,15 @@
 
 static void TagTimeoutRemove(DetectTagHostCtx *tag_ctx, struct timeval *tv);
 
+#ifdef __tile__
+SC_ATOMIC_DECLARE(int, num_tags);           /**< Atomic counter, to know if we
+                                                 have tagged hosts/sessions,
+                                                 to avoid locking */
+#else
 SC_ATOMIC_DECLARE(unsigned int, num_tags);  /**< Atomic counter, to know if we
                                                  have tagged hosts/sessions,
                                                  to avoid locking */
+#endif
 
 /* Global Ctx for tagging hosts */
 DetectTagHostCtx *tag_ctx = NULL;

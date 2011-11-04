@@ -89,7 +89,11 @@ static inline void RingBufferDoWait(RingBuffer16 *rb) {
     SCCondWait(&rb->wait_cond, &rb->wait_mutex);
     SCMutexUnlock(&rb->wait_mutex);
 #else
+#ifdef __tile__
+    cycle_pause(50);
+#else
     usleep(USLEEP_TIME);
+#endif
 #endif
 }
 

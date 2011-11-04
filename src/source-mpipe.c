@@ -124,18 +124,19 @@ static gxio_mpipe_context_t* context = &context_body;
 //static gxio_mpipe_iqueue_t* iqueue = &iqueue_body;
 static gxio_mpipe_iqueue_t** iqueues;
 
-static unsigned long long tilera_gtod_fast_boot = 0;
-static const unsigned long tilera_gtod_fast_mhz = /* tmc_perf_get_cpu_speed() */ 866000000 / 1000000;
+static unsigned long long tile_gtod_fast_boot = 0;
+static unsigned long tile_gtod_fast_mhz;
 
 static int tilera_fast_gettimeofday(struct timeval *tv) {
     unsigned long long x = get_cycle_count();
-    if(tilera_gtod_fast_boot) {
-        x = tilera_gtod_fast_boot + x/tilera_gtod_fast_mhz;
+    if(tile_gtod_fast_boot) {
+        x = tile_gtod_fast_boot + x/tile_gtod_fast_mhz;
         tv->tv_usec = x%1000000;
         tv->tv_sec = x/1000000;
     } else {
         gettimeofday(tv, 0);
-        tilera_gtod_fast_boot = tv->tv_sec * 1000000LL + tv->tv_usec - x/tilera_gtod_fast_mhz;
+	tile_gtod_fast_mhz = tmc_perf_get_cpu_speed() / 1000000;
+        tile_gtod_fast_boot = tv->tv_sec * 1000000LL + tv->tv_usec - x/tile_gtod_fast_mhz;
     }
     return 0;
 }
@@ -314,7 +315,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 #ifdef MPIPE_DEBUG
     SCLogInfo("ReceiveMpipeThreadInit\n");
 #endif
-    unsigned int num_buffers = 2048;
+    unsigned int num_buffers = 10000 /*2048*/;
     unsigned int num_workers = NUM_TILERA_MPIPE_PIPELINES;
 
     if (initdata == NULL) {

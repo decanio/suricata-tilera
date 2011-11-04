@@ -175,7 +175,11 @@ typedef struct Flow_
      *  On receiving a packet the counter is incremented while the flow
      *  bucked is locked, which is also the case on timeout pruning.
      */
+#ifdef __tile__
+    SC_ATOMIC_DECLARE(unsigned int, use_cnt);
+#else
     SC_ATOMIC_DECLARE(unsigned short, use_cnt);
+#endif
 
     uint32_t probing_parser_toserver_al_proto_masks;
     uint32_t probing_parser_toclient_al_proto_masks;

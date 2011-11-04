@@ -28,10 +28,34 @@
 #include "threads.h"
 #include "util-debug.h"
 
+#ifdef __tile__
+#include <arch/cycle.h>
+#include <tmc/perf.h>
+#endif
+
 static struct timeval current_time = { 0, 0 };
 //static SCMutex current_time_mutex = PTHREAD_MUTEX_INITIALIZER;
 static SCSpinlock current_time_spinlock;
 static char live = TRUE;
+
+#ifdef __tile__
+static unsigned long long tile_gtod_fast_boot = 0;
+static unsigned long tile_gtod_fast_mhz;
+
+static int tile_fast_gettimeofday(struct timeval *tv) {
+    unsigned long long x = get_cycle_count();
+    if(tile_gtod_fast_boot) {
+        x = tile_gtod_fast_boot + (x/tile_gtod_fast_mhz);
+        tv->tv_usec = x%1000000;
+        tv->tv_sec = x/1000000;
+    } else {
+        gettimeofday(tv, 0);
+	tile_gtod_fast_mhz = tmc_perf_get_cpu_speed() / 1000000;
+        tile_gtod_fast_boot = tv->tv_sec * 1000000LL + tv->tv_usec - x/tile_gtod_fast_mhz;
+    }
+    return 0;
+}
+#endif
 
 void TimeInit(void) {
     SCSpinInit(&current_time_spinlock, 0);
@@ -87,7 +111,11 @@ void TimeGet(struct timeval *tv)
         return;
 
     if (live == TRUE) {
+#ifdef __tile__
+        tile_fast_gettimeofday(tv);
+#else
         gettimeofday(tv, NULL);
+#endif
     } else {
         SCSpinLock(&current_time_spinlock);
         tv->tv_sec = current_time.tv_sec;

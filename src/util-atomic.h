@@ -42,13 +42,8 @@
 #define __UTIL_ATOMIC_H__
 
 /* test if we have atomic operations support */
-/* NOTE: tile-gcc for tilegx seems to drop the ball on this */
 #ifndef __GCC_HAVE_SYNC_COMPARE_AND_SWAP_2
-/**
- * #if !defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_2) && !defined(__tilegx__)
-  * NOTE: using atomics doesnt seem stable on tilegx not sure why
- * #warning Using locked atomics
- */
+#ifndef __tilegx__
 /**
  *  \brief wrapper to declare an atomic variable including a (spin) lock
  *         to protect it.
@@ -219,6 +214,240 @@
     } while(0); \
     r; \
 })
+
+#else /* __tilegx__ */
+
+//#warning Using tilegx atomics
+#include <arch/atomic.h>
+
+/**
+ *  \brief wrapper for OS/compiler specific atomic compare and swap (CAS)
+ *         function.
+ *
+ *  \param addr Address of the variable to CAS
+ *  \param tv Test value to compare the value at address against
+ *  \param nv New value to set the variable at addr to
+ *
+ *  \retval 0 CAS failed
+ *  \retval 1 CAS succeeded
+ */
+#define SCAtomicCompareAndSwap(addr, tv, nv) \
+    atomic_bool_compare_and_exchange((addr), (tv), (nv))
+
+/**
+ *  \brief wrapper for OS/compiler specific atomic fetch and add
+ *         function.
+ *
+ *  \param addr Address of the variable to add to
+ *  \param value Value to add to the variable at addr
+ */
+#define SCAtomicFetchAndAdd(addr, value) \
+    atomic_add((addr), (value))
+
+/**
+ *  \brief wrapper for OS/compiler specific atomic fetch and sub
+ *         function.
+ *
+ *  \param addr Address of the variable to add to
+ *  \param value Value to sub from the variable at addr
+ */
+#define SCAtomicFetchAndSub(addr, value) \
+    atomic_sub((addr), (value))
+
+/**
+ *  \brief wrapper for OS/compiler specific atomic fetch and add
+ *         function.
+ *
+ *  \param addr Address of the variable to add to
+ *  \param value Value to add to the variable at addr
+ */
+#define SCAtomicAddAndFetch(addr, value) \
+    (atomic_add((addr), (value)) + (value))
+
+/**
+ *  \brief wrapper for OS/compiler specific atomic fetch and sub
+ *         function.
+ *
+ *  \param addr Address of the variable to add to
+ *  \param value Value to sub from the variable at addr
+ */
+#define SCAtomicSubAndFetch(addr, value) \
+    (atomic_sub((addr), (value)) - (value))
+
+
+
+/**
+ *  \brief wrapper for OS/compiler specific atomic fetch and "AND"
+ *         function.
+ *
+ *  \param addr Address of the variable to AND to
+ *  \param value Value to add to the variable at addr
+ */
+#define SCAtomicFetchAndAnd(addr, value) \
+    atomic_and((addr), (value))
+
+/**
+ *  \brief wrapper for OS/compiler specific atomic fetch and "NAND"
+ *         function.
+ *
+ *  \param addr Address of the variable to NAND to
+ *  \param value Value to add to the variable at addr
+ */
+/*
+#define SCAtomicFetchAndNand(addr, value) \
+    __sync_fetch_and_nand((addr), (value))
+*/
+
+/**
+ *  \brief wrapper for OS/compiler specific atomic fetch and "XOR"
+ *         function.
+ *
+ *  \param addr Address of the variable to XOR to
+ *  \param value Value to add to the variable at addr
+ */
+/*
+#define SCAtomicFetchAndXor(addr, value) \
+    __sync_fetch_and_xor((addr), (value))
+*/
+
+
+/**
+ *  \brief wrapper for OS/compiler specific atomic fetch and or
+ *         function.
+ *
+ *  \param addr Address of the variable to or to
+ *  \param value Value to add to the variable at addr
+ */
+#define SCAtomicFetchAndOr(addr, value) \
+    atomic_or((addr), (value))
+
+/**
+ *  \brief wrapper for declaring atomic variables.
+ *
+ *  \warning Only char, short, int, long, long long and their unsigned
+ *           versions are supported.
+ *
+ *  \param type Type of the variable (char, short, int, long, long long)
+ *  \param name Name of the variable.
+ *
+ *  We just declare the variable here as we rely on atomic operations
+ *  to modify it, so no need for locks.
+ *
+ *  \warning variable is not initialized
+ */
+#define SC_ATOMIC_DECLARE(type, name) \
+    type name ## _tlr_sc_atomic__
+
+/**
+ *  \brief wrapper for referencing an atomic variable declared on another file.
+ *
+ *  \warning Only char, short, int, long, long long and their unsigned
+ *           versions are supported.
+ *
+ *  \param type Type of the variable (char, short, int, long, long long)
+ *  \param name Name of the variable.
+ *
+ *  We just declare the variable here as we rely on atomic operations
+ *  to modify it, so no need for locks.
+ *
+ */
+#define SC_ATOMIC_EXTERN(type, name) \
+    extern type name ## _tlr_sc_atomic__
+
+/**
+ *  \brief wrapper for declaring an atomic variable and initializing it.
+ **/
+#define SC_ATOMIC_DECL_AND_INIT(type, name) \
+    type name ## _tlr_sc_atomic__ = 0
+
+/**
+ *  \brief wrapper for initializing an atomic variable.
+ **/
+#define SC_ATOMIC_INIT(name) \
+    (name ## _tlr_sc_atomic__) = 0
+
+/**
+ *  \brief wrapper for reinitializing an atomic variable.
+ **/
+#define SC_ATOMIC_RESET(name) \
+    (name ## _tlr_sc_atomic__) = 0
+
+/**
+ *  \brief No-op.
+ */
+#define SC_ATOMIC_DESTROY(name)
+
+/**
+ *  \brief add a value to our atomic variable
+ *
+ *  \param name the atomic variable
+ *  \param val the value to add to the variable
+ */
+#define SC_ATOMIC_ADD(name, val) \
+    (void)SCAtomicAddAndFetch(&(name ## _tlr_sc_atomic__), (val))
+
+/**
+ *  \brief sub a value from our atomic variable
+ *
+ *  \param name the atomic variable
+ *  \param val the value to sub from the variable
+ */
+#define SC_ATOMIC_SUB(name, val) \
+    SCAtomicSubAndFetch(&(name ## _tlr_sc_atomic__), (val))
+
+/**
+ *  \brief Bitwise OR a value to our atomic variable
+ *
+ *  \param name the atomic variable
+ *  \param val the value to OR to the variable
+ */
+#define SC_ATOMIC_OR(name, val) \
+    SCAtomicFetchAndOr(&(name ## _tlr_sc_atomic__), (val))
+
+/**
+ *  \brief Bitwise AND a value to our atomic variable
+ *
+ *  \param name the atomic variable
+ *  \param val the value to AND to the variable
+ */
+#define SC_ATOMIC_AND(name, val) \
+    SCAtomicFetchAndAnd(&(name ## _tlr_sc_atomic__), (val))
+
+/**
+ *  \brief Bitwise NAND a value to our atomic variable
+ *
+ *  \param name the atomic variable
+ *  \param val the value to NAND to the variable
+ */
+#define SC_ATOMIC_NAND(name, val) \
+    SCAtomicFetchAndNand(&(name ## _tlr_sc_atomic__), (val))
+
+/**
+ *  \brief Bitwise XOR a value to our atomic variable
+ *
+ *  \param name the atomic variable
+ *  \param val the value to XOR to the variable
+ */
+#define SC_ATOMIC_XOR(name, val) \
+    SCAtomicFetchAndXor(&(name ## _tlr_sc_atomic__), (val))
+
+/**
+ *  \brief atomic Compare and Switch
+ *
+ *  \warning "name" is passed to us as "&var"
+ */
+#define SC_ATOMIC_CAS(name, cmpval, newval) \
+    SCAtomicCompareAndSwap((name ## _tlr_sc_atomic__), cmpval, newval)
+
+/**
+ *  \brief Get the value from the atomic variable.
+ *
+ *  \retval var value
+ */
+#define SC_ATOMIC_GET(name) \
+    (name ## _tlr_sc_atomic__)
+
+#endif /* __tilegx__ */
 
 #else /* we do have support for CAS */
 
