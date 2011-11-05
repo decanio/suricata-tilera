@@ -189,6 +189,12 @@ Packet *PacketDequeue (PacketQueue *q) {
     }
 
     //PacketQueueValidateDebug(q);
+#ifdef __TILEGX_SIMULATION__
+        // enable the profiler on first packet
+    if (!sim_profiler_is_enabled()) {
+        sim_profiler_enable();
+    }
+#endif
     return p;
 }
 
