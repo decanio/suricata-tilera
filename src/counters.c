@@ -1212,6 +1212,9 @@ void SCPerfSpawnThreads(void)
                    "failed");
         exit(EXIT_FAILURE);
     }
+#ifdef __tile__
+    TmThreadSetCPUAffinity(tv_wakeup, 0);
+#endif
     if (TmThreadSpawn(tv_wakeup) != 0) {
         SCLogError(SC_ERR_THREAD_SPAWN, "TmThreadSpawn failed for "
                    "SCPerfWakeupThread");
@@ -1226,6 +1229,9 @@ void SCPerfSpawnThreads(void)
                    "TmThreadCreateMgmtThread failed");
         exit(EXIT_FAILURE);
     }
+#ifdef __tile__
+    TmThreadSetCPUAffinity(tv_mgmt, 0);
+#endif
     if (TmThreadSpawn(tv_mgmt) != 0) {
         SCLogError(SC_ERR_THREAD_SPAWN, "TmThreadSpawn failed for "
                    "SCPerfWakeupThread");

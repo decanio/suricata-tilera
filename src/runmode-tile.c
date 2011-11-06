@@ -99,6 +99,72 @@ static char verdict_queue[MAX_MPIPE_PIPES][32];
 static char alert_queue[MAX_MPIPE_PIPES][32];
 #endif
 
+/*
+ * This stuff is used to map the linear spwaning
+ * of threads to cpu affinity positions on the
+ * cores.  The detect cores have been intentionally
+ * centrally located in an attempt to minimize latency
+ * of hash-for-home cache operations.
+ */
+/* order that threads are spawned */
+static char *linear[] = {
+   "M0", "T0", "D01", "D02", "D03", "D04", "O0",
+   "M1", "T1", "D11", "D12", "D13", "D14", "O1",
+   "M2", "T2", "D21", "D22", "D23", "D24", "O2",
+   "M3", "T3", "D31", "D32", "D33", "D34", "O3",
+   "M4", "T4", "D41", "D42", "D43", "D44", "O4",
+   NULL
+};
+/* thread affinity order */
+static char *mapped[] = {
+   "C",   "O0",  "O1",  "O2",  "O3",  "O4",
+   "D01", "D02", "D03", "D04", "D11", "T4",
+   "D12", "D13", "D14", "D21", "D22", "T3",
+   "D23", "D24", "D31", "D32", "D33", "T2",
+   "D34", "D41", "D42", "D43", "D44", "T1",
+   "M0",  "M1",  "M2",  "M3",  "M4",  "T0",
+   NULL
+};
+
+/* computed mapping */
+static int map[100];
+
+/* build the map */
+static void RunModeTileMpipeMapCores(void)
+{
+    int i, j;
+
+    for (i = 0; linear[i] != NULL; i++) {
+        for (j = 0; mapped[j] != NULL; j++) {
+            if (strcmp(linear[i], mapped[j]) == 0) {
+                map[i] = j;
+                //printf("tile %s at core %d\n", linear[i], j);
+            }
+        }
+    }
+}
+
+/* map from spawn order to affinity */
+static int MapTile(int cpu)
+{
+    return map[cpu-1];
+}
+
+/* unmap a thread so that source-mpipe can calculate ranks */
+int TileMpipeUnmapTile(int cpu)
+{
+    int i;
+    char *s = mapped[cpu];
+    //printf("unmapping %s\n", s);
+    for (i = 0; linear[i] != NULL; i++) {
+        if (strcmp(linear[i], s) == 0) {
+            //printf("found at %d\n", i);
+            return i+1;
+        }
+    }
+    return 0;
+}
+
 /**
  * \brief RunModeIdsTileMpipeAuto set up the following thread packet handlers:
  *        - Receive thread (from iface pcap)
@@ -130,6 +196,9 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
     extern TmEcode ReceiveMpipeInit(void); // move this
 
     SCLogInfo("RunModeIdsTileMpipeAuto\n");
+
+    RunModeTileMpipeMapCores();
+
     RunModeInitialize();
 
     /* Available cpus */
@@ -181,7 +250,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             TmSlotSetFuncAppend(tv_receivempipe,tm_module,(void *)mpipe_devc);
 
            /* set affinity for mpipe */
-           TmThreadSetCPUAffinity(tv_receivempipe, tile++);
+           TmThreadSetCPUAffinity(tv_receivempipe, MapTile(tile++));
 
             if (TmThreadSpawn(tv_receivempipe) != TM_ECODE_OK) {
                 printf("ERROR: TmThreadSpawn failed\n");
@@ -218,7 +287,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
         }
         TmSlotSetFuncAppend(tv_decode1,tm_module,NULL);
 
-        TmThreadSetCPUAffinity(tv_decode1, tile++);
+        TmThreadSetCPUAffinity(tv_decode1, MapTile(tile++));
 
         if (TmThreadSpawn(tv_decode1) != TM_ECODE_OK) {
             printf("ERROR: TmThreadSpawn failed\n");
@@ -253,7 +322,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             }
             TmSlotSetFuncAppend(tv_detect_ncpu,tm_module,(void *)de_ctx);
 
-            TmThreadSetCPUAffinity(tv_detect_ncpu, (int)tile++);
+            TmThreadSetCPUAffinity(tv_detect_ncpu, MapTile(tile++));
 
             char *thread_group_name = SCStrdup("Detect");
             if (thread_group_name == NULL) {
@@ -286,7 +355,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             exit(EXIT_FAILURE);
         }
         SetupOutputs(tv_outputs);
-        TmThreadSetCPUAffinity(tv_outputs, tile++);
+        TmThreadSetCPUAffinity(tv_outputs, MapTile(tile++));
 
         tm_module = TmModuleGetByName("RespondReject");
         if (tm_module == NULL) {
@@ -321,7 +390,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
         }
         TmSlotSetFuncAppend(tv_rreject,tm_module,NULL);
 
-        TmThreadSetCPUAffinity(tv_rreject, tile++);
+        TmThreadSetCPUAffinity(tv_rreject, MapTile(tile++));
 
         if (TmThreadSpawn(tv_rreject) != TM_ECODE_OK) {
             printf("ERROR: TmThreadSpawn failed\n");
@@ -338,7 +407,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
                                         "varslot");
         SetupOutputs(tv_outputs);
 
-        TmThreadSetCPUAffinity(tv_outputs, tile++);
+        TmThreadSetCPUAffinity(tv_outputs, MapTile(tile++));
 
         if (TmThreadSpawn(tv_outputs) != TM_ECODE_OK) {
             printf("ERROR: TmThreadSpawn failed\n");
@@ -379,7 +448,6 @@ static char pickup_queue[MAX_NETIO_PIPES][32];
 static char stream_queue[MAX_NETIO_PIPES][32];
 static char verdict_queue[MAX_NETIO_PIPES][32];
 static char alert_queue[MAX_NETIO_PIPES][32];
-
 
 /**
  * \brief RunModeIdsTileNetioAuto set up the following thread packet handlers:

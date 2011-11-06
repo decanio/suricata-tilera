@@ -242,12 +242,17 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
     ptv->slot = s->slot_next;
     Packet *p = NULL;
     int cpu = tmc_cpus_get_my_cpu();
+#if 1
+    int rank = (TileMpipeUnmapTile(cpu)-1)/TILES_PER_MPIPE_PIPELINE;
+#else
     int rank = (cpu-1)/TILES_PER_MPIPE_PIPELINE;
+#endif
     int result;
 
-printf("ReceiveMpipeLoop(cpu: %d rank: %d)\n", cpu, rank);
 
     SCEnter();
+
+    SCLogInfo("Mpipe cpu: %d rank: %d\n", cpu, rank);
 
     gxio_mpipe_iqueue_t* iqueue = iqueues[rank];
 
@@ -311,7 +316,11 @@ TmEcode MpipeRegisterPipeStage(void *td) {
 TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     SCEnter()
     int cpu = tmc_cpus_get_my_cpu();
+#if 1
+    int rank = (TileMpipeUnmapTile(cpu)-1)/TILES_PER_MPIPE_PIPELINE;
+#else
     int rank = (cpu-1)/TILES_PER_MPIPE_PIPELINE;
+#endif
 #ifdef MPIPE_DEBUG
     SCLogInfo("ReceiveMpipeThreadInit\n");
 #endif
