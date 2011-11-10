@@ -297,7 +297,11 @@ int PacketAlertThreshold(DetectEngineCtx *de_ctx, DetectEngineThreadCtx *det_ctx
     ste.track = td->track;
     ste.seconds = td->seconds;
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&de_ctx->ths_ctx.threshold_table_lock);
+#else
     SCMutexLock(&de_ctx->ths_ctx.threshold_table_lock);
+#endif
     switch(td->type)   {
         case TYPE_LIMIT:
         {
@@ -559,7 +563,11 @@ int PacketAlertThreshold(DetectEngineCtx *de_ctx, DetectEngineThreadCtx *det_ctx
     /* handle timing out entries */
     ThresholdTimeoutRemove(de_ctx, &p->ts);
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&de_ctx->ths_ctx.threshold_table_lock);
+#else
     SCMutexUnlock(&de_ctx->ths_ctx.threshold_table_lock);
+#endif
     SCReturnInt(ret);
 }
 
@@ -667,11 +675,15 @@ void ThresholdHashInit(DetectEngineCtx *de_ctx)
             exit(EXIT_FAILURE);
         }
 
+#ifdef __tile__
+        tmc_spin_queued_mutex_init(&de_ctx->ths_ctx.threshold_table_lock);
+#else
         if (SCMutexInit(&de_ctx->ths_ctx.threshold_table_lock, NULL) != 0) {
             SCLogError(SC_ERR_MEM_ALLOC,
                     "Threshold: Failed to initialize hash table mutex.");
             exit(EXIT_FAILURE);
         }
+#endif
     }
 }
 

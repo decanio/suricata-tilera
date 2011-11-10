@@ -25,6 +25,18 @@
 
 #include "suricata-common.h"
 
+#ifdef __tile__
+#include <arch/cycle.h>
+
+static inline void
+cycle_pause(unsigned int delay)
+{
+  const unsigned int start = get_cycle_count_low();
+  while (get_cycle_count_low() - start < delay)
+    ;
+}
+#endif
+
 #define DETECT_THREADS_PER_NETIO_PIPELINE 4
 #define DETECT_THREADS_PER_MPIPE_PIPELINE 4
 #define TILES_PER_NETIO_PIPELINE (4 + DETECT_THREADS_PER_NETIO_PIPELINE)
@@ -50,5 +62,6 @@ const char *RunModeIdsTileMpipeGetDefaultMode(void);
 
 extern void *tile_pcre_malloc(size_t size);
 extern void tile_pcre_free(void *ptr);
+
 
 #endif /* __RUNMODE_TILE_H__ */

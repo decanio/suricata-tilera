@@ -73,7 +73,7 @@ Packet *TmqhInputSimple(ThreadVars *t)
             if ((q->len > 0) || q->cond_q)
                 break;
             tmc_spin_queued_mutex_unlock(&q->mutex_q);
-            cycle_pause(4300);
+            cycle_pause(2321);
             tmc_spin_queued_mutex_lock(&q->mutex_q);
         }
 #else

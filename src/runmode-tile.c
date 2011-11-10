@@ -129,9 +129,16 @@ static char *mapped[] = {
 /* computed mapping */
 static int map[100];
 
+#define NO_TILE_MAP
+
 /* build the map */
 static void RunModeTileMpipeMapCores(void)
 {
+#ifdef NO_TILE_MAP
+    for (int i = 0; i < 100; i++) {
+        map[i] = i;
+    }
+#else
     int i, j;
 
     for (i = 0; linear[i] != NULL; i++) {
@@ -142,17 +149,25 @@ static void RunModeTileMpipeMapCores(void)
             }
         }
     }
+#endif
 }
 
 /* map from spawn order to affinity */
 static int MapTile(int cpu)
 {
+#ifdef NO_TILE_MAP
+    return cpu;
+#else
     return map[cpu-1];
+#endif
 }
 
 /* unmap a thread so that source-mpipe can calculate ranks */
 int TileMpipeUnmapTile(int cpu)
 {
+#ifdef NO_TILE_MAP
+    return cpu;
+#else
     int i;
     char *s = mapped[cpu];
     //printf("unmapping %s\n", s);
@@ -163,6 +178,7 @@ int TileMpipeUnmapTile(int cpu)
         }
     }
     return 0;
+#endif
 }
 
 /**

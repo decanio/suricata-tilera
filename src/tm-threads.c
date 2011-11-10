@@ -1711,7 +1711,11 @@ void TmThreadInitMC(ThreadVars *tv)
 void TmThreadTestThreadUnPaused(ThreadVars *tv)
 {
     while (TmThreadsCheckFlag(tv, THV_PAUSE)) {
+#ifdef __tile__
+	cycle_pause(10000);
+#else
         usleep(100);
+#endif
 
         if (TmThreadsCheckFlag(tv, THV_KILL))
             break;
@@ -1729,7 +1733,11 @@ void TmThreadTestThreadUnPaused(ThreadVars *tv)
 void TmThreadWaitForFlag(ThreadVars *tv, uint8_t flags)
 {
     while (!TmThreadsCheckFlag(tv, flags)) {
+#ifdef __tile__
+	cycle_pause(10000);
+#else
         usleep(100);
+#endif
     }
 
     return;
@@ -1887,7 +1895,11 @@ TmEcode TmThreadWaitOnThreadInit(void)
                 } else {
                     /* sleep a little to give the thread some
                      * time to finish initialization */
+//#ifdef __tile__
+//                    cycle_pause(10000);
+//#else
                     usleep(100);
+//#endif
                 }
 
                 if (TmThreadsCheckFlag(tv, THV_FAILED)) {

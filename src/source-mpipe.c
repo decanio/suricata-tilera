@@ -171,6 +171,7 @@ void TmModuleDecodeMpipeRegister (void) {
     tmm_modules[TMM_DECODEMPIPE].cap_flags = 0;
 }
 
+/*
 static __attribute__((always_inline)) void
 cycle_pause(unsigned int delay)
 {
@@ -178,6 +179,7 @@ cycle_pause(unsigned int delay)
   while (get_cycle_count_low() - start < delay)
     ;
 }
+*/
 
 void MpipeFreePacket(Packet *p) {
 #ifdef MPIPE_DEBUG
