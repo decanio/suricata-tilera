@@ -284,6 +284,26 @@ extern tmc_mspace global_mspace;
     (void*)ptrmem; \
 })
 
+#if 0
+#define SCThreadMalloc(tv, a) SCMalloc((a))
+#else
+#define SCThreadMalloc(tv, a) ({ \
+    void *ptrmem = NULL; \
+    \
+    ptrmem = tmc_mspace_malloc(tv->mspace, (a)); \
+    if (ptrmem == NULL) { \
+        if (SC_ATOMIC_GET(engine_stage) == SURICATA_INIT) {\
+            SCLogError(SC_ERR_MEM_ALLOC, "SCMalloc failed: %s, while trying " \
+                "to allocate %"PRIuMAX" bytes", strerror(errno), (uintmax_t)(a)); \
+            SCLogError(SC_ERR_FATAL, "Out of memory. The engine cannot be initialized. Exiting..."); \
+            exit(EXIT_FAILURE); \
+        } \
+    } \
+    (void*)ptrmem; \
+})
+#endif
+
+
 #define SCRealloc(x, a) ({ \
     void *ptrmem = NULL; \
     \

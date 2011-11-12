@@ -644,7 +644,7 @@ TmEcode DecodeErfDagThreadInit(ThreadVars *tv, void *initdata, void **data)
    //     SCReturnInt(TM_ECODE_FAILED);
    // memset(dtv, 0, sizeof(DecodeThreadVars));
 
-    dtv = DecodeThreadVarsAlloc();
+    dtv = DecodeThreadVarsAlloc(tv);
 
     if(dtv == NULL)
         SCReturnInt(TM_ECODE_FAILED);

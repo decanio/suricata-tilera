@@ -264,11 +264,11 @@ void AddressDebugPrint(Address *a) {
 }
 
 /** \brief Alloc and setup DecodeThreadVars */
-DecodeThreadVars *DecodeThreadVarsAlloc() {
+DecodeThreadVars *DecodeThreadVarsAlloc(ThreadVars *tv) {
 
     DecodeThreadVars *dtv = NULL;
 
-    if ( (dtv = SCMalloc(sizeof(DecodeThreadVars))) == NULL)
+    if ( (dtv = SCThreadMalloc(tv, sizeof(DecodeThreadVars))) == NULL)
         return NULL;
 
     memset(dtv, 0, sizeof(DecodeThreadVars));

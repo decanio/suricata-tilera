@@ -64,7 +64,11 @@ enum {
 /* queue's between various other threads
  * XXX move to the TmQueue structure later
  */
+#ifdef __tile__
+PacketQueue trans_q[256] __attribute((aligned(64)));
+#else
 PacketQueue trans_q[256];
+#endif
 
 SCDQDataQueue data_queues[256];
 /* memset to zeros, and mutex init! */

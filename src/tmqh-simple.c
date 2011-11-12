@@ -33,6 +33,7 @@
 
 #ifdef __tile__
 #include <arch/cycle.h>
+#include <tmc/mem.h>
 #endif
 
 Packet *TmqhInputSimple(ThreadVars *t);
@@ -47,7 +48,7 @@ void TmqhSimpleRegister (void) {
 }
 
 #ifdef __tile__
-static __attribute__((always_inline)) void
+/* static __attribute__((always_inline))*/ void
 cycle_pause(unsigned int delay)
 {
   const unsigned int start = get_cycle_count_low();
@@ -69,13 +70,22 @@ Packet *TmqhInputSimple(ThreadVars *t)
     if (q->len == 0) {
         /* if we have no packets in queue, wait... */
 #ifdef __tile__
+#if 1
+        do {
+            tmc_spin_queued_mutex_unlock(&q->mutex_q);
+            while ((q->len == 0) && (q->cond_q == 0))
+	        cycle_pause(101);
+            tmc_spin_queued_mutex_lock(&q->mutex_q);
+        } while ((q->len == 0) && (q->cond_q == 0));
+#else
         for (;;) {
             if ((q->len > 0) || q->cond_q)
                 break;
             tmc_spin_queued_mutex_unlock(&q->mutex_q);
-            cycle_pause(2321);
+            cycle_pause(1321);
             tmc_spin_queued_mutex_lock(&q->mutex_q);
         }
+#endif
 #else
         SCCondWait(&q->cond_q, &q->mutex_q);
 #endif
@@ -133,6 +143,7 @@ void TmqhOutputSimple(ThreadVars *t, Packet *p)
     PacketEnqueue(q, p);
 #ifdef __tile__
     q->cond_q = 1;
+    tmc_mem_fence();
     tmc_spin_queued_mutex_unlock(&q->mutex_q);
 #else
     SCCondSignal(&q->cond_q);

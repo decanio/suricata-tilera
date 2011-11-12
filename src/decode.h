@@ -493,11 +493,12 @@ typedef struct PacketQueue_ {
 #ifdef __tile__
     tmc_spin_queued_mutex_t mutex_q;
     volatile uint32_t cond_q;
+} __attribute__((aligned(64))) PacketQueue;
 #else
     SCMutex mutex_q;
     SCCondT cond_q;
-#endif
 } PacketQueue;
+#endif
 
 /** \brief Specific ctx for AL proto detection */
 typedef struct AlpProtoDetectDirectionThread_ {
@@ -782,7 +783,7 @@ Packet *PacketGetFromAlloc(void);
 int PacketCopyData(Packet *p, uint8_t *pktdata, int pktlen);
 int PacketCopyDataOffset(Packet *p, int offset, uint8_t *data, int datalen);
 
-DecodeThreadVars *DecodeThreadVarsAlloc();
+DecodeThreadVars *DecodeThreadVarsAlloc(ThreadVars *tv);
 
 /* decoder functions */
 void DecodeEthernet(ThreadVars *, DecodeThreadVars *, Packet *, uint8_t *, uint16_t, PacketQueue *);

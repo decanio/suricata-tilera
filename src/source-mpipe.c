@@ -334,7 +334,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         SCReturnInt(TM_ECODE_FAILED);
     }
 
-    MpipeThreadVars *ptv = SCMalloc(sizeof(MpipeThreadVars));
+    MpipeThreadVars *ptv = SCThreadMalloc(tv, sizeof(MpipeThreadVars));
     if (ptv == NULL)
         SCReturnInt(TM_ECODE_FAILED);
     memset(ptv, 0, sizeof(MpipeThreadVars));
@@ -518,7 +518,7 @@ TmEcode DecodeMpipeThreadInit(ThreadVars *tv, void *initdata, void **data)
     SCEnter()
     DecodeThreadVars *dtv = NULL;
 
-    dtv = DecodeThreadVarsAlloc();
+    dtv = DecodeThreadVarsAlloc(tv);
 
     if (dtv == NULL)
         SCReturnInt(TM_ECODE_FAILED);

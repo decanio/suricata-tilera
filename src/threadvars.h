@@ -79,6 +79,7 @@ typedef struct ThreadVars_ {
 
 #ifdef __tile__
     uint8_t packetpool;
+    tmc_mspace mspace; /* thread's localy cached memory space */
 #endif
 
     /** queue's */

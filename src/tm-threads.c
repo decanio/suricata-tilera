@@ -77,6 +77,8 @@ SCMutex tv_root_lock = PTHREAD_MUTEX_INITIALIZER;
  * thread encounters a failure.  Defaults to restart the failed thread */
 uint8_t tv_aof = THV_RESTART_THREAD;
 
+void TmThreadExchange(ThreadVars *otv, ThreadVars *ntv, int type);
+
 /**
  * \brief Check if a thread flag is set.
  *
@@ -104,10 +106,38 @@ void TmThreadsUnsetFlag(ThreadVars *tv, uint8_t flag)
     SC_ATOMIC_AND(tv->flags, ~flag);
 }
 
+/**
+ * \brief Clone ThreadVars.  On Tilera new ThreadVars is
+ * cached only on thread's tile and creates an mspace
+ * for future per thread allocations.
+ */
+static ThreadVars *TmCloneThreadVars(ThreadVars *td)
+{
+    ThreadVars *tv;
+
+#ifdef __tile__
+//#if 0
+    tmc_alloc_t attr = TMC_ALLOC_INIT;
+    tmc_alloc_set_home(&attr, TMC_ALLOC_HOME_TASK);
+    td->mspace = tmc_mspace_create_special(64*1024, 0, &attr);
+    tv = SCThreadMalloc(td, sizeof(ThreadVars));
+    if (tv == NULL) {
+        printf("ERror: TmTCloneThreadVars could not clone ThreadVars\n");
+        exit(EXIT_FAILURE);
+    }
+    memcpy(tv, td, sizeof(ThreadVars));
+    TmThreadExchange(td, tv, td->type);
+    SCFree(td);
+#else
+    tv = td;
+#endif
+    return tv;
+}
+
 /* 1 slot functions */
 void *TmThreadsSlot1NoIn(void *td)
 {
-    ThreadVars *tv = (ThreadVars *)td;
+    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
     TmSlot *s = (TmSlot *)tv->tm_slots;
     Packet *p = NULL;
     char run = 1;
@@ -213,7 +243,7 @@ void *TmThreadsSlot1NoIn(void *td)
 
 void *TmThreadsSlot1NoOut(void *td)
 {
-    ThreadVars *tv = (ThreadVars *)td;
+    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
     TmSlot *s = (TmSlot *)tv->tm_slots;
     Packet *p = NULL;
     char run = 1;
@@ -288,7 +318,7 @@ void *TmThreadsSlot1NoOut(void *td)
 
 void *TmThreadsSlot1NoInOut(void *td)
 {
-    ThreadVars *tv = (ThreadVars *)td;
+    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
     TmSlot *s = (TmSlot *)tv->tm_slots;
     char run = 1;
     TmEcode r = TM_ECODE_OK;
@@ -358,7 +388,7 @@ void *TmThreadsSlot1NoInOut(void *td)
 
 void *TmThreadsSlot1(void *td)
 {
-    ThreadVars *tv = (ThreadVars *)td;
+    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
     TmSlot *s = (TmSlot *)tv->tm_slots;
     Packet *p = NULL;
     char run = 1;
@@ -562,7 +592,7 @@ TmEcode TmThreadsSlotVarRun(ThreadVars *tv, Packet *p,
  */
 
 void *TmThreadsSlotPktAcqLoop(void *td) {
-    ThreadVars *tv = (ThreadVars *)td;
+    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
     TmSlot *s = tv->tm_slots;
     char run = 1;
     TmEcode r = TM_ECODE_OK;
@@ -650,7 +680,7 @@ void *TmThreadsSlotPktAcqLoop(void *td) {
  */
 void *TmThreadsSlotVar(void *td)
 {
-    ThreadVars *tv = (ThreadVars *)td;
+    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
     TmSlot *s = (TmSlot *)tv->tm_slots;
     Packet *p = NULL;
     char run = 1;
@@ -1394,6 +1424,67 @@ void TmThreadRemove(ThreadVars *tv, int type)
 
     if (t == tv_root[type])
         tv_root[type] = t->next;;
+    }
+
+    SCMutexUnlock(&tv_root_lock);
+
+    return;
+}
+
+/**
+ * \brief Exchange existing TV in tv_root with a cloned copy
+ *
+ * \param tv   The tv instance to remove from the global tv list.
+ * \param type Holds the type this TV belongs to.
+ */
+void TmThreadExchange(ThreadVars *otv, ThreadVars *ntv, int type)
+{
+    SCMutexLock(&tv_root_lock);
+
+    if (tv_root[type] == NULL) {
+        SCMutexUnlock(&tv_root_lock);
+
+        return;
+    }
+
+    /* find and remove old threadvar */
+    ThreadVars *t = tv_root[type];
+    while (t != otv) {
+        t = t->next;
+    }
+
+    if (t != NULL) {
+        if (t->prev != NULL)
+            t->prev->next = t->next;
+        if (t->next != NULL)
+            t->next->prev = t->prev;
+
+    if (t == tv_root[type])
+        tv_root[type] = t->next;;
+    }
+
+    /* append new threadvar */
+    if (tv_root[type] == NULL) {
+        tv_root[type] = ntv;
+        ntv->next = NULL;
+        ntv->prev = NULL;
+
+        SCMutexUnlock(&tv_root_lock);
+
+        return;
+    }
+
+    t = tv_root[type];
+
+    while (t) {
+        if (t->next == NULL) {
+            t->next = ntv;
+            ntv->prev = t;
+            ntv->next = NULL;
+            break;
+        }
+
+        t = t->next;
     }
 
     SCMutexUnlock(&tv_root_lock);
