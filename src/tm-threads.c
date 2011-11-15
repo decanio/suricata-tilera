@@ -66,6 +66,9 @@
 
 /* prototypes */
 static int SetCPUAffinity(uint16_t cpu);
+#ifdef __tile__
+void *TmThreadsThreadWrap(void *td);
+#endif
 
 /* root of the threadvars list */
 ThreadVars *tv_root[TVT_MAX] = { NULL };
@@ -134,10 +137,19 @@ static ThreadVars *TmCloneThreadVars(ThreadVars *td)
     return tv;
 }
 
+#ifdef __tile__
+void *TmThreadsThreadWrap(void *td)
+{
+    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
+    tmc_sync_barrier_wait(&startup_barrier);
+    return (*tv->tm_func)(tv);
+}
+#endif
+
 /* 1 slot functions */
 void *TmThreadsSlot1NoIn(void *td)
 {
-    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
+    ThreadVars *tv = (ThreadVars *)td;
     TmSlot *s = (TmSlot *)tv->tm_slots;
     Packet *p = NULL;
     char run = 1;
@@ -243,7 +255,7 @@ void *TmThreadsSlot1NoIn(void *td)
 
 void *TmThreadsSlot1NoOut(void *td)
 {
-    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
+    ThreadVars *tv = (ThreadVars *)td;
     TmSlot *s = (TmSlot *)tv->tm_slots;
     Packet *p = NULL;
     char run = 1;
@@ -318,7 +330,7 @@ void *TmThreadsSlot1NoOut(void *td)
 
 void *TmThreadsSlot1NoInOut(void *td)
 {
-    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
+    ThreadVars *tv = (ThreadVars *)td;
     TmSlot *s = (TmSlot *)tv->tm_slots;
     char run = 1;
     TmEcode r = TM_ECODE_OK;
@@ -388,7 +400,7 @@ void *TmThreadsSlot1NoInOut(void *td)
 
 void *TmThreadsSlot1(void *td)
 {
-    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
+    ThreadVars *tv = (ThreadVars *)td;
     TmSlot *s = (TmSlot *)tv->tm_slots;
     Packet *p = NULL;
     char run = 1;
@@ -592,7 +604,7 @@ TmEcode TmThreadsSlotVarRun(ThreadVars *tv, Packet *p,
  */
 
 void *TmThreadsSlotPktAcqLoop(void *td) {
-    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
+    ThreadVars *tv = (ThreadVars *)td;
     TmSlot *s = tv->tm_slots;
     char run = 1;
     TmEcode r = TM_ECODE_OK;
@@ -680,7 +692,7 @@ void *TmThreadsSlotPktAcqLoop(void *td) {
  */
 void *TmThreadsSlotVar(void *td)
 {
-    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
+    ThreadVars *tv = (ThreadVars *)td;
     TmSlot *s = (TmSlot *)tv->tm_slots;
     Packet *p = NULL;
     char run = 1;
@@ -1718,7 +1730,11 @@ TmEcode TmThreadSpawn(ThreadVars *tv)
 
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
+#ifdef __tile__
+    int rc = pthread_create(&tv->t, &attr, TmThreadsThreadWrap, (void *)tv);
+#else
     int rc = pthread_create(&tv->t, &attr, tv->tm_func, (void *)tv);
+#endif
     if (rc) {
         printf("ERROR; return code from pthread_create() is %" PRId32 "\n", rc);
         return TM_ECODE_FAILED;
@@ -1976,6 +1992,10 @@ TmEcode TmThreadWaitOnThreadInit(void)
     uint16_t mgt_num = 0;
     uint16_t ppt_num = 0;
 
+#ifdef __tile__
+    tmc_sync_barrier_wait(&startup_barrier);
+#endif
+
     for (i = 0; i < TVT_MAX; i++) {
         tv = tv_root[i];
         while (tv != NULL) {
@@ -1986,11 +2006,11 @@ TmEcode TmThreadWaitOnThreadInit(void)
                 } else {
                     /* sleep a little to give the thread some
                      * time to finish initialization */
-//#ifdef __tile__
-//                    cycle_pause(10000);
-//#else
+#ifdef __tile__
+                    cycle_pause(10000);
+#else
                     usleep(100);
-//#endif
+#endif
                 }
 
                 if (TmThreadsCheckFlag(tv, THV_FAILED)) {

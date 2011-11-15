@@ -111,6 +111,7 @@ void TmValidateQueueState(void)
 #else
         SCMutexLock(&trans_q[tmqs[i].id].mutex_q);
 #endif
+#ifdef NOTYET
         if (tmqs[i].reader_cnt == 0) {
             printf("Error: Queue \"%s\" doesn't have a reader\n", tmqs[i].name);
             err = TRUE;
@@ -118,6 +119,7 @@ void TmValidateQueueState(void)
             printf("Error: Queue \"%s\" doesn't have a writer\n", tmqs[i].name);
             err = TRUE;
         }
+#endif
 #ifdef __tile__
         tmc_spin_queued_mutex_unlock(&trans_q[tmqs[i].id].mutex_q);
 #else

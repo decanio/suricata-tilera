@@ -3732,6 +3732,10 @@ error:
  */
 static inline int StreamTcpValidateChecksum(Packet *p)
 {
+
+#ifdef __tile__
+    return (p->idesc.cs && p->idesc.csum_seed_val == 0);
+#else
     int ret = 1;
 
     if (p->tcpvars.comp_csum == -1) {
@@ -3752,8 +3756,8 @@ static inline int StreamTcpValidateChecksum(Packet *p)
         ret = 0;
         SCLogDebug("Checksum of received packet %p is invalid",p);
     }
-
     return ret;
+#endif
 }
 
 TmEcode StreamTcp (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq)

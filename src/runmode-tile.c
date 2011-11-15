@@ -325,7 +325,11 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             ThreadVars *tv_detect_ncpu =
                 TmThreadCreatePacketHandler(thread_name,
                                             stream_queue[pipe],"simple", 
+#if 1
                                             verdict_queue[pipe],"simple",
+#else
+                                            "packetpool", "packetpool", 
+#endif
                                             "1slot");
             if (tv_detect_ncpu == NULL) {
                 printf("ERROR: TmThreadsCreate failed\n");
@@ -370,7 +374,6 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             printf("ERROR: TmThreadsCreate failed\n");
             exit(EXIT_FAILURE);
         }
-        SetupOutputs(tv_outputs);
         TmThreadSetCPUAffinity(tv_outputs, MapTile(tile++));
 
         tm_module = TmModuleGetByName("RespondReject");
@@ -379,6 +382,8 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             exit(EXIT_FAILURE);
         }
         TmSlotSetFuncAppend(tv_outputs,tm_module,NULL);
+
+        SetupOutputs(tv_outputs);
 
         if (TmThreadSpawn(tv_outputs) != TM_ECODE_OK) {
             printf("ERROR: TmThreadSpawn failed\n");

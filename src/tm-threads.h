@@ -28,6 +28,9 @@
 #include "tmqh-packetpool.h"
 #include "tm-threads-common.h"
 #include "tm-modules.h"
+#ifdef __tile__
+#include <tmc/sync.h>
+#endif
 
 typedef struct TmSlot_ {
     /* the TV holding this slot */
@@ -70,6 +73,10 @@ typedef struct TmSlot_ {
 extern ThreadVars *tv_root[TVT_MAX];
 
 extern SCMutex tv_root_lock;
+
+#ifdef __tile__
+extern tmc_sync_barrier_t startup_barrier;
+#endif
 
 void TmSlotSetFuncAppend(ThreadVars *, TmModule *, void *);
 TmSlot *TmSlotGetSlotForTM(int);

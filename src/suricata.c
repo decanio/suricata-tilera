@@ -105,6 +105,9 @@
 
 #include "source-af-packet.h"
 
+#ifdef __tile__
+#include <tmc/cpus.h>
+#endif
 #ifdef __tilegx__
 #include "source-mpipe.h"
 #elif defined(__tile__)
@@ -211,6 +214,7 @@ int sc_set_caps;
 #ifdef __tile__
 /** Tilera used a separate mspace to utilize huge pages and hash for home. */
 tmc_mspace global_mspace;
+tmc_sync_barrier_t startup_barrier = TMC_SYNC_BARRIER_INIT((NUM_TILERA_PIPELINES * TILES_PER_PIPELINE) + 4);
 #endif
 
 int RunmodeIsUnittests(void) {
@@ -626,6 +630,7 @@ int main(int argc, char **argv)
     SCMallocInit();
 
 printf("DEBUG: &trans_q %p size %d\n", trans_q, sizeof(PacketQueue));
+printf("DEBUG: Packet size %d offsetof(next) %d offsetof(prev) %d\n", sizeof(Packet), offsetof(Packet, next), offsetof(Packet, prev));
 
     /* initialize the logging subsys */
     SCLogInitLogModule(NULL);
@@ -1450,13 +1455,28 @@ printf("DEBUG: &trans_q %p size %d\n", trans_q, sizeof(PacketQueue));
     /* pre allocate packets */
     SCLogDebug("preallocating packets... packet size %" PRIuMAX "", (uintmax_t)SIZE_OF_PACKET);
     int i = 0;
+#ifdef __tile__
+    {
+#if 0
+    Packet *p = SCMallocAligned(max_pending_packets * SIZE_OF_PACKET, 64);
+#else
+    Packet *p = SCMalloc(max_pending_packets * SIZE_OF_PACKET);
+#endif
+    if (p == NULL) {
+        SCLogError(SC_ERR_FATAL, "Fatal error encountered while allocating a packet. Exiting...");
+        exit(EXIT_FAILURE);
+    }
+printf("DEBUG: Packet base %p\n", p);
+#endif
     for (i = 0; i < max_pending_packets; i++) {
         /* XXX pkt alloc function */
+#ifndef __tile__
         Packet *p = SCMalloc(SIZE_OF_PACKET);
         if (p == NULL) {
             SCLogError(SC_ERR_FATAL, "Fatal error encountered while allocating a packet. Exiting...");
             exit(EXIT_FAILURE);
         }
+#endif
         PACKET_INITIALIZE(p);
 #ifdef __tilegx__
 	 p->pool = i % NUM_TILERA_MPIPE_PIPELINES;
@@ -1465,7 +1485,13 @@ printf("DEBUG: &trans_q %p size %d\n", trans_q, sizeof(PacketQueue));
 #endif
 
         PacketPoolStorePacket(p);
+#ifdef __tile__
+        p += 1;
+#endif
     }
+#ifdef __tile__
+    }
+#endif
     SCLogInfo("preallocated %"PRIiMAX" packets. Total memory %"PRIuMAX"",
         max_pending_packets, (uintmax_t)(max_pending_packets*SIZE_OF_PACKET));
 
@@ -1574,6 +1600,11 @@ printf("DEBUG: &trans_q %p size %d\n", trans_q, sizeof(PacketQueue));
             }
         }
     }
+
+#ifdef __tile__
+printf("DEBUG: setting affinity for main\n");
+    tmc_cpus_set_my_cpu(0);
+#endif
 
     RunModeDispatch(run_mode, runmode_custom_mode, de_ctx);
 

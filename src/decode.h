@@ -475,7 +475,12 @@ typedef struct Packet_
 #ifdef PROFILING
     PktProfiling profile;
 #endif
+//#ifdef __tile__
+#if 0
+} __attribute__((aligned(64))) Packet;
+#else
 } Packet;
+#endif
 
 #define DEFAULT_PACKET_SIZE (1500 + ETHERNET_HEADER_LEN)
 /* storage: maximum ip packet size + link header */

@@ -68,9 +68,11 @@
                    (WHAT), __val, gxio_strerror(__val));        \
   } while (0)
 
+#define min(a,b) (((a) < (b)) ? (a) : (b))
+
 extern uint8_t suricata_ctl_flags;
 extern unsigned int MpipeNumPipes;
-extern int max_pending_packets;
+extern intmax_t max_pending_packets;
 
 /** storage for mpipe device names */
 typedef struct MpipeDevice_ {
@@ -326,7 +328,8 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 #ifdef MPIPE_DEBUG
     SCLogInfo("ReceiveMpipeThreadInit\n");
 #endif
-    unsigned int num_buffers = 10000 /*2048*/;
+    unsigned int num_buffers = 10000;
+    unsigned int total_buffers = max_pending_packets;
     unsigned int num_workers = NUM_TILERA_MPIPE_PIPELINES;
 
     if (initdata == NULL) {
@@ -337,12 +340,11 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     MpipeThreadVars *ptv = SCThreadMalloc(tv, sizeof(MpipeThreadVars));
     if (ptv == NULL)
         SCReturnInt(TM_ECODE_FAILED);
+
     memset(ptv, 0, sizeof(MpipeThreadVars));
 
     ptv->tv = tv;
     ptv->datalink = LINKTYPE_ETHERNET;
-
-    SCLogInfo("using interface %s", (char *)initdata);
 
     int result;
     char *link_name = (char *)initdata;
@@ -355,6 +357,11 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     VERIFY(result, "tmc_cpus_set_my_cpu()");
 
     if (rank == 0) {
+
+        SCLogInfo("using interface %s", (char *)initdata);
+
+        SCLogInfo("Total mpipe %d packet buffers", total_buffers);
+
         /* Start the driver. */
         result = gxio_mpipe_init(context, gxio_mpipe_link_instance(link_name));
         VERIFY(result, "gxio_mpipe_init()");
@@ -405,18 +412,18 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
         void* mem = page;
 
-        // Allocate a NotifGroup.
+        /* Allocate a NotifGroup. */
         result = gxio_mpipe_alloc_notif_groups(context, 1, 0, 0);
         VERIFY(result, "gxio_mpipe_alloc_notif_groups()");
         int group = result;
 
-        // Allocate a bucket.
+        /* Allocate a bucket. */
         int num_buckets = 1024;
         result = gxio_mpipe_alloc_buckets(context, num_buckets, 0, 0);
         VERIFY(result, "gxio_mpipe_alloc_buckets()");
         int bucket = result;
 
-        // Init group and buckets, preserving packet order among flows.
+        /* Init group and buckets, preserving packet order among flows. */
         gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_DYNAMIC_FLOW_AFFINITY;
         result = gxio_mpipe_init_notif_group_and_buckets(context, group,
                                                    ring, num_workers,
@@ -431,7 +438,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
         // Initialize the buffer stack.
         ALIGN(mem, 0x10000);
-        size_t stack_bytes = gxio_mpipe_calc_buffer_stack_bytes(num_buffers);
+        size_t stack_bytes = gxio_mpipe_calc_buffer_stack_bytes(total_buffers);
         gxio_mpipe_buffer_size_enum_t buf_size = GXIO_MPIPE_BUFFER_SIZE_1664;
         result = gxio_mpipe_init_buffer_stack(context, stack, buf_size,
                                               mem, stack_bytes, 0);
@@ -440,22 +447,55 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
         ALIGN(mem, 0x10000);
 
-        // Register the entire huge page of memory which contains all the buffers.
+        /* Register the entire huge page of memory which contains all the buffers. */
         result = gxio_mpipe_register_page(context, stack, page, page_size, 0);
         VERIFY(result, "gxio_mpipe_register_page()");
 
-        // Push some buffers onto the stack.
+        num_buffers = ((page + page_size) - mem) / 1664;
+
+    	SCLogInfo("Adding %d packet buffers", num_buffers);
+
+        /* Push some buffers onto the stack. */
         for (unsigned int i = 0; i < num_buffers; i++)
         {
             gxio_mpipe_push_buffer(context, stack, mem);
             mem += 1664;
         }
 
-        // Paranoia.
+        /* Paranoia. */
         assert(mem <= page + page_size);
 
+	total_buffers -= num_buffers;
 
-        // Register for packets.
+	num_buffers = min(total_buffers, page_size / 1664);
+
+	while (total_buffers) {
+
+            SCLogInfo("Adding additional %d packet buffers", num_buffers);
+
+            page = tmc_alloc_map(&alloc, page_size);
+            assert(page);
+
+            mem = page;
+
+            /* Register the huge page of memory which contains the buffers. */
+            result = gxio_mpipe_register_page(context, stack, page, page_size, 0);
+            VERIFY(result, "gxio_mpipe_register_page()");
+
+            /* Push some buffers onto the stack. */
+            for (unsigned int i = 0; i < num_buffers; i++)
+            {
+                gxio_mpipe_push_buffer(context, stack, mem);
+                mem += 1664;
+            }
+            /* Paranoia. */
+            assert(mem <= page + page_size);
+
+            total_buffers -= num_buffers;
+            num_buffers = min(total_buffers, num_buffers);
+	}
+
+        /* Register for packets. */
         gxio_mpipe_rules_t rules;
         gxio_mpipe_rules_init(&rules, context);
         gxio_mpipe_rules_begin(&rules, bucket, num_buckets, NULL);
