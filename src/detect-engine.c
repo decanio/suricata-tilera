@@ -398,15 +398,18 @@ TmEcode DetectEngineThreadCtxInit(ThreadVars *tv, void *initdata, void **data) {
 
     det_ctx->de_ctx = de_ctx;
 
+    /* this detection engine context belongs to this thread instance */
+    det_ctx->tv = tv;
+
     /** \todo we still depend on the global mpm_ctx here
      *
      * Initialize the thread pattern match ctx with the max size
      * of the content and uricontent id's so our match lookup
      * table is always big enough
      */
-    PatternMatchThreadPrepare(&det_ctx->mtc, de_ctx->mpm_matcher, DetectContentMaxId(de_ctx));
-    PatternMatchThreadPrepare(&det_ctx->mtcs, de_ctx->mpm_matcher, DetectContentMaxId(de_ctx));
-    PatternMatchThreadPrepare(&det_ctx->mtcu, de_ctx->mpm_matcher, DetectUricontentMaxId(de_ctx));
+    PatternMatchThreadPrepare(tv, &det_ctx->mtc, de_ctx->mpm_matcher, DetectContentMaxId(de_ctx));
+    PatternMatchThreadPrepare(tv, &det_ctx->mtcs, de_ctx->mpm_matcher, DetectContentMaxId(de_ctx));
+    PatternMatchThreadPrepare(tv, &det_ctx->mtcu, de_ctx->mpm_matcher, DetectUricontentMaxId(de_ctx));
 
     //PmqSetup(&det_ctx->pmq, DetectEngineGetMaxSigId(de_ctx), DetectContentMaxId(de_ctx));
     PmqSetup(&det_ctx->pmq, 0, DetectContentMaxId(de_ctx));
@@ -421,13 +424,13 @@ TmEcode DetectEngineThreadCtxInit(ThreadVars *tv, void *initdata, void **data) {
     /* DeState */
     if (de_ctx->sig_array_len > 0) {
         det_ctx->de_state_sig_array_len = de_ctx->sig_array_len;
-        det_ctx->de_state_sig_array = SCMalloc(det_ctx->de_state_sig_array_len * sizeof(uint8_t));
+        det_ctx->de_state_sig_array = SCThreadMalloc(tv, det_ctx->de_state_sig_array_len * sizeof(uint8_t));
         if (det_ctx->de_state_sig_array == NULL) {
             return TM_ECODE_FAILED;
         }
 
         det_ctx->match_array_len = de_ctx->sig_array_len;
-        det_ctx->match_array = SCMalloc(det_ctx->match_array_len * sizeof(Signature *));
+        det_ctx->match_array = SCThreadMalloc(tv, det_ctx->match_array_len * sizeof(Signature *));
         if (det_ctx->match_array == NULL) {
             return TM_ECODE_FAILED;
         }
@@ -436,14 +439,11 @@ TmEcode DetectEngineThreadCtxInit(ThreadVars *tv, void *initdata, void **data) {
     /** alert counter setup */
     det_ctx->counter_alerts = SCPerfTVRegisterCounter("detect.alert", tv,
                                                       SC_PERF_TYPE_UINT64, "NULL");
-    tv->sc_perf_pca = SCPerfGetAllCountersArray(&tv->sc_perf_pctx);
+    tv->sc_perf_pca = SCPerfGetAllCountersArray(tv, &tv->sc_perf_pctx);
     SCPerfAddToClubbedTMTable((tv->thread_group_name != NULL) ? tv->thread_group_name : tv->name,
                               &tv->sc_perf_pctx);
 
-    /* this detection engine context belongs to this thread instance */
-    det_ctx->tv = tv;
-
-    det_ctx->bj_values = SCMalloc(sizeof(*det_ctx->bj_values) * byte_extract_max_local_id);
+    det_ctx->bj_values = SCThreadMalloc(tv, sizeof(*det_ctx->bj_values) * byte_extract_max_local_id);
     if (det_ctx->bj_values == NULL) {
         return TM_ECODE_FAILED;
     }

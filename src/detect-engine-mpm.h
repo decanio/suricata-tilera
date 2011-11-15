@@ -48,7 +48,7 @@ void PacketPatternCleanup(ThreadVars *, DetectEngineThreadCtx *);
 void StreamPatternCleanup(ThreadVars *t, DetectEngineThreadCtx *det_ctx, StreamMsg *smsg);
 
 void PatternMatchPrepare(MpmCtx *, uint16_t);
-void PatternMatchThreadPrepare(MpmThreadCtx *, uint16_t type, uint32_t max_id);
+void PatternMatchThreadPrepare(ThreadVars *, MpmThreadCtx *, uint16_t type, uint32_t max_id);
 
 void PatternMatchDestroy(MpmCtx *, uint16_t);
 void PatternMatchThreadDestroy(MpmThreadCtx *mpm_thread_ctx, uint16_t);

@@ -1574,7 +1574,7 @@ int SCPerfAddToClubbedTMTable(char *tm_name, SCPerfContext *pctx)
  *
  * \retval a counter-array in this(s_id-e_id) range for this TM instance
  */
-SCPerfCounterArray *SCPerfGetCounterArrayRange(uint16_t s_id, uint16_t e_id,
+SCPerfCounterArray *SCPerfGetCounterArrayRange(ThreadVars *tv, uint16_t s_id, uint16_t e_id,
                                                SCPerfContext *pctx)
 {
     SCPerfCounter *pc = NULL;
@@ -1596,11 +1596,11 @@ SCPerfCounterArray *SCPerfGetCounterArrayRange(uint16_t s_id, uint16_t e_id,
         return NULL;
     }
 
-    if ( (pca = SCMalloc(sizeof(SCPerfCounterArray))) == NULL)
+    if ( (pca = SCThreadMalloc(tv, sizeof(SCPerfCounterArray))) == NULL)
         return NULL;
     memset(pca, 0, sizeof(SCPerfCounterArray));
 
-    if ( (pca->head = SCMalloc(sizeof(SCPCAElem) * (e_id - s_id  + 2))) == NULL)
+    if ( (pca->head = SCThreadMalloc(tv, sizeof(SCPCAElem) * (e_id - s_id  + 2))) == NULL)
         return NULL;
     memset(pca->head, 0, sizeof(SCPCAElem) * (e_id - s_id  + 2));
 
@@ -1631,10 +1631,10 @@ SCPerfCounterArray *SCPerfGetCounterArrayRange(uint16_t s_id, uint16_t e_id,
  * \retval pca Pointer to a counter-array for all counter of this tm instance
  *             on success; NULL on failure
  */
-SCPerfCounterArray *SCPerfGetAllCountersArray(SCPerfContext *pctx)
+SCPerfCounterArray *SCPerfGetAllCountersArray(ThreadVars *tv, SCPerfContext *pctx)
 {
     SCPerfCounterArray *pca = ((pctx)?
-                               SCPerfGetCounterArrayRange(1, pctx->curr_id, pctx):
+                               SCPerfGetCounterArrayRange(tv, 1, pctx->curr_id, pctx):
                                NULL);
 
     return pca;
@@ -1906,7 +1906,7 @@ static int SCPerfTestGetCntArray05()
         return 0;
     }
 
-    tv.sc_perf_pca = SCPerfGetAllCountersArray(NULL);
+    tv.sc_perf_pca = SCPerfGetAllCountersArray(&tv, NULL);
 
     return (!tv.sc_perf_pca)?1:0;
 }
@@ -1924,7 +1924,7 @@ static int SCPerfTestGetCntArray06()
     if (id != 1)
         return 0;
 
-    tv.sc_perf_pca = SCPerfGetAllCountersArray(&tv.sc_perf_pctx);
+    tv.sc_perf_pca = SCPerfGetAllCountersArray(&tv, &tv.sc_perf_pctx);
 
     result = (tv.sc_perf_pca)?1:0;
 
@@ -1949,7 +1949,7 @@ static int SCPerfTestCntArraySize07()
     SCPerfRegisterCounter("t2", "c2", SC_PERF_TYPE_UINT64, NULL,
                           &tv.sc_perf_pctx);
 
-    pca = SCPerfGetAllCountersArray(&tv.sc_perf_pctx);
+    pca = SCPerfGetAllCountersArray(&tv, &tv.sc_perf_pctx);
 
     SCPerfCounterIncr(1, pca);
     SCPerfCounterIncr(2, pca);
@@ -1974,7 +1974,7 @@ static int SCPerfTestUpdateCounter08()
     id = SCPerfRegisterCounter("t1", "c1", SC_PERF_TYPE_UINT64, NULL,
                                &tv.sc_perf_pctx);
 
-    pca = SCPerfGetAllCountersArray(&tv.sc_perf_pctx);
+    pca = SCPerfGetAllCountersArray(&tv, &tv.sc_perf_pctx);
 
     SCPerfCounterIncr(id, pca);
     SCPerfCounterAddUI64(id, pca, 100);
@@ -2007,7 +2007,7 @@ static int SCPerfTestUpdateCounter09()
     id2 = SCPerfRegisterCounter("t5", "c5", SC_PERF_TYPE_UINT64, NULL,
                                 &tv.sc_perf_pctx);
 
-    pca = SCPerfGetAllCountersArray(&tv.sc_perf_pctx);
+    pca = SCPerfGetAllCountersArray(&tv, &tv.sc_perf_pctx);
 
     SCPerfCounterIncr(id2, pca);
     SCPerfCounterAddUI64(id2, pca, 100);
@@ -2037,7 +2037,7 @@ static int SCPerfTestUpdateGlobalCounter10()
     id3 = SCPerfRegisterCounter("t3", "c3", SC_PERF_TYPE_UINT64, NULL,
                                 &tv.sc_perf_pctx);
 
-    pca = SCPerfGetAllCountersArray(&tv.sc_perf_pctx);
+    pca = SCPerfGetAllCountersArray(&tv, &tv.sc_perf_pctx);
 
     SCPerfCounterIncr(id1, pca);
     SCPerfCounterAddUI64(id2, pca, 100);
@@ -2075,7 +2075,7 @@ static int SCPerfTestCounterValues11()
     id4 = SCPerfRegisterCounter("t4", "c4", SC_PERF_TYPE_UINT64, NULL,
                                 &tv.sc_perf_pctx);
 
-    pca = SCPerfGetAllCountersArray(&tv.sc_perf_pctx);
+    pca = SCPerfGetAllCountersArray(&tv, &tv.sc_perf_pctx);
 
     SCPerfCounterIncr(id1, pca);
     SCPerfCounterAddUI64(id2, pca, 256);
@@ -2117,7 +2117,7 @@ static int SCPerfTestAverageQual12()
     id2 = SCPerfRegisterAvgCounter("t2", "c2", SC_PERF_TYPE_UINT64, NULL,
                                    &tv.sc_perf_pctx);
 
-    pca = SCPerfGetAllCountersArray(&tv.sc_perf_pctx);
+    pca = SCPerfGetAllCountersArray(&tv, &tv.sc_perf_pctx);
 
     SCPerfCounterAddDouble(id1, pca, 1);
     SCPerfCounterAddDouble(id1, pca, 2);
@@ -2163,7 +2163,7 @@ static int SCPerfTestMaxQual13()
     id1 = SCPerfRegisterMaxCounter("t1", "c1", SC_PERF_TYPE_DOUBLE, NULL,
                                    &tv.sc_perf_pctx);
 
-    pca = SCPerfGetAllCountersArray(&tv.sc_perf_pctx);
+    pca = SCPerfGetAllCountersArray(&tv, &tv.sc_perf_pctx);
 
     SCPerfCounterSetDouble(id1, pca, 1.352);
     SCPerfCounterSetDouble(id1, pca, 5.12412);
@@ -2313,7 +2313,7 @@ static int SCPerfTestIntervalQual16()
     id1 = SCPerfRegisterIntervalCounter("t1", "c1", SC_PERF_TYPE_DOUBLE, NULL,
                                         &tv.sc_perf_pctx, "3s");
 
-    pca = SCPerfGetAllCountersArray(&tv.sc_perf_pctx);
+    pca = SCPerfGetAllCountersArray(&tv, &tv.sc_perf_pctx);
 
     SCPerfCounterAddDouble(id1, pca, 1);
     SCPerfCounterAddDouble(id1, pca, 2);
@@ -2347,7 +2347,7 @@ static int SCPerfTestIntervalQual17()
     id1 = SCPerfRegisterIntervalCounter("t1", "c1", SC_PERF_TYPE_DOUBLE, NULL,
                                         &tv.sc_perf_pctx, "2m30s");
 
-    pca = SCPerfGetAllCountersArray(&tv.sc_perf_pctx);
+    pca = SCPerfGetAllCountersArray(&tv, &tv.sc_perf_pctx);
 
     SCPerfCounterAddDouble(id1, pca, 1);
     SCPerfCounterAddDouble(id1, pca, 2);
@@ -2380,7 +2380,7 @@ static int SCPerfTestIntervalQual18()
     id1 = SCPerfRegisterIntervalCounter("t1", "c1", SC_PERF_TYPE_DOUBLE, NULL,
                                         &tv.sc_perf_pctx, "3s");
 
-    pca = SCPerfGetAllCountersArray(&tv.sc_perf_pctx);
+    pca = SCPerfGetAllCountersArray(&tv, &tv.sc_perf_pctx);
 
     SCPerfCounterAddDouble(id1, pca, 1);
     SCPerfCounterAddDouble(id1, pca, 2);

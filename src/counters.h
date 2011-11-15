@@ -243,8 +243,8 @@ uint16_t SCPerfRegisterIntervalCounter(char *, char *, int, char *,
 
 /* utility functions */
 int SCPerfAddToClubbedTMTable(char *, SCPerfContext *);
-SCPerfCounterArray *SCPerfGetCounterArrayRange(uint16_t, uint16_t, SCPerfContext *);
-SCPerfCounterArray * SCPerfGetAllCountersArray(SCPerfContext *);
+SCPerfCounterArray *SCPerfGetCounterArrayRange(struct ThreadVars_ *, uint16_t, uint16_t, SCPerfContext *);
+SCPerfCounterArray * SCPerfGetAllCountersArray(struct ThreadVars_ *, SCPerfContext *);
 int SCPerfCounterDisplay(uint16_t, SCPerfContext *, int);
 
 int SCPerfUpdateCounterArray(SCPerfCounterArray *, SCPerfContext *, int);
