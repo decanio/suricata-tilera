@@ -391,7 +391,7 @@ TmEcode DetectEngineThreadCtxInit(ThreadVars *tv, void *initdata, void **data) {
     if (de_ctx == NULL)
         return TM_ECODE_FAILED;
 
-    DetectEngineThreadCtx *det_ctx = SCMalloc(sizeof(DetectEngineThreadCtx));
+    DetectEngineThreadCtx *det_ctx = SCThreadMalloc(tv, sizeof(DetectEngineThreadCtx));
     if (det_ctx == NULL)
         return TM_ECODE_FAILED;
     memset(det_ctx, 0, sizeof(DetectEngineThreadCtx));
