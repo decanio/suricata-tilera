@@ -50,7 +50,7 @@
 #include "util-unittest.h"
 
 void SCACGfbsInitCtx(MpmCtx *, int);
-void SCACGfbsInitThreadCtx(MpmCtx *, MpmThreadCtx *, uint32_t);
+void SCACGfbsInitThreadCtx(ThreadVars *tv,MpmCtx *, MpmThreadCtx *, uint32_t);
 void SCACGfbsDestroyCtx(MpmCtx *);
 void SCACGfbsDestroyThreadCtx(MpmCtx *, MpmThreadCtx *);
 int SCACGfbsAddPatternCI(MpmCtx *, uint8_t *, uint16_t, uint16_t, uint16_t,
@@ -1006,12 +1006,12 @@ error:
  * \param mpm_thread_ctx Pointer to the mpm thread context.
  * \param matchsize      We don't need this.
  */
-void SCACGfbsInitThreadCtx(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
-                           uint32_t matchsize)
+void SCACGfbsInitThreadCtx(ThreadVars *tv, MpmCtx *mpm_ctx,
+                           MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize)
 {
     memset(mpm_thread_ctx, 0, sizeof(MpmThreadCtx));
 
-    mpm_thread_ctx->ctx = SCMalloc(sizeof(SCACGfbsThreadCtx));
+    mpm_thread_ctx->ctx = SCThreadMalloc(tv, sizeof(SCACGfbsThreadCtx));
     if (mpm_thread_ctx->ctx == NULL) {
         exit(EXIT_FAILURE);
     }

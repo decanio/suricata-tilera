@@ -68,7 +68,7 @@ static void *b2g_func;
 #define B2GC_ALIGN_PATTERNS 2
 
 void B2gcInitCtx (MpmCtx *, int);
-void B2gcThreadInitCtx(MpmCtx *, MpmThreadCtx *, uint32_t);
+void B2gcThreadInitCtx(ThreadVars *tv, MpmCtx *, MpmThreadCtx *, uint32_t);
 void B2gcDestroyCtx(MpmCtx *);
 void B2gcThreadDestroyCtx(MpmCtx *, MpmThreadCtx *);
 int B2gcAddPatternCI(MpmCtx *, uint8_t *, uint16_t, uint16_t, uint16_t, uint32_t, uint32_t, uint8_t);
@@ -1001,11 +1001,11 @@ void B2gcDestroyCtx(MpmCtx *mpm_ctx) {
     mpm_ctx->memory_size -= sizeof(B2gcCtx);
 }
 
-void B2gcThreadInitCtx(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize) {
+void B2gcThreadInitCtx(ThreadVars *tv, MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize) {
     memset(mpm_thread_ctx, 0, sizeof(MpmThreadCtx));
 
     if (sizeof(B2gcThreadCtx) > 0) { /* size can be null when optimized */
-        mpm_thread_ctx->ctx = SCMalloc(sizeof(B2gcThreadCtx));
+        mpm_thread_ctx->ctx = SCThreadMalloc(tv, sizeof(B2gcThreadCtx));
         if (mpm_thread_ctx->ctx == NULL) {
             exit(EXIT_FAILURE);
         }

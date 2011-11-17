@@ -57,7 +57,7 @@
 #include "util-memcmp.h"
 
 void SCACInitCtx(MpmCtx *, int);
-void SCACInitThreadCtx(MpmCtx *, MpmThreadCtx *, uint32_t);
+void SCACInitThreadCtx(ThreadVars *tv, MpmCtx *, MpmThreadCtx *, uint32_t);
 void SCACDestroyCtx(MpmCtx *);
 void SCACDestroyThreadCtx(MpmCtx *, MpmThreadCtx *);
 int SCACAddPatternCI(MpmCtx *, uint8_t *, uint16_t, uint16_t, uint16_t,
@@ -891,10 +891,11 @@ static inline void SCACInsertCaseSensitiveEntriesForPatterns(MpmCtx *mpm_ctx)
 static void SCACPrintDeltaTable(MpmCtx *mpm_ctx)
 {
     SCACCtx *ctx = (SCACCtx *)mpm_ctx->ctx;
-    int i = 0, j = 0;
 
     printf("##############Delta Table (state count %d)##############\n", ctx->state_count);
 #if 0
+    int i = 0, j = 0;
+
     for (i = 0; i < ctx->state_count; i++) {
         printf("%d: \n", i);
         for (j = 0; j < 256; j++) {
@@ -1053,11 +1054,11 @@ error:
  * \param mpm_thread_ctx Pointer to the mpm thread context.
  * \param matchsize      We don't need this.
  */
-void SCACInitThreadCtx(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize)
+void SCACInitThreadCtx(ThreadVars *tv, MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize)
 {
     memset(mpm_thread_ctx, 0, sizeof(MpmThreadCtx));
 
-    mpm_thread_ctx->ctx = SCMalloc(sizeof(SCACThreadCtx));
+    mpm_thread_ctx->ctx = SCThreadMalloc(tv, sizeof(SCACThreadCtx));
     if (mpm_thread_ctx->ctx == NULL) {
         exit(EXIT_FAILURE);
     }
@@ -1203,9 +1204,10 @@ uint32_t SCACSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
     /* \todo Change it for stateful MPM.  Supply the state using mpm_thread_ctx */
     SCACPatternList *pid_pat_list = ctx->pid_pat_list;
 
-    if (ctx->state_count < 32767) {
+    SC_AC_STATE_TYPE_U16 (*state_table_u16)[256];
+    /* this following implies (ctx->state_count < 32767) */
+    if ((state_table_u16 = ctx->state_table_u16)) {
         register SC_AC_STATE_TYPE_U16 state = 0;
-        SC_AC_STATE_TYPE_U16 (*state_table_u16)[256] = ctx->state_table_u16;
         int c = u8_tolower(buf[0]);
         for (i = 0; i < buflen; i++) {
             state = state_table_u16[state & 0x7FFF][c];

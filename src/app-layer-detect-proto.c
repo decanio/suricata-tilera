@@ -265,7 +265,7 @@ void AlpProtoDestroy() {
     SCReturn;
 }
 
-void AlpProtoFinalizeThread(AlpProtoDetectCtx *ctx, AlpProtoDetectThreadCtx *tctx) {
+void AlpProtoFinalizeThread(ThreadVars *tv, AlpProtoDetectCtx *ctx, AlpProtoDetectThreadCtx *tctx) {
     uint32_t sig_maxid = 0;
     uint32_t pat_maxid = ctx->mpm_pattern_id_store ? ctx->mpm_pattern_id_store->max_id : 0;
 
@@ -273,13 +273,13 @@ void AlpProtoFinalizeThread(AlpProtoDetectCtx *ctx, AlpProtoDetectThreadCtx *tct
 
     if (ctx->toclient.id > 0) {
         //sig_maxid = ctx->toclient.id;
-        mpm_table[ctx->toclient.mpm_ctx.mpm_type].InitThreadCtx(&ctx->toclient.mpm_ctx, &tctx->toclient.mpm_ctx, sig_maxid);
-        PmqSetup(&tctx->toclient.pmq, sig_maxid, pat_maxid);
+        mpm_table[ctx->toclient.mpm_ctx.mpm_type].InitThreadCtx(tv, &ctx->toclient.mpm_ctx, &tctx->toclient.mpm_ctx, sig_maxid);
+        PmqSetup(tv, &tctx->toclient.pmq, sig_maxid, pat_maxid);
     }
     if (ctx->toserver.id > 0) {
         //sig_maxid = ctx->toserver.id;
-        mpm_table[ctx->toserver.mpm_ctx.mpm_type].InitThreadCtx(&ctx->toserver.mpm_ctx, &tctx->toserver.mpm_ctx, sig_maxid);
-        PmqSetup(&tctx->toserver.pmq, sig_maxid, pat_maxid);
+        mpm_table[ctx->toserver.mpm_ctx.mpm_type].InitThreadCtx(tv, &ctx->toserver.mpm_ctx, &tctx->toserver.mpm_ctx, sig_maxid);
+        PmqSetup(tv, &tctx->toserver.pmq, sig_maxid, pat_maxid);
     }
 
 }
@@ -299,8 +299,8 @@ void AlpProtoDeFinalize2Thread(AlpProtoDetectThreadCtx *tctx) {
 }
 /** \brief to be called by ReassemblyThreadInit
  *  \todo this is a hack, we need a proper place to store the global ctx */
-void AlpProtoFinalize2Thread(AlpProtoDetectThreadCtx *tctx) {
-    return AlpProtoFinalizeThread(&alp_proto_ctx, tctx);
+void AlpProtoFinalize2Thread(ThreadVars *tv, AlpProtoDetectThreadCtx *tctx) {
+    return AlpProtoFinalizeThread(tv, &alp_proto_ctx, tctx);
 }
 
 void AlpProtoFinalizeGlobal(AlpProtoDetectCtx *ctx) {

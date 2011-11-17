@@ -152,7 +152,7 @@ typedef struct MpmTableElmt_ {
     char *name;
     uint8_t max_pattern_length;
     void (*InitCtx)(struct MpmCtx_ *, int);
-    void (*InitThreadCtx)(struct MpmCtx_ *, struct MpmThreadCtx_ *, uint32_t);
+    void (*InitThreadCtx)(struct ThreadVars_ *,struct MpmCtx_ *, struct MpmThreadCtx_ *, uint32_t);
     void (*DestroyCtx)(struct MpmCtx_ *);
     void (*DestroyThreadCtx)(struct MpmCtx_ *, struct MpmThreadCtx_ *);
 
@@ -205,7 +205,7 @@ typedef struct MpmCudaConf_ {
 
 #endif /* __SC_CUDA_SUPPORT__ */
 
-int PmqSetup(PatternMatcherQueue *, uint32_t, uint32_t);
+int PmqSetup(struct ThreadVars_ *, PatternMatcherQueue *, uint32_t, uint32_t);
 void PmqMerge(PatternMatcherQueue *src, PatternMatcherQueue *dst);
 void PmqReset(PatternMatcherQueue *);
 void PmqCleanup(PatternMatcherQueue *);
@@ -224,7 +224,7 @@ int32_t MpmMatcherGetMaxPatternLength(uint16_t);
 
 int MpmVerifyMatch(MpmThreadCtx *, PatternMatcherQueue *, uint32_t);
 void MpmInitCtx (MpmCtx *mpm_ctx, uint16_t matcher, int module_handle);
-void MpmInitThreadCtx(MpmThreadCtx *mpm_thread_ctx, uint16_t, uint32_t);
+void MpmInitThreadCtx(struct ThreadVars_ *tv, MpmThreadCtx *mpm_thread_ctx, uint16_t, uint32_t);
 uint32_t MpmGetHashSize(const char *);
 uint32_t MpmGetBloomSize(const char *);
 

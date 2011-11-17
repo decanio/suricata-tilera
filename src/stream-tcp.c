@@ -3802,7 +3802,7 @@ TmEcode StreamTcp (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Packe
 TmEcode StreamTcpThreadInit(ThreadVars *tv, void *initdata, void **data)
 {
     SCEnter();
-    StreamTcpThread *stt = SCMalloc(sizeof(StreamTcpThread));
+    StreamTcpThread *stt = SCThreadMalloc(tv, sizeof(StreamTcpThread));
     if (stt == NULL)
         SCReturnInt(TM_ECODE_FAILED);
     memset(stt, 0, sizeof(StreamTcpThread));
@@ -3823,7 +3823,7 @@ TmEcode StreamTcpThreadInit(ThreadVars *tv, void *initdata, void **data)
                                                         "NULL");
 
     /* init reassembly ctx */
-    stt->ra_ctx = StreamTcpReassembleInitThreadCtx();
+    stt->ra_ctx = StreamTcpReassembleInitThreadCtx(tv);
     if (stt->ra_ctx == NULL)
         SCReturnInt(TM_ECODE_FAILED);
 

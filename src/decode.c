@@ -274,7 +274,7 @@ DecodeThreadVars *DecodeThreadVarsAlloc(ThreadVars *tv) {
     memset(dtv, 0, sizeof(DecodeThreadVars));
 
     /* initialize UDP app layer code */
-    AlpProtoFinalize2Thread(&dtv->udp_dp_ctx);
+    AlpProtoFinalize2Thread(tv, &dtv->udp_dp_ctx);
 
     return dtv;
 }

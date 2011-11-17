@@ -101,8 +101,8 @@ void AppLayerDetectProtoThreadSpawn(void);
 void AlpDetectRegisterTests(void);
 
 void AlpProtoFinalizeGlobal(AlpProtoDetectCtx *);
-void AlpProtoFinalizeThread(AlpProtoDetectCtx *, AlpProtoDetectThreadCtx *);
-void AlpProtoFinalize2Thread(AlpProtoDetectThreadCtx *);
+void AlpProtoFinalizeThread(ThreadVars *tv, AlpProtoDetectCtx *, AlpProtoDetectThreadCtx *);
+void AlpProtoFinalize2Thread(ThreadVars *tv, AlpProtoDetectThreadCtx *);
 void AlpProtoDeFinalize2Thread (AlpProtoDetectThreadCtx *);
 void AlpProtoTestDestroy(AlpProtoDetectCtx *);
 void AlpProtoDestroy(void);

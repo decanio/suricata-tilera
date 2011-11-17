@@ -861,10 +861,12 @@ void IPOnlyInit(DetectEngineCtx *de_ctx, DetectEngineIPOnlyCtx *io_ctx) {
  * \param io_ctx Pointer to the current ip only thread detection engine
  */
 void DetectEngineIPOnlyThreadInit(DetectEngineCtx *de_ctx,
-                                  DetectEngineIPOnlyThreadCtx *io_tctx) {
+                                  DetectEngineThreadCtx *det_ctx) {
+    DetectEngineIPOnlyThreadCtx *io_tctx = &det_ctx->io_ctx;
     /* initialize the signature bitarray */
     io_tctx->sig_match_size = de_ctx->io_ctx.max_idx / 8 + 1;
-    io_tctx->sig_match_array = SCMalloc(io_tctx->sig_match_size);
+    io_tctx->sig_match_array = SCThreadMalloc(det_ctx->tv,
+                                              io_tctx->sig_match_size);
     if (io_tctx->sig_match_array == NULL) {
         exit(EXIT_FAILURE);
     }

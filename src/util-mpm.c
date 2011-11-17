@@ -230,7 +230,7 @@ void MpmFactoryDeRegisterAllMpmCtxProfiles(void)
  *  \retval -1 error
  *  \retval 0 ok
  */
-int PmqSetup(PatternMatcherQueue *pmq, uint32_t sig_maxid, uint32_t patmaxid) {
+int PmqSetup(ThreadVars *tv, PatternMatcherQueue *pmq, uint32_t sig_maxid, uint32_t patmaxid) {
     SCEnter();
     SCLogDebug("sig_maxid %u, patmaxid %u", sig_maxid, patmaxid);
 
@@ -243,7 +243,7 @@ int PmqSetup(PatternMatcherQueue *pmq, uint32_t sig_maxid, uint32_t patmaxid) {
     if (patmaxid > 0) {
         pmq->pattern_id_array_size = patmaxid * sizeof(uint32_t);
 
-        pmq->pattern_id_array = SCMalloc(pmq->pattern_id_array_size);
+        pmq->pattern_id_array = SCThreadMalloc(tv, pmq->pattern_id_array_size);
         if (pmq->pattern_id_array == NULL) {
             SCReturnInt(-1);
         }
@@ -253,7 +253,7 @@ int PmqSetup(PatternMatcherQueue *pmq, uint32_t sig_maxid, uint32_t patmaxid) {
         /* lookup bitarray */
         pmq->pattern_id_bitarray_size = (patmaxid / 8) + 1;
 
-        pmq->pattern_id_bitarray = SCMalloc(pmq->pattern_id_bitarray_size);
+        pmq->pattern_id_bitarray = SCThreadMalloc(tv, pmq->pattern_id_bitarray_size);
         if (pmq->pattern_id_bitarray == NULL) {
             SCReturnInt(-1);
         }
@@ -384,8 +384,8 @@ int32_t MpmMatcherGetMaxPatternLength(uint16_t matcher) {
         return -1;
 }
 
-void MpmInitThreadCtx(MpmThreadCtx *mpm_thread_ctx, uint16_t matcher, uint32_t max_id) {
-    mpm_table[matcher].InitThreadCtx(NULL, mpm_thread_ctx, max_id);
+void MpmInitThreadCtx(ThreadVars *tv, MpmThreadCtx *mpm_thread_ctx, uint16_t matcher, uint32_t max_id) {
+    mpm_table[matcher].InitThreadCtx(tv, NULL, mpm_thread_ctx, max_id);
 }
 
 void MpmInitCtx (MpmCtx *mpm_ctx, uint16_t matcher, int module_handle) {

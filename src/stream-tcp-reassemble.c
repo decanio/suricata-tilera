@@ -389,17 +389,17 @@ void StreamTcpReassembleFree(char quiet)
 #endif
 }
 
-TcpReassemblyThreadCtx *StreamTcpReassembleInitThreadCtx(void)
+TcpReassemblyThreadCtx *StreamTcpReassembleInitThreadCtx(ThreadVars *tv)
 {
     SCEnter();
-    TcpReassemblyThreadCtx *ra_ctx = SCMalloc(sizeof(TcpReassemblyThreadCtx));
+    TcpReassemblyThreadCtx *ra_ctx = SCThreadMalloc(tv, sizeof(TcpReassemblyThreadCtx));
     if (ra_ctx == NULL)
         return NULL;
 
     memset(ra_ctx, 0x00, sizeof(TcpReassemblyThreadCtx));
     ra_ctx->stream_q = StreamMsgQueueGetNew();
 
-    AlpProtoFinalize2Thread(&ra_ctx->dp_ctx);
+    AlpProtoFinalize2Thread(tv, &ra_ctx->dp_ctx);
     SCReturnPtr(ra_ctx, "TcpReassemblyThreadCtx");
 }
 

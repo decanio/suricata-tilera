@@ -412,14 +412,14 @@ TmEcode DetectEngineThreadCtxInit(ThreadVars *tv, void *initdata, void **data) {
     PatternMatchThreadPrepare(tv, &det_ctx->mtcu, de_ctx->mpm_matcher, DetectUricontentMaxId(de_ctx));
 
     //PmqSetup(&det_ctx->pmq, DetectEngineGetMaxSigId(de_ctx), DetectContentMaxId(de_ctx));
-    PmqSetup(&det_ctx->pmq, 0, DetectContentMaxId(de_ctx));
+    PmqSetup(tv, &det_ctx->pmq, 0, DetectContentMaxId(de_ctx));
     int i;
     for (i = 0; i < 256; i++) {
-        PmqSetup(&det_ctx->smsg_pmq[i], 0, DetectContentMaxId(de_ctx));
+        PmqSetup(tv, &det_ctx->smsg_pmq[i], 0, DetectContentMaxId(de_ctx));
     }
 
     /* IP-ONLY */
-    DetectEngineIPOnlyThreadInit(de_ctx,&det_ctx->io_ctx);
+    DetectEngineIPOnlyThreadInit(de_ctx, det_ctx);
 
     /* DeState */
     if (de_ctx->sig_array_len > 0) {

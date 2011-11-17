@@ -56,7 +56,7 @@ static void *b3g_func;
 #define B3G_HASH(a,b,c)   (((a) << b3g_hash_shift) | (b) << (b3g_hash_shift2) |(c))
 
 void B3gInitCtx (MpmCtx *, int);
-void B3gThreadInitCtx(MpmCtx *, MpmThreadCtx *, uint32_t);
+void B3gThreadInitCtx(ThreadVars *tv, MpmCtx *, MpmThreadCtx *, uint32_t);
 void B3gDestroyCtx(MpmCtx *);
 void B3gThreadDestroyCtx(MpmCtx *, MpmThreadCtx *);
 int B3gAddPatternCI(MpmCtx *, uint8_t *, uint16_t, uint16_t, uint16_t, uint32_t, uint32_t, uint8_t);
@@ -835,11 +835,11 @@ void B3gDestroyCtx(MpmCtx *mpm_ctx) {
     mpm_ctx->memory_size -= sizeof(B3gCtx);
 }
 
-void B3gThreadInitCtx(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize) {
+void B3gThreadInitCtx(ThreadVars *tv, MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize) {
     memset(mpm_thread_ctx, 0, sizeof(MpmThreadCtx));
 
     if (sizeof(B3gThreadCtx) > 0) { /* size can be 0 when optimized */
-        mpm_thread_ctx->ctx = SCMalloc(sizeof(B3gThreadCtx));
+        mpm_thread_ctx->ctx = SCThreadMalloc(tv, sizeof(B3gThreadCtx));
         if (mpm_thread_ctx->ctx == NULL)
             return;
 

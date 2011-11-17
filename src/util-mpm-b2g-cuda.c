@@ -72,7 +72,7 @@ static void *b2g_func;
 ThreadVars *tv_CMB2_RC = NULL;
 
 void B2gCudaInitCtx(MpmCtx *, int);
-void B2gCudaThreadInitCtx(MpmCtx *, MpmThreadCtx *, uint32_t);
+void B2gCudaThreadInitCtx(ThreadVars *, MpmCtx *, MpmThreadCtx *, uint32_t);
 void B2gCudaDestroyCtx(MpmCtx *);
 void B2gCudaThreadDestroyCtx(MpmCtx *, MpmThreadCtx *);
 int B2gCudaAddPatternCI(MpmCtx *, uint8_t *, uint16_t, uint16_t, uint16_t,
@@ -934,14 +934,14 @@ void B2gCudaDestroyCtx(MpmCtx *mpm_ctx)
     return;
 }
 
-void B2gCudaThreadInitCtx(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
-                          uint32_t matchsize)
+void B2gCudaThreadInitCtx(ThreadVars *tv, MpmCtx *mpm_ctx,
+                          MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize)
 {
     memset(mpm_thread_ctx, 0, sizeof(MpmThreadCtx));
 
     /* size can be null when optimized */
     if (sizeof(B2gCudaThreadCtx) > 0) {
-        mpm_thread_ctx->ctx = SCMalloc(sizeof(B2gCudaThreadCtx));
+        mpm_thread_ctx->ctx = SCThreadMalloc(tv, sizeof(B2gCudaThreadCtx));
         if (mpm_thread_ctx->ctx == NULL)
             return;
 
@@ -1680,7 +1680,7 @@ TmEcode B2gCudaMpmDispThreadInit(ThreadVars *tv, void *initdata, void **data)
         SCLogError(SC_ERR_B2G_CUDA_ERROR, "Error pushing cuda context");
     }
 
-    B2gCudaMpmThreadCtxData *tctx = SCMalloc(sizeof(B2gCudaMpmThreadCtxData));
+    B2gCudaMpmThreadCtxData *tctx = SCThreadMalloc(tv, sizeof(B2gCudaMpmThreadCtxData));
     if (tctx == NULL) {
         SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory");
         exit(EXIT_FAILURE);

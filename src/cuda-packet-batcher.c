@@ -586,7 +586,7 @@ TmEcode SCCudaPBThreadInit(ThreadVars *tv, void *initdata, void **data)
         return TM_ECODE_FAILED;
     }
 
-    tctx = SCMalloc(sizeof(SCCudaPBThreadCtx));
+    tctx = SCThreadMalloc(tv, sizeof(SCCudaPBThreadCtx));
     if (tctx == NULL) {
         SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory");
         exit(EXIT_FAILURE);

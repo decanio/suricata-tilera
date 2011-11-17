@@ -60,7 +60,7 @@ static uint32_t wm_hash_size = 0;
 static uint32_t wm_bloom_size = 0;
 
 void WmInitCtx (MpmCtx *mpm_ctx, int);
-void WmThreadInitCtx(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t);
+void WmThreadInitCtx(ThreadVars *tv, MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t);
 void WmDestroyCtx(MpmCtx *mpm_ctx);
 void WmThreadDestroyCtx(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx);
 int WmAddPatternCI(MpmCtx *, uint8_t *, uint16_t, uint16_t, uint16_t, uint32_t, uint32_t, uint8_t);
@@ -1426,11 +1426,11 @@ void WmDestroyCtx(MpmCtx *mpm_ctx) {
     mpm_ctx->memory_size -= sizeof(WmCtx);
 }
 
-void WmThreadInitCtx(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize) {
+void WmThreadInitCtx(ThreadVars *tv, MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize) {
     memset(mpm_thread_ctx, 0, sizeof(MpmThreadCtx));
 
 #ifdef WUMANBER_COUNTERS
-    mpm_thread_ctx->ctx = SCMalloc(sizeof(WmThreadCtx));
+    mpm_thread_ctx->ctx = SCThreadMalloc(tv, sizeof(WmThreadCtx));
     if (mpm_thread_ctx->ctx == NULL)
         return;
 

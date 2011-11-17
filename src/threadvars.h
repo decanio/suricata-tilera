@@ -24,6 +24,8 @@
 #ifndef __THREADVARS_H__
 #define __THREADVARS_H__
 
+struct ThreadVars_;
+
 #include "util-mpm.h"
 #include "util-affinity.h"
 #include "tm-queues.h"

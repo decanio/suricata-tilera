@@ -629,9 +629,6 @@ int main(int argc, char **argv)
 
     SCMallocInit();
 
-printf("DEBUG: &trans_q %p size %d\n", trans_q, sizeof(PacketQueue));
-printf("DEBUG: Packet size %d offsetof(next) %d offsetof(prev) %d\n", sizeof(Packet), offsetof(Packet, next), offsetof(Packet, prev));
-
     /* initialize the logging subsys */
     SCLogInitLogModule(NULL);
 

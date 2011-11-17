@@ -99,6 +99,7 @@ static char verdict_queue[MAX_MPIPE_PIPES][32];
 static char alert_queue[MAX_MPIPE_PIPES][32];
 #endif
 
+#define NO_TILE_MAP
 /*
  * This stuff is used to map the linear spwaning
  * of threads to cpu affinity positions on the
@@ -106,6 +107,7 @@ static char alert_queue[MAX_MPIPE_PIPES][32];
  * centrally located in an attempt to minimize latency
  * of hash-for-home cache operations.
  */
+#ifndef NO_TILE_MAP
 /* order that threads are spawned */
 static char *linear[] = {
    "M0", "T0", "D01", "D02", "D03", "D04", "O0",
@@ -125,11 +127,11 @@ static char *mapped[] = {
    "M0",  "M1",  "M2",  "M3",  "M4",  "T0",
    NULL
 };
+#endif
 
 /* computed mapping */
 static int map[100];
 
-#define NO_TILE_MAP
 
 /* build the map */
 static void RunModeTileMpipeMapCores(void)

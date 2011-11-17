@@ -66,7 +66,7 @@ int StreamTcpReassembleHandleSegment(ThreadVars *, TcpReassemblyThreadCtx *, Tcp
 int StreamTcpReassembleInit(char);
 void StreamTcpReassembleFree(char);
 void StreamTcpReassembleRegisterTests(void);
-TcpReassemblyThreadCtx *StreamTcpReassembleInitThreadCtx(void);
+TcpReassemblyThreadCtx *StreamTcpReassembleInitThreadCtx(ThreadVars *tv);
 void StreamTcpReassembleFreeThreadCtx(TcpReassemblyThreadCtx *);
 int StreamTcpReassembleProcessAppLayer(TcpReassemblyThreadCtx *);
 

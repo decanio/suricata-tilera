@@ -55,6 +55,40 @@ typedef struct SCACOutputTable_ {
     uint32_t no_of_entries;
 } SCACOutputTable;
 
+#ifdef __tile__
+/* Reordered for Tilera cache */
+typedef struct SCACCtx_ {
+    /* This stuff is used at search time */
+
+    /* the all important memory hungry state_table */
+    SC_AC_STATE_TYPE_U16 (*state_table_u16)[256];
+    /* the all important memory hungry state_table */
+    SC_AC_STATE_TYPE_U32 (*state_table_u32)[256];
+
+    SCACOutputTable *output_table;
+    SCACPatternList *pid_pat_list;
+
+    /* the stuff below is only used at initialization time */
+
+    /* hash used during ctx initialization */
+    SCACPattern **init_hash;
+
+    /* pattern arrays.  We need this only during the goto table creation phase */
+    SCACPattern **parray;
+
+    /* no of states used by ac */
+    uint32_t state_count;
+
+    /* goto_table, failure table and output table.  Needed to create state_table.
+     * Will be freed, once we have created the state_table */
+    int32_t (*goto_table)[256];
+    int32_t *failure_table;
+
+    /* the size of each state */
+    uint16_t single_state_size;
+    uint16_t max_pat_id;
+} SCACCtx;
+#else
 typedef struct SCACCtx_ {
     /* hash used during ctx initialization */
     SCACPattern **init_hash;
@@ -80,6 +114,7 @@ typedef struct SCACCtx_ {
     uint16_t single_state_size;
     uint16_t max_pat_id;
 } SCACCtx;
+#endif
 
 typedef struct SCACThreadCtx_ {
     /* the total calls we make to the search function */

@@ -498,7 +498,7 @@ void PatternMatchThreadDestroy(MpmThreadCtx *mpm_thread_ctx, uint16_t mpm_matche
 }
 void PatternMatchThreadPrepare(ThreadVars *tv, MpmThreadCtx *mpm_thread_ctx, uint16_t mpm_matcher, uint32_t max_id) {
     SCLogDebug("mpm_thread_ctx %p, type %"PRIu16", max_id %"PRIu32"", mpm_thread_ctx, mpm_matcher, max_id);
-    MpmInitThreadCtx(mpm_thread_ctx, mpm_matcher, max_id);
+    MpmInitThreadCtx(tv, mpm_thread_ctx, mpm_matcher, max_id);
 }
 
 
