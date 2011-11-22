@@ -152,9 +152,17 @@ uint32_t FlowGetKey(Packet *p) {
 
     if (p->ip4h != NULL) {
         if (p->tcph != NULL || p->udph != NULL) {
+#ifdef __tile__
+            uint32_t src_hash = __insn_crc32_32(__insn_crc32_32(flow_config.hash_rand, k->src.addr_data32[0]), k->sp);
+            uint32_t dst_hash = __insn_crc32_32(__insn_crc32_32(flow_config.hash_rand, k->dst.addr_data32[0]), k->dp);
+            uint32_t hash = __insn_crc32_8(src_hash ^ dst_hash, k->proto);
+            hash = __insn_crc32_8(hash, k->recursion_level);
+            key = hash % flow_config.hash_size;
+#else
             key = (flow_config.hash_rand + k->proto + k->sp + k->dp + \
                     k->src.addr_data32[0] + k->dst.addr_data32[0] + \
                     k->recursion_level) % flow_config.hash_size;
+#endif
 /*
             SCLogDebug("TCP/UCP key %"PRIu32, key);
 
@@ -180,19 +188,42 @@ uint32_t FlowGetKey(Packet *p) {
                     IPV4_GET_RAW_IPDST_U32(ICMPV4_GET_EMB_IPV4(p)), k->recursion_level);
 */
         } else {
+#ifdef __tile__
+            uint32_t src_hash = __insn_crc32_32(flow_config.hash_rand, k->src.addr_data32[0]);
+            uint32_t dst_hash = __insn_crc32_32(flow_config.hash_rand, k->dst.addr_data32[0]);
+            uint32_t hash = __insn_crc32_8(src_hash ^ dst_hash, k->proto);
+            hash = __insn_crc32_8(hash, k->recursion_level);
+            key = hash % flow_config.hash_size;
+#else
             key = (flow_config.hash_rand + k->proto + \
                     k->src.addr_data32[0] + k->dst.addr_data32[0] + \
                     k->recursion_level) % flow_config.hash_size;
-
+#endif
         }
-    } else if (p->ip6h != NULL)
+    } else if (p->ip6h != NULL) {
+#ifdef __tile___
+            uint32_t src_hash = __insn_crc32_32(flow_config.hash_rand, k->sp);
+            src_hash = __insn_crc32_32(src_hash, k->src.addr_data32[0]);
+            src_hash = __insn_crc32_32(src_hash, k->src.addr_data32[1]);
+            src_hash = __insn_crc32_32(src_hash, k->src.addr_data32[2]);
+            src_hash = __insn_crc32_32(src_hash, k->src.addr_data32[3]);
+            uint32_t dst_hash = __insn_crc32_32(flow_config.hash_rand, k->dp);
+            dst_hash = __insn_crc32_32(dst_hash, k->dst.addr_data32[0]);
+            dst_hash = __insn_crc32_32(dst_hash, k->dst.addr_data32[1]);
+            dst_hash = __insn_crc32_32(dst_hash, k->dst.addr_data32[2]);
+            dst_hash = __insn_crc32_32(dst_hash, k->dst.addr_data32[3]);
+            uint32_t hash = __insn_crc32_8(src_hash ^ dst_hash, k->proto);
+            hash = __insn_crc32_8(hash, k->recursion_level);
+            key = hash % flow_config.hash_size;
+#else
         key = (flow_config.hash_rand + k->proto + k->sp + k->dp + \
                k->src.addr_data32[0] + k->src.addr_data32[1] + \
                k->src.addr_data32[2] + k->src.addr_data32[3] + \
                k->dst.addr_data32[0] + k->dst.addr_data32[1] + \
                k->dst.addr_data32[2] + k->dst.addr_data32[3] + \
                k->recursion_level) % flow_config.hash_size;
-    else
+#endif
+    } else
         key = 0;
 
     return key;

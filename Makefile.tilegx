@@ -138,6 +138,27 @@ TILE_MONITOR_WILDCAT_ARGS = \
   --run -+- mkdir -p /var/log/suricata -+- \
   --run -+- suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe3 -+-
 
+TILE_MONITOR_WILDCAT_FEEDBACK_ARGS = \
+  --hvx "dataplane=1-35" \
+  $(WILDCAT_SPEED) \
+  --huge-pages 100 \
+  --mount $(THREADMETER_DIR)/threatmeter /opt \
+  --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
+  --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
+  --upload $(TILERA_ROOT)/tile/lib/libz.so.1.2.3 /lib/libz.so.1 \
+  --upload $(TILERA_ROOT)/tile/lib/libnl.so.1.1 /lib/libnl.so.1 \
+  --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
+  --upload ./libhtp/htp/.libs/libhtp-0.2.so.1.0.2 /lib/libhtp-0.2.so.1.0.2 \
+  --upload ./libhtp/htp/.libs/libhtp-0.2.so.1 /lib/libhtp-0.2.so.1 \
+  --upload ./libhtp/htp/.libs/libhtp.so /lib/libhtp.so \
+  --upload $(YAML_DIR)/src/.libs/libyaml-0.so.2.0.1 /lib/libyaml-0.so.2.0.1 \
+  --upload $(YAML_DIR)/src/.libs/libyaml-0.so.2 /lib/libyaml-0.so.2 \
+  --upload $(YAML_DIR)/src/.libs/libyaml.so /lib/libyaml.so \
+  --upload ./src/.libs/suricata suricata \
+  --run -+- mkdir -p /var/log/suricata -+- \
+  --run -+- suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe3 -+- \
+  --download /tmp/raw_feedback raw_feedback
+
 TILE_MONITOR_WILDCAT_PROFILE_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
@@ -203,6 +224,12 @@ run_wc: $(SIM_DEPS) $(IMAGE_FILE)
         $(WILDCAT_ARGS) \
      --debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_ARGS)
+
+fb_wc: $(SIM_DEPS) $(IMAGE_FILE)
+	$(TILE_MONITOR) \
+        $(WILDCAT_ARGS) \
+     --debug-on-crash \
+	$(TILE_MONITOR_WILDCAT_FEEDBACK_ARGS)
 
 prof_wc: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
