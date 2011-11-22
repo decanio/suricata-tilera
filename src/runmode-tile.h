@@ -62,6 +62,8 @@ int RunModeIdsTileMpipeAutoFp(DetectEngineCtx *de_ctx);
 void RunModeIdsTileMpipeRegister(void);
 const char *RunModeIdsTileMpipeGetDefaultMode(void);
 
+extern int TileMpipeUnmapTile(int cpu);
+
 extern void *tile_pcre_malloc(size_t size);
 extern void tile_pcre_free(void *ptr);
 

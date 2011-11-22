@@ -496,8 +496,8 @@ typedef struct PacketQueue_ {
     uint32_t dbg_maxlen;
 #endif /* DBG_PERF */
 #ifdef __tile__
-    tmc_spin_queued_mutex_t mutex_q;
     volatile uint32_t cond_q;
+    tmc_spin_queued_mutex_t mutex_q __attribute__((aligned(64)));
 } __attribute__((aligned(64))) PacketQueue;
 #else
     SCMutex mutex_q;

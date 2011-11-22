@@ -126,6 +126,7 @@ static gxio_mpipe_context_t* context = &context_body;
 //static gxio_mpipe_iqueue_t* iqueue = &iqueue_body;
 static gxio_mpipe_iqueue_t** iqueues;
 
+#if 1
 static unsigned long long tile_gtod_fast_boot = 0;
 static unsigned long tile_gtod_fast_mhz;
 
@@ -142,6 +143,7 @@ static int tilera_fast_gettimeofday(struct timeval *tv) {
     }
     return 0;
 }
+#endif
 
 /**
  * \brief Registration Function for ReceiveMpipe.
@@ -189,6 +191,17 @@ void MpipeFreePacket(Packet *p) {
 #endif
     gxio_mpipe_push_buffer(context, p->idesc.stack_idx, (void *)(intptr_t)p->idesc.va);
 
+//#define __TILEGX_FEEDBACK_RUN__
+#ifdef __TILEGX_FEEDBACK_RUN__
+    static uint32_t packet_count = 0;
+
+    // disable profiling at end of simulation input
+    if (++packet_count == 1000000) {
+        SCLogInfo("Mpipe exiting\n");
+        EngineStop();
+    }
+#endif
+
 #ifdef __TILEGX_SIMULATION__
     static uint32_t packet_count = 0;
 
@@ -221,6 +234,7 @@ static inline void MpipeProcessPacket(u_char *user, gxio_mpipe_idesc_t *idesc, P
     ptv->pkts++;
 
     tilera_fast_gettimeofday(&p->ts);
+    //TimeGet(&p->ts);
     /*
     p->ts.tv_sec = h->ts.tv_sec;
     p->ts.tv_usec = h->ts.tv_usec;
@@ -582,9 +596,11 @@ TmEcode DecodeMpipe(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pack
     SCPerfCounterIncr(dtv->counter_pkts_per_sec, tv->sc_perf_pca);
 
     SCPerfCounterAddUI64(dtv->counter_bytes, tv->sc_perf_pca, p->pktlen);
+#if 0
     SCPerfCounterAddDouble(dtv->counter_bytes_per_sec, tv->sc_perf_pca, p->pktlen);
     SCPerfCounterAddDouble(dtv->counter_mbit_per_sec, tv->sc_perf_pca,
                            (p->pktlen * 8)/1000000.0);
+#endif
 
     SCPerfCounterAddUI64(dtv->counter_avg_pkt_size, tv->sc_perf_pca, p->pktlen);
     SCPerfCounterSetUI64(dtv->counter_max_pkt_size, tv->sc_perf_pca, p->pktlen);

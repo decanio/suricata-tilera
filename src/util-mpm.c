@@ -35,6 +35,7 @@
 #include "util-mpm-b2gc.h"
 #include "util-mpm-b2gm.h"
 #include "util-mpm-ac.h"
+#include "util-mpm-acc.h"
 #include "util-mpm-ac-gfbs.h"
 #include "util-hashlist.h"
 
@@ -405,6 +406,7 @@ void MpmTableSetup(void) {
     MpmB2gcRegister();
     MpmB2gmRegister();
     MpmACRegister();
+    MpmACCRegister();
     MpmACGfbsRegister();
 }
 
