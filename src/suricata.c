@@ -214,6 +214,8 @@ int sc_set_caps;
 #ifdef __tile__
 /** Tilera used a separate mspace to utilize huge pages and hash for home. */
 tmc_mspace global_mspace;
+/** Place mpm into memory in hash for home memory not cached in local L2 */
+tmc_mspace mpm_mspace;
 tmc_sync_barrier_t startup_barrier = TMC_SYNC_BARRIER_INIT((NUM_TILERA_PIPELINES * TILES_PER_PIPELINE) + 4);
 #endif
 
@@ -1454,16 +1456,14 @@ int main(int argc, char **argv)
     int i = 0;
 #ifdef __tile__
     {
-#if 0
-    Packet *p = SCMallocAligned(max_pending_packets * SIZE_OF_PACKET, 64);
-#else
-    Packet *p = SCMalloc(max_pending_packets * SIZE_OF_PACKET);
-#endif
+    Packet *p = SCMalloc(max_pending_packets * sizeof(Packet));
     if (p == NULL) {
         SCLogError(SC_ERR_FATAL, "Fatal error encountered while allocating a packet. Exiting...");
         exit(EXIT_FAILURE);
     }
 printf("DEBUG: Packet base %p\n", p);
+printf("DEBUG: sizeof Packet %ld\n", sizeof(Packet));
+printf("DEBUG: sizeof gxio_mpipe_idesc_t %ld\n", sizeof(gxio_mpipe_idesc_t));
 #endif
     for (i = 0; i < max_pending_packets; i++) {
         /* XXX pkt alloc function */
@@ -1488,9 +1488,12 @@ printf("DEBUG: Packet base %p\n", p);
     }
 #ifdef __tile__
     }
-#endif
+    SCLogInfo("preallocated %"PRIiMAX" packets. Total memory %"PRIuMAX"",
+        max_pending_packets, (uintmax_t)(max_pending_packets*sizeof(Packet)));
+#else
     SCLogInfo("preallocated %"PRIiMAX" packets. Total memory %"PRIuMAX"",
         max_pending_packets, (uintmax_t)(max_pending_packets*SIZE_OF_PACKET));
+#endif
 
     FlowInitConfig(FLOW_VERBOSE);
 

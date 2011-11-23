@@ -73,8 +73,10 @@ Packet *TmqhInputSimple(ThreadVars *t)
 #if 1
         do {
             tmc_spin_queued_mutex_unlock(&q->mutex_q);
-            while ((q->len == 0) && (q->cond_q == 0))
+            while ((q->len == 0) && (q->cond_q == 0)) {
 	        cycle_pause(101);
+	        //cycle_pause(333);
+            }
             tmc_spin_queued_mutex_lock(&q->mutex_q);
         } while ((q->len == 0) && (q->cond_q == 0));
 #else

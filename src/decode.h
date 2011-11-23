@@ -344,6 +344,12 @@ typedef struct Packet_
 
     /* Pkt Flags */
     uint16_t flags;
+#ifdef __tile__
+    uint8_t pool; /* packetpool this was allocated from */   
+
+    /* IPS action to take */
+    uint8_t action;
+#endif
     /* flow */
     uint8_t flowflags;
     struct Flow_ *flow;
@@ -369,14 +375,14 @@ typedef struct Packet_
     };
 
 #ifdef __tile__
-    uint32_t pool; /* packetpool this was allocated from */   
-#endif
-
+    uint16_t datalink;
+#else
     /** data linktype in host order */
     int datalink;
 
     /* IPS action to take */
     uint8_t action;
+#endif
 
     /* pkt vars */
     PktVar *pktvar;
@@ -475,8 +481,8 @@ typedef struct Packet_
 #ifdef PROFILING
     PktProfiling profile;
 #endif
-//#ifdef __tile__
-#if 0
+#ifdef __tile__
+//#if 0
 } __attribute__((aligned(64))) Packet;
 #else
 } Packet;

@@ -157,11 +157,15 @@ SCProfilingInit(void)
             memset(rules_profile_data, 0, sizeof(rules_profile_data));
             memset(&rules_ctx, 0, sizeof(rules_ctx));
             rules_pca = SCPerfGetAllCountersArray(NULL);
+#ifdef __tile__
+            tmc_spin_queued_mutex_init(&rules_ctx.m);
+#else
             if (SCMutexInit(&rules_ctx.m, NULL) != 0) {
                 SCLogError(SC_ERR_MUTEX,
                         "Failed to initialize hash table mutex.");
                 exit(EXIT_FAILURE);
             }
+#endif
             profiling_rules_enabled = 1;
 
             val = ConfNodeLookupChildValue(conf, "sort");
@@ -321,11 +325,15 @@ SCProfilingDestroy(void)
     if (profiling_rules_enabled) {
         SCPerfReleasePerfCounterS(rules_ctx.head);
         SCPerfReleasePCA(rules_pca);
+#ifndef __tile__
         SCMutexDestroy(&rules_ctx.m);
+#endif
     }
 
     if (profiling_packets_enabled) {
+#ifndef __tile__
         SCMutexDestroy(&packet_profile_lock);
+#endif
     }
 
     if (profiling_packets_csv_enabled) {
@@ -642,7 +650,11 @@ SCProfilingCounterAddUI64(uint16_t id, uint64_t val)
 void
 SCProfilingUpdateRuleCounter(uint16_t id, uint64_t ticks, int match)
 {
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&rules_ctx.m);
+#else
     SCMutexLock(&rules_ctx.m);
+#endif
     SCProfilingCounterAddUI64(id, ticks);
     rules_profile_data[id].matches += match;
     if (ticks > rules_profile_data[id].max)
@@ -652,7 +664,11 @@ SCProfilingUpdateRuleCounter(uint16_t id, uint64_t ticks, int match)
     else
         rules_profile_data[id].ticks_no_match += ticks;
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&rules_ctx.m);
+#else
     SCMutexUnlock(&rules_ctx.m);
+#endif
 }
 
 void SCProfilingDumpPacketStats(void) {

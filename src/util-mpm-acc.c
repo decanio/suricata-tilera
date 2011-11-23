@@ -774,7 +774,7 @@ static inline void SCACCCreateDeltaTable(MpmCtx *mpm_ctx)
     int32_t r_state = 0;
 
     if (ctx->state_count < 32767) {
-        ctx->state_table_u16 = SCMalloc(ctx->state_count *
+        ctx->state_table_u16 = SCMpmMalloc(ctx->state_count *
                                         sizeof(SC_ACC_STATE_TYPE_U16) * ALPHABET_SIZE);
         if (ctx->state_table_u16 == NULL) {
             SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory");
@@ -815,7 +815,7 @@ static inline void SCACCCreateDeltaTable(MpmCtx *mpm_ctx)
         /* create space for the state table.  We could have used the existing goto
          * table, but since we have it set to hold 32 bit state values, we will create
          * a new state table here of type SC_AC_STATE_TYPE(current set to uint16_t) */
-        ctx->state_table_u32 = SCMalloc(ctx->state_count *
+        ctx->state_table_u32 = SCMpmMalloc(ctx->state_count *
                                         sizeof(SC_ACC_STATE_TYPE_U32) * ALPHABET_SIZE);
         if (ctx->state_table_u32 == NULL) {
             SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory");

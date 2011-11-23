@@ -255,6 +255,7 @@ SC_ATOMIC_EXTERN(unsigned int, engine_stage);
  * using huge pages and hash-for-home caching
  */
 extern tmc_mspace global_mspace;
+extern tmc_mspace mpm_mspace;
 
 #define SCMallocInit() ({\
     extern void *tile_pcre_malloc(size_t size); \
@@ -264,6 +265,12 @@ extern tmc_mspace global_mspace;
     tmc_alloc_set_home(&attr, TMC_ALLOC_HOME_HASH); \
     global_mspace = tmc_mspace_create_special(1024*1024*1024, \
                                               TMC_MSPACE_LOCKED, &attr); \
+    tmc_alloc_t mpm_attr = TMC_ALLOC_INIT; \
+    tmc_alloc_set_huge(&mpm_attr); \
+    tmc_alloc_set_home(&mpm_attr, TMC_ALLOC_HOME_HASH); \
+    /*tmc_alloc_set_caching(&mpm_attr, MAP_CACHE_NO_L2);*/ \
+    mpm_mspace = tmc_mspace_create_special(32*1024*1024, \
+                                           0, &mpm_attr); \
     /* override the pcre memory allocator to use tmc functions */ \
     pcre_malloc = tile_pcre_malloc; \
     pcre_free = tile_pcre_free; \
@@ -284,9 +291,21 @@ extern tmc_mspace global_mspace;
     (void*)ptrmem; \
 })
 
-#if 0
-#define SCThreadMalloc(tv, a) SCMalloc((a))
-#else
+#define SCMpmMalloc(a) ({ \
+    void *ptrmem = NULL; \
+    \
+    ptrmem = tmc_mspace_malloc(mpm_mspace, (a)); \
+    if (ptrmem == NULL) { \
+        if (SC_ATOMIC_GET(engine_stage) == SURICATA_INIT) {\
+            SCLogError(SC_ERR_MEM_ALLOC, "SCMalloc failed: %s, while trying " \
+                "to allocate %"PRIuMAX" bytes", strerror(errno), (uintmax_t)(a)); \
+            SCLogError(SC_ERR_FATAL, "Out of memory. The engine cannot be initialized. Exiting..."); \
+            exit(EXIT_FAILURE); \
+        } \
+    } \
+    (void*)ptrmem; \
+})
+
 #define SCThreadMalloc(tv, a) ({ \
     void *ptrmem = NULL; \
     \
@@ -301,8 +320,6 @@ extern tmc_mspace global_mspace;
     } \
     (void*)ptrmem; \
 })
-#endif
-
 
 #define SCRealloc(x, a) ({ \
     void *ptrmem = NULL; \
