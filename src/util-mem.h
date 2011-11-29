@@ -72,6 +72,10 @@ SC_ATOMIC_EXTERN(unsigned int, engine_stage);
     (void*)ptrmem; \
 })
 
+#define SCMpmMalloc(tv a) SCMalloc(a)
+
+#define SCThreadMalloc(tv a) SCMalloc(a)
+
 #define SCRealloc(x, a) ({ \
     void *ptrmem = NULL; \
     extern size_t global_mem; \
@@ -169,6 +173,10 @@ SC_ATOMIC_EXTERN(unsigned int, engine_stage);
     } \
     (void*)ptrmem; \
 })
+
+#define SCMpmMalloc(a) SCMalloc(a)
+
+#define SCThreadMalloc(tv, a) SCMalloc(a)
 
 #define SCRealloc(x, a) ({ \
     void *ptrmem = NULL; \

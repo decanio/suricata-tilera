@@ -24,6 +24,7 @@
 
 #define COMPRESS_ALPHABET
 
+#define SC_ACC_STATE_TYPE_U8 uint8_t
 #define SC_ACC_STATE_TYPE_U16 uint16_t
 #define SC_ACC_STATE_TYPE_U32 uint32_t
 
@@ -62,11 +63,41 @@ typedef struct SCACCOutputTable_ {
 #else
 #define ALPHABET_SIZE	256
 #endif
+
+typedef struct state_table_hdr {
+    struct state_table_hdr *next;
+    int state_count;
+    size_t size;
+    uint16_t entries;
+    uint8_t alpha_map[ALPHABET_SIZE];
+} state_table_hdr_t;
+
+typedef struct state_table8 {
+    state_table_hdr_t hdr;
+    SC_ACC_STATE_TYPE_U8 u8[];
+} state_table8_t;
+
+typedef struct state_table16 {
+    state_table_hdr_t hdr;
+    SC_ACC_STATE_TYPE_U16 u16[];
+} state_table16_t;
+
+typedef struct state_table32 {
+    state_table_hdr_t hdr;
+    SC_ACC_STATE_TYPE_U32 u32[];
+} state_table32_t;
+
 #ifdef __tile__
 /* Reordered for Tilera cache */
 typedef struct SCACCCtx_ {
     /* This stuff is used at search time */
 
+    SC_ACC_STATE_TYPE_U8 *state_table_m8;
+    SC_ACC_STATE_TYPE_U16 *state_table_m16;
+    SC_ACC_STATE_TYPE_U32 *state_table_m32;
+
+    /* the all important memory hungry state_table */
+    SC_ACC_STATE_TYPE_U8 (*state_table_u8)[ALPHABET_SIZE];
     /* the all important memory hungry state_table */
     SC_ACC_STATE_TYPE_U16 (*state_table_u16)[ALPHABET_SIZE];
     /* the all important memory hungry state_table */
@@ -106,9 +137,15 @@ typedef struct SCACCCtx_ {
     /* no of states used by ac */
     uint32_t state_count;
     /* the all important memory hungry state_table */
+    SC_ACC_STATE_TYPE_U8 (*state_table_u8)[ALPHABET_SIZE];
+    /* the all important memory hungry state_table */
     SC_ACC_STATE_TYPE_U16 (*state_table_u16)[ALPHABET_SIZE];
     /* the all important memory hungry state_table */
     SC_ACC_STATE_TYPE_U32 (*state_table_u32)[ALPHABET_SIZE];
+
+    SC_ACC_STATE_TYPE_U8 *state_table_m8;
+    SC_ACC_STATE_TYPE_U16 *state_table_m16;
+    SC_ACC_STATE_TYPE_U32 *state_table_m32;
 
     /* goto_table, failure table and output table.  Needed to create state_table.
      * Will be freed, once we have created the state_table */
@@ -120,6 +157,7 @@ typedef struct SCACCCtx_ {
     /* the size of each state */
     uint16_t single_state_size;
     uint16_t max_pat_id;
+
 } SCACCCtx;
 #endif
 

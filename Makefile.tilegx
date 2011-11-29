@@ -22,7 +22,7 @@ endif
 #
 # Local environment configuation.
 # Go ahead and modify these:
-BASE_DIR=/u/tdecanio.sc
+BASE_DIR=/mnt/decanio
 THREADMETER_DIR=$(BASE_DIR)/work/TileGX
 YAML_DIR=$(BASE_DIR)/work/TileGX/yamlgx-0.1.3
 PCAPFILE=$(BASE_DIR)/work/napatech/suricata1.pcap
@@ -116,12 +116,15 @@ TILE_MONITOR_UT_ARGS = \
   --run -+- mkdir -p /var/log/suricata -+- \
   --run -+- suricata -u -+-
 
+WILDCAT_CPU = --hvd CHIP_WIDTH=6 --hvd CHIP_HEIGHT=6
 #WILDCAT_SPEED = --hvd MEM_SPEED=750 --hvd CPU_SPEED=750
 WILDCAT_SPEED = --hvd MEM_SPEED=1066 --hvd CPU_SPEED=1000
 
 TILE_MONITOR_WILDCAT_ARGS = \
-  --hvx "dataplane=1-35" \
+  $(WILDCAT_CPU) \
   $(WILDCAT_SPEED) \
+  --hvx "dataplane=1-35" \
+  --hvx "TLR_NETWORK=gbe1" \
   --huge-pages 100 \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
   --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
@@ -293,13 +296,22 @@ run_ut_sim: $(SIM_DEPS) $(IMAGE_FILE)
 	 $(SIM_ARGS) $(TILE_MONITOR_UT_ARGS)
 
 #WILDCAT_ARGS=--resume --dev fae-wc-1
-WILDCAT_ARGS=--dev fae-wc-1
+##WILDCAT_ARGS=--dev fae-wc-1
+WILDCAT_ARGS=--
+NET_ARGS=--net 192.168.0.14
 
 run_wc: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
      --debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_ARGS)
+
+run_net: $(SIM_DEPS) $(IMAGE_FILE)
+	$(TILE_MONITOR) \
+        $(NET_ARGS) \
+     --debug-on-crash \
+	$(TILE_MONITOR_WILDCAT_ARGS)
+
 
 run_wc_static: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \

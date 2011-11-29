@@ -72,6 +72,8 @@ int SCACCAddPatternCS(MpmCtx *, uint8_t *, uint16_t, uint16_t, uint16_t,
 int SCACCPreparePatterns(MpmCtx *mpm_ctx);
 uint32_t SCACCSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
                     PatternMatcherQueue *pmq, uint8_t *buf, uint16_t buflen);
+uint32_t SCACCMappedSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
+                    PatternMatcherQueue *pmq, uint8_t *buf, uint16_t buflen);
 void SCACCPrintInfo(MpmCtx *mpm_ctx);
 void SCACCPrintSearchStats(MpmThreadCtx *mpm_thread_ctx);
 void SCACCRegisterTests(void);
@@ -108,7 +110,7 @@ void MpmACCRegister(void)
     mpm_table[MPM_ACC].AddPattern = SCACCAddPatternCS;
     mpm_table[MPM_ACC].AddPatternNocase = SCACCAddPatternCI;
     mpm_table[MPM_ACC].Prepare = SCACCPreparePatterns;
-    mpm_table[MPM_ACC].Search = SCACCSearch;
+    mpm_table[MPM_ACC].Search = SCACCMappedSearch;
     mpm_table[MPM_ACC].Cleanup = NULL;
     mpm_table[MPM_ACC].PrintCtx = SCACCPrintInfo;
     mpm_table[MPM_ACC].PrintThreadCtx = SCACCPrintSearchStats;
@@ -133,7 +135,7 @@ static void SCACCGetConfig()
     return;
 }
 
-static inline int SCACCMapAlphabet(int c)
+static inline int SCACCSqueezeAlphabet(int c)
 {
 //#define u8_tolower(c) ((((c) > 'Z')) ? ((c) - ('Z'-'A'+1)) : (c))
     int mc;
@@ -145,6 +147,12 @@ static inline int SCACCMapAlphabet(int c)
 #endif
 
     return mc;
+}
+
+static inline int SCACCMapAlphabet(uint8_t *alpha_map, int c)
+{
+    int mc = SCACCSqueezeAlphabet(c);
+    return (int) alpha_map[mc];
 }
 
 /**
@@ -767,15 +775,72 @@ static inline void SCACCCreateFailureTable(MpmCtx *mpm_ctx)
  *
  * \param mpm_ctx Pointer to the mpm context.
  */
+
 static inline void SCACCCreateDeltaTable(MpmCtx *mpm_ctx)
 {
     SCACCCtx *ctx = (SCACCCtx *)mpm_ctx->ctx;
     int ascii_code = 0;
     int32_t r_state = 0;
 
-    if (ctx->state_count < 32767) {
-        ctx->state_table_u16 = SCMpmMalloc(ctx->state_count *
-                                        sizeof(SC_ACC_STATE_TYPE_U16) * ALPHABET_SIZE);
+    if (ctx->state_count < 127) {
+
+        state_table8_t *t8;
+
+        t8 = SCMpmMalloc(sizeof(state_table_hdr_t) + ctx->state_count *
+                         sizeof(SC_ACC_STATE_TYPE_U8) * ALPHABET_SIZE);
+
+        t8->hdr.state_count = ctx->state_count;
+        t8->hdr.size = ctx->state_count *
+                       sizeof(SC_ACC_STATE_TYPE_U8) * ALPHABET_SIZE;
+        ctx->state_table_u8 = &t8->u8;
+
+        if (ctx->state_table_u8 == NULL) {
+            SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory");
+            exit(EXIT_FAILURE);
+        }
+        memset(ctx->state_table_u8, 0,
+               ctx->state_count * sizeof(SC_ACC_STATE_TYPE_U8) * ALPHABET_SIZE);
+
+        mpm_ctx->memory_cnt++;
+        mpm_ctx->memory_size += (ctx->state_count *
+                                 sizeof(SC_ACC_STATE_TYPE_U8) * ALPHABET_SIZE);
+
+        StateQueue q;
+        memset(&q, 0, sizeof(StateQueue));
+
+        for (ascii_code = 0; ascii_code < 256; ascii_code++) {
+            SC_ACC_STATE_TYPE_U8 temp_state = ctx->goto_table[0][ascii_code];
+            ctx->state_table_u8[0][SCACCSqueezeAlphabet(ascii_code)] = temp_state;
+            if (temp_state != 0)
+                SCACCEnqueue(&q, temp_state);
+        }
+
+        while (!SCACCStateQueueIsEmpty(&q)) {
+            r_state = SCACCDequeue(&q);
+
+            for (ascii_code = 0; ascii_code < 256; ascii_code++) {
+                int32_t temp_state = ctx->goto_table[r_state][ascii_code];
+                if (temp_state != SC_AC_FAIL) {
+                    SCACCEnqueue(&q, temp_state);
+                    ctx->state_table_u8[r_state][SCACCSqueezeAlphabet(ascii_code)] = temp_state;
+                } else {
+                    ctx->state_table_u8[r_state][SCACCSqueezeAlphabet(ascii_code)] =
+                        ctx->state_table_u8[ctx->failure_table[r_state]][SCACCSqueezeAlphabet(ascii_code)];
+                }
+            }
+        }
+
+    } else if (ctx->state_count < 32767) {
+
+        state_table16_t *t16;
+
+        t16 = SCMpmMalloc(sizeof(state_table_hdr_t) + ctx->state_count *
+                          sizeof(SC_ACC_STATE_TYPE_U16) * ALPHABET_SIZE);
+        t16->hdr.state_count = ctx->state_count;
+        t16->hdr.size = ctx->state_count *
+                       sizeof(SC_ACC_STATE_TYPE_U16) * ALPHABET_SIZE;
+
+        ctx->state_table_u16 = &t16->u16;
         if (ctx->state_table_u16 == NULL) {
             SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory");
             exit(EXIT_FAILURE);
@@ -792,7 +857,7 @@ static inline void SCACCCreateDeltaTable(MpmCtx *mpm_ctx)
 
         for (ascii_code = 0; ascii_code < 256; ascii_code++) {
             SC_ACC_STATE_TYPE_U16 temp_state = ctx->goto_table[0][ascii_code];
-            ctx->state_table_u16[0][SCACCMapAlphabet(ascii_code)] = temp_state;
+            ctx->state_table_u16[0][SCACCSqueezeAlphabet(ascii_code)] = temp_state;
             if (temp_state != 0)
                 SCACCEnqueue(&q, temp_state);
         }
@@ -804,13 +869,14 @@ static inline void SCACCCreateDeltaTable(MpmCtx *mpm_ctx)
                 int32_t temp_state = ctx->goto_table[r_state][ascii_code];
                 if (temp_state != SC_AC_FAIL) {
                     SCACCEnqueue(&q, temp_state);
-                    ctx->state_table_u16[r_state][SCACCMapAlphabet(ascii_code)] = temp_state;
+                    ctx->state_table_u16[r_state][SCACCSqueezeAlphabet(ascii_code)] = temp_state;
                 } else {
-                    ctx->state_table_u16[r_state][SCACCMapAlphabet(ascii_code)] =
-                        ctx->state_table_u16[ctx->failure_table[r_state]][SCACCMapAlphabet(ascii_code)];
+                    ctx->state_table_u16[r_state][SCACCSqueezeAlphabet(ascii_code)] =
+                        ctx->state_table_u16[ctx->failure_table[r_state]][SCACCSqueezeAlphabet(ascii_code)];
                 }
             }
         }
+
     } else {
         /* create space for the state table.  We could have used the existing goto
          * table, but since we have it set to hold 32 bit state values, we will create
@@ -863,15 +929,120 @@ static inline void SCACCClubOutputStatePresenceWithDeltaTable(MpmCtx *mpm_ctx)
     int ascii_code = 0;
     uint32_t state = 0;
     uint32_t temp_state = 0;
+#if 0
+    /* lists of state tables */
+    static state_table8_t *head_state_table8 = NULL;
+    static state_table16_t *head_state_table16 = NULL;
+    static state_table32_t *head_state_table32 = NULL;
+    static unsigned long long cumulative_bytes = 0;
+#endif
 
-    if (ctx->state_count < 32767) {
+    if (ctx->state_count < 127) {
         for (state = 0; state < ctx->state_count; state++) {
             for (ascii_code = 0; ascii_code < 256; ascii_code++) {
-                temp_state = ctx->state_table_u16[state & 0x7FFF][SCACCMapAlphabet(ascii_code)];
-                if (ctx->output_table[temp_state & 0x7FFF].no_of_entries != 0)
-                    ctx->state_table_u16[state & 0x7FFF][SCACCMapAlphabet(ascii_code)] |= (1 << 15);
+                temp_state = ctx->state_table_u8[state & 0x7F][SCACCSqueezeAlphabet(ascii_code)];
+                if (ctx->output_table[temp_state & 0x7F].no_of_entries != 0)
+                    ctx->state_table_u8[state & 0x7F][SCACCSqueezeAlphabet(ascii_code)] |= (1 << 7);
             }
         }
+
+#if 0
+        state_table8_t *l8;
+        state_table8_t *t8 = (state_table8_t *)((char *)ctx->state_table_u8 - sizeof(state_table_hdr_t));
+
+	l8 = head_state_table8;
+        printf("list l8 %p\n", l8);
+        int i = 0;
+        int match = 0;
+        while (l8 != NULL) {
+            //printf("checking against state_count %d size %ld\n",
+            //       l8->hdr.state_count, l8->hdr.size);
+            SC_ACC_STATE_TYPE_U8 (*l_u8)[ALPHABET_SIZE] = &l8->u8;
+            SC_ACC_STATE_TYPE_U8 (*t_u8)[ALPHABET_SIZE] = &t8->u8;
+            if ((l8->hdr.state_count == t8->hdr.state_count) &&
+                (l8->hdr.size == t8->hdr.size) &&
+                (SCMemcmp(l_u8, t_u8, l8->hdr.size) == 0)) {
+                printf("matching state table at %d\n", i);
+                match = 1;
+		break;
+#if 0
+                SC_ACC_STATE_TYPE_U8 (*l_u8)[ALPHABET_SIZE] = &l8->u8;
+                SC_ACC_STATE_TYPE_U8 (*t_u8)[ALPHABET_SIZE] = &t8->u8;
+                printf("memcmp result %d\n", SCMemcmp(l_u8, t_u8, l8->hdr.size));
+                for (int s = 0; s < t8->hdr.state_count; s++) {
+                    for (int j = 0; j < ALPHABET_SIZE; j++) {
+                        printf("%cs: %d j: %d %04x %04x\n", 
+                                (t_u8[s][j] != l_u8[s][j]) ? 'X':' ',
+                                s,j,t_u8[s][j], l_u8[s][j]);
+                    }
+                }
+#endif
+            }
+            l8 = (state_table8_t *)l8->hdr.next;
+            i += 1;
+        }
+        if (match == 0) {
+            cumulative_bytes += t8->hdr.size;
+            printf("cumulative bytes %lld\n", cumulative_bytes);
+        }
+        t8->hdr.next = head_state_table8;
+        head_state_table8 = t8;
+        printf("added t8 %p\n", t8);
+#endif
+
+    } else if (ctx->state_count < 32767) {
+        for (state = 0; state < ctx->state_count; state++) {
+            for (ascii_code = 0; ascii_code < 256; ascii_code++) {
+                temp_state = ctx->state_table_u16[state & 0x7FFF][SCACCSqueezeAlphabet(ascii_code)];
+                if (ctx->output_table[temp_state & 0x7FFF].no_of_entries != 0)
+                    ctx->state_table_u16[state & 0x7FFF][SCACCSqueezeAlphabet(ascii_code)] |= (1 << 15);
+            }
+        }
+
+#if 0
+        state_table16_t *l16;
+        state_table16_t *t16 = (state_table16_t *)((char *)ctx->state_table_u16 - sizeof(state_table_hdr_t));
+
+	l16 = head_state_table16;
+        printf("list l16 %p\n", l16);
+        int i = 0;
+        int match = 0;
+        while (l16 != NULL) {
+            //printf("checking against state_count %d size %ld\n",
+            //       l16->hdr.state_count, l16->hdr.size);
+            SC_ACC_STATE_TYPE_U16 (*l_u16)[ALPHABET_SIZE] = &l16->u16;
+            SC_ACC_STATE_TYPE_U16 (*t_u16)[ALPHABET_SIZE] = &t16->u16;
+            if ((l16->hdr.state_count == t16->hdr.state_count) &&
+                (l16->hdr.size == t16->hdr.size) &&
+                (SCMemcmp(l_u16, t_u16, l16->hdr.size) == 0)) {
+                printf("matching state table at %d\n", i);
+                match = 1;
+		break;
+#if 0
+                SC_ACC_STATE_TYPE_U8 (*l_u8)[ALPHABET_SIZE] = &l8->u8;
+                SC_ACC_STATE_TYPE_U8 (*t_u8)[ALPHABET_SIZE] = &t8->u8;
+                printf("memcmp result %d\n", SCMemcmp(l_u8, t_u8, l8->hdr.size));
+                for (int s = 0; s < t8->hdr.state_count; s++) {
+                    for (int j = 0; j < ALPHABET_SIZE; j++) {
+                        printf("%cs: %d j: %d %04x %04x\n", 
+                                (t_u8[s][j] != l_u8[s][j]) ? 'X':' ',
+                                s,j,t_u8[s][j], l_u8[s][j]);
+                    }
+                }
+#endif
+            }
+            l16 = (state_table16_t *)l16->hdr.next;
+            i += 1;
+        }
+        if (match == 0) {
+            cumulative_bytes += t16->hdr.size;
+            printf("cumulative bytes %lld\n", cumulative_bytes);
+        }
+        t16->hdr.next = head_state_table16;
+        head_state_table16 = t16;
+        printf("added t16 %p\n", t16);
+#endif
+
     } else {
         for (state = 0; state < ctx->state_count; state++) {
             for (ascii_code = 0; ascii_code < 256; ascii_code++) {
@@ -880,6 +1051,298 @@ static inline void SCACCClubOutputStatePresenceWithDeltaTable(MpmCtx *mpm_ctx)
                     ctx->state_table_u32[state & 0x00FFFFFF][ascii_code] |= (1 << 24);
             }
         }
+    }
+
+    return;
+}
+
+static int SCACCGetDelta(int i, int j, MpmCtx *mpm_ctx)
+{
+    SCACCCtx *ctx = (SCACCCtx *)mpm_ctx->ctx;
+
+    /* this following implies (ctx->state_count < 32767) */
+    if (ctx->state_table_u8) {
+        SC_ACC_STATE_TYPE_U8 (*state_table_u8)[ALPHABET_SIZE];
+        SC_ACC_STATE_TYPE_U8 state;
+        state_table_u8 = ctx->state_table_u8;
+        state = state_table_u8[i][j];
+        return (int) state;
+    } else if (ctx->state_table_u16) {
+        SC_ACC_STATE_TYPE_U16 (*state_table_u16)[ALPHABET_SIZE];
+        SC_ACC_STATE_TYPE_U16 state;
+        state_table_u16 = ctx->state_table_u16;
+        state = state_table_u16[i][j];
+        return (int) state;
+    } else {
+        SC_ACC_STATE_TYPE_U32 (*state_table_u32)[ALPHABET_SIZE];
+        SC_ACC_STATE_TYPE_U32 state;
+        state_table_u32 = ctx->state_table_u32;
+        state = state_table_u32[i][j];
+        return (int) state;
+    }
+}
+
+static inline SCACCMappedDeltaIndex(uint32_t state, int entries, int code)
+{
+    return (state * entries) + code;
+}
+
+static void SCACCCompressDeltaTable(MpmCtx *mpm_ctx)
+{
+    SCACCCtx *ctx = (SCACCCtx *)mpm_ctx->ctx;
+    int ascii_code = 0;
+    uint32_t state = 0;
+    uint32_t temp_state = 0;
+    uint32_t empty;
+    int k;
+
+    unsigned int count[ALPHABET_SIZE];
+
+    for (ascii_code = 0; ascii_code < ALPHABET_SIZE; ascii_code++) count[ascii_code] = 0;
+
+    for (state = 0; state < ctx->state_count; state++) {
+	empty = 0;
+        for (ascii_code = 0; ascii_code < ALPHABET_SIZE; ascii_code++) {
+            if (SCACCGetDelta(state, ascii_code, mpm_ctx) != 0) {
+#ifdef COMPRESS_ALPHABET
+                unsigned int k;
+		        k = (ascii_code >= 'A') ? ascii_code + ('Z'-'A'+1) : ascii_code;
+                //printf("  %02x %02x(%c) -> %d %04x\n", j, k, isprint(k) ? k : '.', SCACCGetDelta(i, j, mpm_ctx) >> ((ctx->state_count < 128) ? 7 : 15), SCACCGetDelta(i, j, mpm_ctx) & 0x7fff);
+#else
+                printf("  %02x(%c) -> %d\n", j, isprint(j) ? j : '.', SCACCGetDelta(i, j, mpm_ctx));
+#endif
+                count[ascii_code] += 1;
+            } else {
+                ++empty;
+            }
+        }
+    }
+    int char_count = 0;
+    for(ascii_code = 0; ascii_code < ALPHABET_SIZE; ascii_code++) {
+        k = (ascii_code >= 'A') ? ascii_code + ('Z'-'A'+1) : ascii_code;
+        //printf("%02x %02x(%c) %u\n", j, k, isprint(k) ? k : '.', count[j]);
+        if (count[ascii_code] != 0) ++char_count;
+    }
+
+    char_count += 1; // add a fail character
+    printf("Slots in map %d\n", char_count);
+    if (ctx->state_count < 127) {
+        ctx->state_table_u8;
+        state_table8_t *t8;
+
+        t8 = SCMpmMalloc(sizeof(state_table_hdr_t) + ctx->state_count *
+                         sizeof(SC_ACC_STATE_TYPE_U8) * char_count);
+
+        t8->hdr.state_count = ctx->state_count;
+        t8->hdr.size = ctx->state_count *
+                       sizeof(SC_ACC_STATE_TYPE_U8) * char_count;
+        t8->hdr.entries = char_count;
+        memset(t8->hdr.alpha_map, 0, sizeof(t8->hdr.alpha_map));
+        ctx->state_table_m8 = &t8->u8;
+
+        if (ctx->state_table_m8 == NULL) {
+            SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory");
+            exit(EXIT_FAILURE);
+        }
+        memset(ctx->state_table_m8, 0,
+               ctx->state_count * sizeof(SC_ACC_STATE_TYPE_U8) * char_count);
+
+        int map_index = 1;
+        for(ascii_code = 0; ascii_code < ALPHABET_SIZE; ascii_code++) {
+            if (count[ascii_code] != 0) {
+                t8->hdr.alpha_map[ascii_code] = map_index;
+                for (state = 0; state < ctx->state_count; state++) {
+                    ctx->state_table_m8[SCACCMappedDeltaIndex(state, char_count, map_index)] = 
+                        (SC_ACC_STATE_TYPE_U8)SCACCGetDelta(state, ascii_code, mpm_ctx);
+                }
+                ++map_index;
+            }
+        }
+    } else if (ctx->state_count < 32767) {
+        ctx->state_table_u16;
+        state_table16_t *t16;
+
+        t16 = SCMpmMalloc(sizeof(state_table_hdr_t) + ctx->state_count *
+                         sizeof(SC_ACC_STATE_TYPE_U16) * char_count);
+
+        t16->hdr.state_count = ctx->state_count;
+        t16->hdr.size = ctx->state_count *
+                       sizeof(SC_ACC_STATE_TYPE_U16) * char_count;
+        t16->hdr.entries = char_count;
+        memset(t16->hdr.alpha_map, 0, sizeof(t16->hdr.alpha_map));
+        ctx->state_table_m16 = &t16->u16;
+
+        if (ctx->state_table_m16 == NULL) {
+            SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory");
+            exit(EXIT_FAILURE);
+        }
+        memset(ctx->state_table_m16, 0,
+               ctx->state_count * sizeof(SC_ACC_STATE_TYPE_U16) * char_count);
+
+        int map_index = 1;
+        for(ascii_code = 0; ascii_code < ALPHABET_SIZE; ascii_code++) {
+            if (count[ascii_code] != 0) {
+                t16->hdr.alpha_map[ascii_code] = map_index;
+                for (state = 0; state < ctx->state_count; state++) {
+                    ctx->state_table_m16[SCACCMappedDeltaIndex(state, char_count, map_index)] = 
+                        (SC_ACC_STATE_TYPE_U16)SCACCGetDelta(state, ascii_code, mpm_ctx);
+                }
+                ++map_index;
+            }
+        }
+
+    } else {
+        ctx->state_table_u32;
+        state_table32_t *t32;
+
+        t32 = SCMpmMalloc(sizeof(state_table_hdr_t) + ctx->state_count *
+                         sizeof(SC_ACC_STATE_TYPE_U32) * char_count);
+
+        t32->hdr.state_count = ctx->state_count;
+        t32->hdr.size = ctx->state_count *
+                       sizeof(SC_ACC_STATE_TYPE_U32) * char_count;
+        t32->hdr.entries = char_count;
+        memset(t32->hdr.alpha_map, 0, sizeof(t32->hdr.alpha_map));
+        ctx->state_table_m32 = &t32->u32;
+
+        if (ctx->state_table_m32 == NULL) {
+            SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory");
+            exit(EXIT_FAILURE);
+        }
+        memset(ctx->state_table_m32, 0,
+               ctx->state_count * sizeof(SC_ACC_STATE_TYPE_U32) * char_count);
+
+        int map_index = 1;
+        for(ascii_code = 0; ascii_code < ALPHABET_SIZE; ascii_code++) {
+            if (count[ascii_code] != 0) {
+                t32->hdr.alpha_map[ascii_code] = map_index;
+                for (state = 0; state < ctx->state_count; state++) {
+                    ctx->state_table_m32[SCACCMappedDeltaIndex(state, char_count, map_index)] = 
+                        (SC_ACC_STATE_TYPE_U32)SCACCGetDelta(state, ascii_code, mpm_ctx);
+                }
+                ++map_index;
+            }
+        }
+
+    }
+
+    return;
+}
+
+static inline void SCACCDedupDeltaTable(MpmCtx *mpm_ctx)
+{
+    SCACCCtx *ctx = (SCACCCtx *)mpm_ctx->ctx;
+    /* lists of state tables */
+    static state_table8_t *head_state_table8 = NULL;
+    static state_table16_t *head_state_table16 = NULL;
+    static state_table32_t *head_state_table32 = NULL;
+    static unsigned long long cumulative_bytes = 0;
+
+    if (ctx->state_count < 127) {
+        state_table8_t *l8;
+        state_table8_t *t8 = (state_table8_t *)((char *)ctx->state_table_u8 - sizeof(state_table_hdr_t));
+        state_table8_t *m8 = (state_table8_t *)((char *)ctx->state_table_m8 - sizeof(state_table_hdr_t));
+
+	    l8 = head_state_table8;
+        printf("list l8 %p\n", l8);
+        int i = 0;
+        int match = 0;
+        while (l8 != NULL) {
+            //printf("checking against state_count %d size %ld\n",
+            //       l8->hdr.state_count, l8->hdr.size);
+            SC_ACC_STATE_TYPE_U8 *l_u8 = &l8->u8;
+            SC_ACC_STATE_TYPE_U8 *t_m8 = &m8->u8;
+            if ((l8->hdr.state_count == m8->hdr.state_count) &&
+                (l8->hdr.size == m8->hdr.size) &&
+                (SCMemcmp(l_u8, t_m8, l8->hdr.size) == 0)) {
+                printf("matching state table 8 at %d\n", i);
+                match = 1;
+		        break;
+#if 0
+                SC_ACC_STATE_TYPE_U8 (*l_u8)[ALPHABET_SIZE] = &l8->u8;
+                SC_ACC_STATE_TYPE_U8 (*t_u8)[ALPHABET_SIZE] = &t8->u8;
+                printf("memcmp result %d\n", SCMemcmp(l_u8, t_u8, l8->hdr.size));
+                for (int s = 0; s < t8->hdr.state_count; s++) {
+                    for (int j = 0; j < ALPHABET_SIZE; j++) {
+                        printf("%cs: %d j: %d %04x %04x\n", 
+                                (t_u8[s][j] != l_u8[s][j]) ? 'X':' ',
+                                s,j,t_u8[s][j], l_u8[s][j]);
+                    }
+                }
+#endif
+            }
+            l8 = (state_table8_t *)l8->hdr.next;
+            i += 1;
+        }
+        if (match == 0) {
+            size_t bytes = m8->hdr.size;
+
+            cumulative_bytes += bytes;
+            printf("BYTES %lld\n", bytes);
+            printf("CUMULATIVE bytes %lld\n", cumulative_bytes);
+            m8->hdr.next = head_state_table8;
+            head_state_table8 = m8;
+            printf("added m8 %p\n", m8);
+        } else {
+            printf("SWAPPING in match\n");
+            ctx->state_table_m8 = &l8->u8;
+	        SCFree(m8);
+	        SCFree(t8);
+        }
+
+    } else if (ctx->state_count < 32767) {
+        state_table16_t *l16;
+        state_table16_t *t16 = (state_table16_t *)((char *)ctx->state_table_u16 - sizeof(state_table_hdr_t));
+        state_table16_t *m16 = (state_table16_t *)((char *)ctx->state_table_m16 - sizeof(state_table_hdr_t));
+
+	    l16 = head_state_table16;
+        printf("list l16 %p\n", l16);
+        int i = 0;
+        int match = 0;
+        while (l16 != NULL) {
+            //printf("checking against state_count %d size %ld\n",
+            //       l8->hdr.state_count, l8->hdr.size);
+            SC_ACC_STATE_TYPE_U16 *l_u16 = &l16->u16;
+            SC_ACC_STATE_TYPE_U16 *t_m16 = &m16->u16;
+            if ((l16->hdr.state_count == m16->hdr.state_count) &&
+                (l16->hdr.size == m16->hdr.size) &&
+                (SCMemcmp(l_u16, t_m16, l16->hdr.size) == 0)) {
+                printf("matching state table 16 at %d\n", i);
+                match = 1;
+		        break;
+#if 0
+                SC_ACC_STATE_TYPE_U8 (*l_u8)[ALPHABET_SIZE] = &l8->u8;
+                SC_ACC_STATE_TYPE_U8 (*t_u8)[ALPHABET_SIZE] = &t8->u8;
+                printf("memcmp result %d\n", SCMemcmp(l_u8, t_u8, l8->hdr.size));
+                for (int s = 0; s < t8->hdr.state_count; s++) {
+                    for (int j = 0; j < ALPHABET_SIZE; j++) {
+                        printf("%cs: %d j: %d %04x %04x\n", 
+                                (t_u8[s][j] != l_u8[s][j]) ? 'X':' ',
+                                s,j,t_u8[s][j], l_u8[s][j]);
+                    }
+                }
+#endif
+            }
+            l16 = (state_table16_t *)l16->hdr.next;
+            i += 1;
+        }
+        if (match == 0) {
+            size_t bytes = m16->hdr.size;
+
+            cumulative_bytes += bytes;
+            printf("BYTES %lld\n", bytes);
+            printf("CUMULATIVE bytes %lld\n", cumulative_bytes);
+            m16->hdr.next = head_state_table16;
+            head_state_table16 = m16;
+            printf("added m16 %p\n", m16);
+        } else {
+            printf("SWAPPING in match\n");
+            ctx->state_table_m16 = &l16->u16;
+	        SCFree(m16);
+	        SCFree(t16);
+        }
+
+    } else {
     }
 
     return;
@@ -907,32 +1370,14 @@ static inline void SCACCInsertCaseSensitiveEntriesForPatterns(MpmCtx *mpm_ctx)
 }
 
 #if 1
-static int SCACCGetDelta(int i, int j, MpmCtx *mpm_ctx)
-{
-    SCACCCtx *ctx = (SCACCCtx *)mpm_ctx->ctx;
-
-    /* this following implies (ctx->state_count < 32767) */
-    if (ctx->state_table_u16) {
-        SC_ACC_STATE_TYPE_U16 (*state_table_u16)[ALPHABET_SIZE];
-        SC_ACC_STATE_TYPE_U16 state;
-        state_table_u16 = ctx->state_table_u16;
-        state = state_table_u16[i][j];
-        return (int) state;
-    } else {
-        SC_ACC_STATE_TYPE_U32 (*state_table_u32)[ALPHABET_SIZE];
-        SC_ACC_STATE_TYPE_U32 state;
-        state_table_u32 = ctx->state_table_u32;
-        state = state_table_u32[i][j];
-        return (int) state;
-    }
-}
 
 static void SCACCPrintDeltaTable(MpmCtx *mpm_ctx)
 {
     SCACCCtx *ctx = (SCACCCtx *)mpm_ctx->ctx;
+    static unsigned long long cumulative_bytes = 0;
 
     printf("##############Delta Table (state count %d)##############\n", ctx->state_count);
-#if 0
+#if 1
     unsigned int i = 0, j = 0;
     int empty = 0;
 #ifdef COMPRESS_ALPHABET
@@ -945,14 +1390,14 @@ static void SCACCPrintDeltaTable(MpmCtx *mpm_ctx)
     for (j = 0; j < l; j++) count[j] = 0;
 
     for (i = 0; i < ctx->state_count; i++) {
-        printf("%d: \n", i);
+        //printf("%d: \n", i);
 	empty = 0;
         for (j = 0; j < l; j++) {
             if (SCACCGetDelta(i, j, mpm_ctx) != 0) {
 #ifdef COMPRESS_ALPHABET
                 unsigned int k;
 		k = (j >= 'A') ? j + ('Z'-'A'+1) : j;
-                printf("  %02x %02x(%c) -> %d\n", j, k, isprint(k) ? k : '.', SCACCGetDelta(i, j, mpm_ctx));
+                //printf("  %02x %02x(%c) -> %d %04x\n", j, k, isprint(k) ? k : '.', SCACCGetDelta(i, j, mpm_ctx) >> ((ctx->state_count < 128) ? 7 : 15), SCACCGetDelta(i, j, mpm_ctx) & 0x7fff);
 #else
                 printf("  %02x(%c) -> %d\n", j, isprint(j) ? j : '.', SCACCGetDelta(i, j, mpm_ctx));
 #endif
@@ -961,17 +1406,23 @@ static void SCACCPrintDeltaTable(MpmCtx *mpm_ctx)
                 ++empty;
             }
         }
-        printf("%d empty slots\n", empty);
+        //printf("%d empty slots\n", empty);
     }
-    printf("character map\n");
+    //printf("character map\n");
     empty = 0;
     for(j = 0; j < l; j++) {
         unsigned int k;
         k = (j >= 'A') ? j + ('Z'-'A'+1) : j;
-        printf("%02x %02x(%c) %u\n", j, k, isprint(k) ? k : '.', count[j]);
+        //printf("%02x %02x(%c) %u\n", j, k, isprint(k) ? k : '.', count[j]);
         if (count[j] == 0) ++empty;
     }
     printf("%d empty slots in map\n", empty);
+    int entry_size = (ctx->state_count < 128) ? 1 : 2;
+    printf("TOTAL %d bytes\n", ALPHABET_SIZE * entry_size * ctx->state_count);
+    cumulative_bytes += (ALPHABET_SIZE * entry_size * ctx->state_count);
+    printf("CUMULATIVE %lld bytes\n", cumulative_bytes);
+    printf("Modified total %d bytes\n", (ALPHABET_SIZE - empty) * entry_size * ctx->state_count);
+    printf("SAVED %d bytes\n", empty * entry_size * ctx->state_count);
 #endif
 
     return;
@@ -999,10 +1450,16 @@ static inline void SCACCPrepareStateTable(MpmCtx *mpm_ctx)
     /* club the output state presence with delta transition entries */
     SCACCClubOutputStatePresenceWithDeltaTable(mpm_ctx);
 
+    /* Compress delta table */
+    SCACCCompressDeltaTable(mpm_ctx);
+
+    /* Dedup delta tables */
+    SCACCDedupDeltaTable(mpm_ctx);
+
     /* club nocase entries */
     SCACCInsertCaseSensitiveEntriesForPatterns(mpm_ctx);
 
-#if 1
+#if 0
     SCACCPrintDeltaTable(mpm_ctx);
 #endif
 #if 1
@@ -1279,10 +1736,10 @@ uint32_t SCACCSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
     /* this following implies (ctx->state_count < 32767) */
     if ((state_table_u16 = ctx->state_table_u16)) {
         register SC_ACC_STATE_TYPE_U16 state = 0;
-        int c = SCACCMapAlphabet(u8_tolower(buf[0]));
+        int c = SCACCSqueezeAlphabet(u8_tolower(buf[0]));
         for (i = 0; i < buflen; i++) {
             state = state_table_u16[state & 0x7FFF][c];
-            c = SCACCMapAlphabet(u8_tolower(buf[i+1]));
+            c = SCACCSqueezeAlphabet(u8_tolower(buf[i+1]));
             //state = state_table_u16[state & 0x7FFF][u8_tolower(buf[i])];
             if (state & 0x8000) {
                 uint32_t no_of_entries = ctx->output_table[state & 0x7FFF].no_of_entries;
@@ -1323,10 +1780,10 @@ uint32_t SCACCSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
     } else {
         register SC_ACC_STATE_TYPE_U32 state = 0;
         SC_ACC_STATE_TYPE_U32 (*state_table_u32)[ALPHABET_SIZE] = ctx->state_table_u32;
-        int c = SCACCMapAlphabet(u8_tolower(buf[0]));
+        int c = SCACCSqueezeAlphabet(u8_tolower(buf[0]));
         for (i = 0; i < buflen; i++) {
             state = state_table_u32[state & 0x00FFFFFF][c];
-            c = SCACCMapAlphabet(u8_tolower(buf[i+1]));
+            c = SCACCSqueezeAlphabet(u8_tolower(buf[i+1]));
             if (state & 0xFF000000) {
                 uint32_t no_of_entries = ctx->output_table[state & 0x00FFFFFF].no_of_entries;
                 uint32_t *pids = ctx->output_table[state & 0x00FFFFFF].pids;
@@ -1362,6 +1819,182 @@ uint32_t SCACCSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
                 }
             }
         } /* for (i = 0; i < buflen; i++) */
+    }
+
+    return matches;
+}
+/**
+ * \brief The aho corasick search function.
+ *
+ * \param mpm_ctx        Pointer to the mpm context.
+ * \param mpm_thread_ctx Pointer to the mpm thread context.
+ * \param pmq            Pointer to the Pattern Matcher Queue to hold
+ *                       search matches.
+ * \param buf            Buffer to be searched.
+ * \param buflen         Buffer length.
+ *
+ * \retval matches Match count.
+ */
+uint32_t SCACCMappedSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
+                    PatternMatcherQueue *pmq, uint8_t *buf, uint16_t buflen)
+{
+    SCACCCtx *ctx = (SCACCCtx *)mpm_ctx->ctx;
+    SC_ACC_STATE_TYPE_U8 *state_table_m8;
+    SC_ACC_STATE_TYPE_U16 *state_table_m16;
+    SC_ACC_STATE_TYPE_U32 *state_table_m32;
+    int i = 0;
+    int matches = 0;
+    int entries;
+
+    /* \todo tried loop unrolling with register var, with no perf increase.  Need
+     * to dig deeper */
+    /* \todo Change it for stateful MPM.  Supply the state using mpm_thread_ctx */
+    SCACCPatternList *pid_pat_list = ctx->pid_pat_list;
+
+    /* this following implies (ctx->state_count < 32767) */
+    if ((state_table_m8 = ctx->state_table_m8)) {
+        register SC_ACC_STATE_TYPE_U8 state = 0;
+        state_table8_t *t8;
+
+        t8 = (state_table8_t *)(((char *)state_table_m8) - sizeof(state_table_hdr_t));
+
+        entries = t8->hdr.entries;
+        int c = SCACCMapAlphabet(t8->hdr.alpha_map, u8_tolower(buf[0]));
+        for (i = 0; i < buflen; i++) {
+            state = state_table_m8[SCACCMappedDeltaIndex(state & 0x7F, entries, c)];
+            c = SCACCMapAlphabet(t8->hdr.alpha_map, u8_tolower(buf[i+1]));
+            if (state & 0x8000) {
+                uint32_t no_of_entries = ctx->output_table[state & 0x7F].no_of_entries;
+                uint32_t *pids = ctx->output_table[state & 0x7F].pids;
+                uint32_t k;
+                for (k = 0; k < no_of_entries; k++) {
+                    if (pids[k] & 0xFFFF0000) {
+                        if (SCMemcmp(pid_pat_list[pids[k] & 0x0000FFFF].cs,
+                                     buf + i - pid_pat_list[pids[k] & 0x0000FFFF].patlen + 1,
+                                     pid_pat_list[pids[k] & 0x0000FFFF].patlen) != 0) {
+                            /* inside loop */
+                            if (pid_pat_list[pids[k] & 0x0000FFFF].case_state != 3) {
+                                continue;
+                            }
+                        }
+                        if (pmq->pattern_id_bitarray[(pids[k] & 0x0000FFFF) / 8] & (1 << ((pids[k] & 0x0000FFFF) % 8))) {
+                            ;
+                        } else {
+                            pmq->pattern_id_bitarray[(pids[k] & 0x0000FFFF) / 8] |= (1 << ((pids[k] & 0x0000FFFF) % 8));
+                            pmq->pattern_id_array[pmq->pattern_id_array_cnt++] = pids[k] & 0x0000FFFF;
+                        }
+                        matches++;
+                    } else {
+                        if (pmq->pattern_id_bitarray[pids[k] / 8] & (1 << (pids[k] % 8))) {
+                            ;
+                        } else {
+                            pmq->pattern_id_bitarray[pids[k] / 8] |= (1 << (pids[k] % 8));
+                            pmq->pattern_id_array[pmq->pattern_id_array_cnt++] = pids[k];
+                        }
+                        matches++;
+                    }
+                    //loop1:
+                    //;
+                }
+            }
+        } /* for (i = 0; i < buflen; i++) */
+
+    } else if ((state_table_m16 = ctx->state_table_m16)) {
+        register SC_ACC_STATE_TYPE_U16 state = 0;
+        state_table16_t *t16;
+
+        t16 = (state_table16_t *)(((char *)state_table_m16) - sizeof(state_table_hdr_t));
+
+        entries = t16->hdr.entries;
+        int c = SCACCMapAlphabet(t16->hdr.alpha_map, u8_tolower(buf[0]));
+        for (i = 0; i < buflen; i++) {
+            state = state_table_m16[SCACCMappedDeltaIndex(state & 0x7FFF, entries, c)];
+            c = SCACCMapAlphabet(t16->hdr.alpha_map, u8_tolower(buf[i+1]));
+            if (state & 0x8000) {
+                uint32_t no_of_entries = ctx->output_table[state & 0x7FFF].no_of_entries;
+                uint32_t *pids = ctx->output_table[state & 0x7FFF].pids;
+                uint32_t k;
+                for (k = 0; k < no_of_entries; k++) {
+                    if (pids[k] & 0xFFFF0000) {
+                        if (SCMemcmp(pid_pat_list[pids[k] & 0x0000FFFF].cs,
+                                     buf + i - pid_pat_list[pids[k] & 0x0000FFFF].patlen + 1,
+                                     pid_pat_list[pids[k] & 0x0000FFFF].patlen) != 0) {
+                            /* inside loop */
+                            if (pid_pat_list[pids[k] & 0x0000FFFF].case_state != 3) {
+                                continue;
+                            }
+                        }
+                        if (pmq->pattern_id_bitarray[(pids[k] & 0x0000FFFF) / 8] & (1 << ((pids[k] & 0x0000FFFF) % 8))) {
+                            ;
+                        } else {
+                            pmq->pattern_id_bitarray[(pids[k] & 0x0000FFFF) / 8] |= (1 << ((pids[k] & 0x0000FFFF) % 8));
+                            pmq->pattern_id_array[pmq->pattern_id_array_cnt++] = pids[k] & 0x0000FFFF;
+                        }
+                        matches++;
+                    } else {
+                        if (pmq->pattern_id_bitarray[pids[k] / 8] & (1 << (pids[k] % 8))) {
+                            ;
+                        } else {
+                            pmq->pattern_id_bitarray[pids[k] / 8] |= (1 << (pids[k] % 8));
+                            pmq->pattern_id_array[pmq->pattern_id_array_cnt++] = pids[k];
+                        }
+                        matches++;
+                    }
+                    //loop1:
+                    //;
+                }
+            }
+        } /* for (i = 0; i < buflen; i++) */
+
+    } else {
+        register SC_ACC_STATE_TYPE_U32 state = 0;
+        state_table32_t *t32;
+
+        state_table_m32 = ctx->state_table_m32;
+
+        t32 = (state_table32_t *)(((char *)state_table_m32) - sizeof(state_table_hdr_t));
+
+        entries = t32->hdr.entries;
+        int c = SCACCMapAlphabet(t32->hdr.alpha_map, u8_tolower(buf[0]));
+        for (i = 0; i < buflen; i++) {
+            state = state_table_m32[SCACCMappedDeltaIndex(state & 0x00FFFFFF, entries, c)];
+            c = SCACCMapAlphabet(t32->hdr.alpha_map, u8_tolower(buf[i+1]));
+            if (state & 0xFF000000) {
+                uint32_t no_of_entries = ctx->output_table[state & 0x00FFFFFF].no_of_entries;
+                uint32_t *pids = ctx->output_table[state & 0x00FFFFFF].pids;
+                uint32_t k;
+                for (k = 0; k < no_of_entries; k++) {
+                    if (pids[k] & 0xFFFF0000) {
+                        if (SCMemcmp(pid_pat_list[pids[k] & 0x0000FFFF].cs,
+                                     buf + i - pid_pat_list[pids[k] & 0x0000FFFF].patlen + 1,
+                                     pid_pat_list[pids[k] & 0x0000FFFF].patlen) != 0) {
+                            /* inside loop */
+                            if (pid_pat_list[pids[k] & 0x0000FFFF].case_state != 3) {
+                                continue;
+                            }
+                        }
+                        if (pmq->pattern_id_bitarray[(pids[k] & 0x0000FFFF) / 8] & (1 << ((pids[k] & 0x0000FFFF) % 8))) {
+                            ;
+                        } else {
+                            pmq->pattern_id_bitarray[(pids[k] & 0x0000FFFF) / 8] |= (1 << ((pids[k] & 0x0000FFFF) % 8));
+                            pmq->pattern_id_array[pmq->pattern_id_array_cnt++] = pids[k] & 0x0000FFFF;
+                        }
+                        matches++;
+                    } else {
+                        if (pmq->pattern_id_bitarray[pids[k] / 8] & (1 << (pids[k] % 8))) {
+                            ;
+                        } else {
+                            pmq->pattern_id_bitarray[pids[k] / 8] |= (1 << (pids[k] % 8));
+                            pmq->pattern_id_array[pmq->pattern_id_array_cnt++] = pids[k];
+                        }
+                        matches++;
+                    }
+                    //loop1:
+                    //;
+                }
+            }
+        } /* for (i = 0; i < buflen; i++) */
+
     }
 
     return matches;
