@@ -295,9 +295,15 @@ run_ut_sim: $(SIM_DEPS) $(IMAGE_FILE)
      --debug-on-crash \
 	 $(SIM_ARGS) $(TILE_MONITOR_UT_ARGS)
 
+fb_sim: $(SIM_DEPS) $(IMAGE_FILE)
+	$(TILE_MONITOR) --image-file $(IMAGE_FILE) \
+        $(FUNCTIONAL) \
+     --debug-on-crash \
+	    $(SIM_ARGS) $(TILE_MONITOR_WILDCAT_FEEDBACK_ARGS)
+
 #WILDCAT_ARGS=--resume --dev fae-wc-1
-##WILDCAT_ARGS=--dev fae-wc-1
-WILDCAT_ARGS=--
+WILDCAT_ARGS=--dev fae-wc-1
+#WILDCAT_ARGS=--
 NET_ARGS=--net 192.168.0.14
 
 run_wc: $(SIM_DEPS) $(IMAGE_FILE)
