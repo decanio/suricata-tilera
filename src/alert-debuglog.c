@@ -179,7 +179,11 @@ TmEcode AlertDebugLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq
 
     CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&aft->file_ctx->fp_mutex);
+#else
     SCMutexLock(&aft->file_ctx->fp_mutex);
+#endif
 
     fprintf(aft->file_ctx->fp, "+================\n");
     fprintf(aft->file_ctx->fp, "TIME:              %s\n", timebuf);
@@ -281,7 +285,11 @@ TmEcode AlertDebugLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq
     aft->file_ctx->alerts += p->alerts.cnt;
 
     fflush(aft->file_ctx->fp);
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
+#else
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
+#endif
 
     return TM_ECODE_OK;
 }
@@ -299,7 +307,11 @@ TmEcode AlertDebugLogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq
 
     CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&aft->file_ctx->fp_mutex);
+#else
     SCMutexLock(&aft->file_ctx->fp_mutex);
+#endif
     for (i = 0; i < p->alerts.cnt; i++) {
         PacketAlert *pa = &p->alerts.alerts[i];
         if (unlikely(pa->s == NULL)) {
@@ -360,7 +372,11 @@ TmEcode AlertDebugLogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq
     PrintRawDataFp(aft->file_ctx->fp, GET_PKT_DATA(p), GET_PKT_LEN(p));
 
     fflush(aft->file_ctx->fp);
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
+#else
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
+#endif
 
     return TM_ECODE_OK;
 }
@@ -376,7 +392,11 @@ TmEcode AlertDebugLogDecoderEvent(ThreadVars *tv, Packet *p, void *data, PacketQ
 
     CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&aft->file_ctx->fp_mutex);
+#else
     SCMutexLock(&aft->file_ctx->fp_mutex);
+#endif
 
     fprintf(aft->file_ctx->fp, "+================\n");
     fprintf(aft->file_ctx->fp, "TIME:              %s\n", timebuf);
@@ -406,7 +426,11 @@ TmEcode AlertDebugLogDecoderEvent(ThreadVars *tv, Packet *p, void *data, PacketQ
     PrintRawDataFp(aft->file_ctx->fp, GET_PKT_DATA(p), GET_PKT_LEN(p));
 
     fflush(aft->file_ctx->fp);
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
+#else
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
+#endif
 
     return TM_ECODE_OK;
 }

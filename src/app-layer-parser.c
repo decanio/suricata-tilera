@@ -940,6 +940,8 @@ error:
          * the stream in this Flow */
         FlowSetSessionNoApplayerInspectionFlag(f);
 
+#if 0
+/* QUIET THIS DOWN.  It kills performance */
         if (f->src.family == AF_INET) {
             char src[16];
             char dst[16];
@@ -972,6 +974,7 @@ error:
                        f->proto, src6, dst6, f->sp, f->dp);
             fflush(stdout);
         }
+#endif
     }
 
     SCReturnInt(-1);

@@ -1059,6 +1059,7 @@ void FlowInitConfig(char quiet)
                   (uintmax_t)sizeof(FlowBucket));
     }
 
+    FlowAllocPoolInit();
     /* pre allocate flows */
     for (i = 0; i < flow_config.prealloc; i++) {
         if ((SC_ATOMIC_GET(flow_memuse) + sizeof(Flow)) > flow_config.memcap) {

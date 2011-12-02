@@ -1849,6 +1849,7 @@ uint32_t SCACCMappedSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
     /* \todo tried loop unrolling with register var, with no perf increase.  Need
      * to dig deeper */
     /* \todo Change it for stateful MPM.  Supply the state using mpm_thread_ctx */
+    if (buflen > 0) {
     SCACCPatternList *pid_pat_list = ctx->pid_pat_list;
 
     /* this following implies (ctx->state_count < 32767) */
@@ -1995,6 +1996,7 @@ uint32_t SCACCMappedSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
             }
         } /* for (i = 0; i < buflen; i++) */
 
+    }
     }
 
     return matches;

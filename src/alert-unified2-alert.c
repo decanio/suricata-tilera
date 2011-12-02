@@ -606,11 +606,19 @@ int Unified2IPv6TypeAlert (ThreadVars *t, Packet *p, void *data, PacketQueue *pq
 
         memcpy(head_buf + sizeof(Unified2AlertFileHeader),&phdr,sizeof(AlertIPv6Unified2));
 
+#ifdef __tile__
+        tmc_spin_queued_mutex_lock(&aun->file_ctx->fp_mutex);
+#else
         SCMutexLock(&aun->file_ctx->fp_mutex);
+#endif
 
         if ((aun->file_ctx->size_current +(sizeof(hdr) + sizeof(phdr))) > aun->file_ctx->size_limit) {
             if (Unified2AlertRotateFile(t,aun) < 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
                 SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
                 aun->file_ctx->alerts += i;
                 return -1;
             }
@@ -619,7 +627,11 @@ int Unified2IPv6TypeAlert (ThreadVars *t, Packet *p, void *data, PacketQueue *pq
         ret = fwrite(head_buf,len, 1, aun->file_ctx->fp);
         if (ret != 1) {
             SCLogError(SC_ERR_FWRITE, "Error: fwrite failed: %s", strerror(errno));
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
             SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
             aun->file_ctx->alerts += i;
             return -1;
         }
@@ -630,7 +642,11 @@ int Unified2IPv6TypeAlert (ThreadVars *t, Packet *p, void *data, PacketQueue *pq
         aun->file_ctx->alerts++;
 
         Unified2PacketTypeAlert(aun, p, pa->alert_msg);
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
         SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
     }
 
 
@@ -729,11 +745,19 @@ int Unified2IPv4TypeAlert (ThreadVars *tv, Packet *p, void *data, PacketQueue *p
         memcpy(head_buf + sizeof(Unified2AlertFileHeader),&phdr,sizeof(AlertIPv4Unified2));
 
         /* check and enforce the filesize limit */
+#ifdef __tile__
+        tmc_spin_queued_mutex_lock(&aun->file_ctx->fp_mutex);
+#else
         SCMutexLock(&aun->file_ctx->fp_mutex);
+#endif
 
         if ((aun->file_ctx->size_current +(sizeof(hdr) +  sizeof(phdr))) > aun->file_ctx->size_limit) {
             if (Unified2AlertRotateFile(tv,aun) < 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
                 SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
                 aun->file_ctx->alerts += i;
                 return -1;
             }
@@ -742,7 +766,11 @@ int Unified2IPv4TypeAlert (ThreadVars *tv, Packet *p, void *data, PacketQueue *p
         ret = fwrite(head_buf,len, 1, aun->file_ctx->fp);
         if (ret != 1) {
             SCLogError(SC_ERR_FWRITE, "Error: fwrite failed: %s", strerror(errno));
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
             SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
             aun->file_ctx->alerts += i;
             return -1;
         }
@@ -755,7 +783,11 @@ int Unified2IPv4TypeAlert (ThreadVars *tv, Packet *p, void *data, PacketQueue *p
          */
         Unified2PacketTypeAlert(aun, p, pa->alert_msg);
 
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
         SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
     }
     aun->file_ctx->alerts += p->alerts.cnt;
 

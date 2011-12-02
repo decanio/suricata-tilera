@@ -1202,6 +1202,7 @@ uint32_t SCACSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
     /* \todo tried loop unrolling with register var, with no perf increase.  Need
      * to dig deeper */
     /* \todo Change it for stateful MPM.  Supply the state using mpm_thread_ctx */
+    if (buflen > 0) {
     SCACPatternList *pid_pat_list = ctx->pid_pat_list;
 
     SC_AC_STATE_TYPE_U16 (*state_table_u16)[256];
@@ -1289,6 +1290,7 @@ uint32_t SCACSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
                 }
             }
         } /* for (i = 0; i < buflen; i++) */
+    }
     }
 
     return matches;

@@ -99,7 +99,11 @@ TmEcode AlertPcapInfo (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, P
 
     /* logging is useless if we don't have pcap number */
     if ((p->pcap_cnt != 0) && (p->alerts.cnt > 0)) {
+#ifdef __tile__
+        tmc_spin_queued_mutex_lock(&aft->file_ctx->fp_mutex);
+#else
         SCMutexLock(&aft->file_ctx->fp_mutex);
+#endif
         /* only count logged alert */
         aft->file_ctx->alerts += p->alerts.cnt;
         for (i = 0; i < p->alerts.cnt; i++) {
@@ -112,7 +116,11 @@ TmEcode AlertPcapInfo (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, P
                     p->flowflags & FLOW_PKT_TOCLIENT ? 1 : 0,
                     pa->s->msg);
         }
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
+#else
         SCMutexUnlock(&aft->file_ctx->fp_mutex);
+#endif
     }
 
     return TM_ECODE_OK;

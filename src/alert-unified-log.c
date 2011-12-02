@@ -258,10 +258,18 @@ TmEcode AlertUnifiedLog (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
 
         /** Wait for the mutex. We dont want all the threads rotating the file
          * at the same time :) */
+#ifdef __tile__
+        tmc_spin_queued_mutex_lock(&aun->file_ctx->fp_mutex);
+#else
         SCMutexLock(&aun->file_ctx->fp_mutex);
+#endif
         if ((aun->file_ctx->size_current + sizeof(hdr) + GET_PKT_LEN(p) + ethh_offset) > aun->file_ctx->size_limit) {
             if (AlertUnifiedLogRotateFile(tv,aun) < 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
                 SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
                 aun->file_ctx->alerts += i;
                 return TM_ECODE_FAILED;
             }
@@ -271,7 +279,11 @@ TmEcode AlertUnifiedLog (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
         if (ret != 1) {
             SCLogError(SC_ERR_FWRITE, "fwrite failed: %s", strerror(errno));
             aun->file_ctx->alerts += i;
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
             SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
             return TM_ECODE_FAILED;
         }
         /* force writing to disk so barnyard will not read half
@@ -280,7 +292,11 @@ TmEcode AlertUnifiedLog (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
 
         aun->file_ctx->alerts++;
         aun->file_ctx->size_current += buflen;
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
         SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
     }
 
     return TM_ECODE_OK;

@@ -226,11 +226,19 @@ TmEcode AlertUnifiedAlert (ThreadVars *tv, Packet *p, void *data, PacketQueue *p
         hdr.sig_class = pa->s->class;
         hdr.sig_prio = pa->s->prio;
 
+#ifdef __tile__
+        tmc_spin_queued_mutex_lock(&aun->file_ctx->fp_mutex);
+#else
         SCMutexLock(&aun->file_ctx->fp_mutex);
+#endif
         /** check and enforce the filesize limit, thread safe */
         if ((aun->file_ctx->size_current + sizeof(hdr)) > aun->file_ctx->size_limit) {
             if (AlertUnifiedAlertRotateFile(tv,aun) < 0) {
+#ifdef __tile__
+                tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
                 SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
                 aun->file_ctx->alerts += i;
                 return TM_ECODE_FAILED;
             }
@@ -239,7 +247,11 @@ TmEcode AlertUnifiedAlert (ThreadVars *tv, Packet *p, void *data, PacketQueue *p
         ret = fwrite(&hdr, sizeof(AlertUnifiedAlertPacketHeader), 1, aun->file_ctx->fp);
         if (ret != 1) {
             SCLogError(SC_ERR_FWRITE, "Error: fwrite failed: %s", strerror(errno));
+#ifdef __tile__
+            tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
             SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
             aun->file_ctx->alerts += i;
             return TM_ECODE_FAILED;
         }
@@ -249,7 +261,11 @@ TmEcode AlertUnifiedAlert (ThreadVars *tv, Packet *p, void *data, PacketQueue *p
 
         aun->file_ctx->size_current += sizeof(hdr);
         aun->file_ctx->alerts++;
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&aun->file_ctx->fp_mutex);
+#else
         SCMutexUnlock(&aun->file_ctx->fp_mutex);
+#endif
     }
 
     return TM_ECODE_OK;

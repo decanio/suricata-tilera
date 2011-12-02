@@ -38,6 +38,19 @@
 #include "detect.h"
 #include "detect-engine-state.h"
 
+#define FLOW_ALLOC_CACHE
+
+#ifdef FLOW_ALLOC_CACHE
+typedef union FlowCache_
+{
+    union FlowCache_ *next;
+    Flow              flow;
+} FlowCache;
+
+static union FlowCache_ *FlowAllocList;
+static tmc_spin_queued_mutex_t flow_alloc_mutex;
+#endif
+
 /** \brief allocate a flow
  *
  *  We check against the memuse counter. If it passes that check we increment
@@ -55,7 +68,16 @@ Flow *FlowAlloc(void)
 
     SC_ATOMIC_ADD(flow_memuse, sizeof(Flow));
 
+#ifdef FLOW_ALLOC_CACHE
+    FlowCache *fc;
+    tmc_spin_queued_mutex_lock(&flow_alloc_mutex);
+    fc = FlowAllocList;
+    FlowAllocList = fc->next;
+    tmc_spin_queued_mutex_unlock(&flow_alloc_mutex);
+    f = &fc->flow;
+#else
     f = SCMalloc(sizeof(Flow));
+#endif
     if (f == NULL) {
         SC_ATOMIC_SUB(flow_memuse, sizeof(Flow));
         return NULL;
@@ -74,7 +96,15 @@ Flow *FlowAlloc(void)
 void FlowFree(Flow *f)
 {
     FLOW_DESTROY(f);
+#ifdef FLOW_ALLOC_CACHE
+    FlowCache *fc = (FlowCache *)f;
+    tmc_spin_queued_mutex_lock(&flow_alloc_mutex);
+    fc->next = FlowAllocList;
+    FlowAllocList = fc;
+    tmc_spin_queued_mutex_unlock(&flow_alloc_mutex);
+#else
     SCFree(f);
+#endif
 
     SC_ATOMIC_SUB(flow_memuse, sizeof(Flow));
 }
@@ -154,3 +184,33 @@ void FlowInit(Flow *f, Packet *p)
     SCReturn;
 }
 
+void FlowAllocPoolInit(void)
+{
+    SCEnter();
+#ifdef FLOW_ALLOC_CACHE
+    /* TBD: maybe use per thread Flow structures */
+    FlowCache *p;
+    int NumCachedFlows = flow_config.memcap / sizeof(Flow);
+    int i;
+
+    SCLogInfo("Allocating %lu bytes of Flow cache (%d flows)\n", flow_config.memcap, NumCachedFlows);
+    p = SCMalloc(flow_config.memcap);
+    if (p == NULL) {
+        SCLogError(SC_ERR_FATAL, "Fatal error encountered while allocating Flow cache. Exiting...");
+        exit(EXIT_FAILURE);
+    }
+    FlowAllocList = p;
+    for (i = 0; i < NumCachedFlows-1; i++) {
+        p->next = (p+1);
+        ++p;
+    }
+    p->next = NULL;
+#ifdef __tile__
+    tmc_spin_queued_mutex_init(&flow_alloc_mutex);
+#else
+    SCMutexInit(&flow_alloc_mutex, NULL);
+#endif
+ 
+#endif
+    SCReturn;
+}

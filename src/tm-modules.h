@@ -58,7 +58,11 @@ typedef struct LogFileCtx_ {
     FILE *fp;
     /** It will be locked if the log/alert
      * record cannot be written to the file in one call */
+#ifdef __tile__
+    tmc_spin_queued_mutex_t fp_mutex;
+#else
     SCMutex fp_mutex;
+#endif
 
     /** The name of the file */
     char *filename;

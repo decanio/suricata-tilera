@@ -117,7 +117,11 @@ LogFileCtx *LogFileNewCtx()
         return NULL;
     memset(lf_ctx, 0, sizeof(LogFileCtx));
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_init(&lf_ctx->fp_mutex);
+#else
     SCMutexInit(&lf_ctx->fp_mutex,NULL);
+#endif
 
     return lf_ctx;
 }
@@ -134,13 +138,23 @@ int LogFileFreeCtx(LogFileCtx *lf_ctx)
 
     if (lf_ctx->fp != NULL)
     {
+#ifdef __tile__
+        tmc_spin_queued_mutex_lock(&lf_ctx->fp_mutex);
+#else
         SCMutexLock(&lf_ctx->fp_mutex);
+#endif
         fflush(lf_ctx->fp);
         fclose(lf_ctx->fp);
+#ifdef __tile__
+        tmc_spin_queued_mutex_unlock(&lf_ctx->fp_mutex);
+#else
         SCMutexUnlock(&lf_ctx->fp_mutex);
+#endif
     }
 
+#ifndef __tile__
     SCMutexDestroy(&lf_ctx->fp_mutex);
+#endif
 
     if (lf_ctx->prefix != NULL)
         SCFree(lf_ctx->prefix);

@@ -166,7 +166,11 @@ TmEcode LogHttpLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, P
         dp = p->sp;
     }
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&aft->file_ctx->fp_mutex);
+#else
     SCMutexLock(&aft->file_ctx->fp_mutex);
+#endif
     for (idx = logged; idx < loggable; idx++)
     {
         tx = list_get(htp_state->connp->conn->transactions, idx);
@@ -218,7 +222,11 @@ TmEcode LogHttpLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, P
         AppLayerTransactionUpdateLoggedId(p->flow);
     }
     fflush(aft->file_ctx->fp);
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
+#else
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
+#endif
 
 end:
 #ifdef __tile__
@@ -289,7 +297,11 @@ TmEcode LogHttpLogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, P
         sp = p->dp;
         dp = p->sp;
     }
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&aft->file_ctx->fp_mutex);
+#else
     SCMutexLock(&aft->file_ctx->fp_mutex);
+#endif
     for (idx = logged; idx < loggable; idx++)
     {
         tx = list_get(htp_state->connp->conn->transactions, idx);
@@ -341,7 +353,11 @@ TmEcode LogHttpLogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, P
         AppLayerTransactionUpdateLoggedId(p->flow);
     }
     fflush(aft->file_ctx->fp);
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
+#else
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
+#endif
 
 end:
 #ifdef __tile__
