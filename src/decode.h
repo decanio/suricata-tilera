@@ -438,7 +438,12 @@ typedef struct Packet_
      *  - tunnel_rtv_cnt
      *  - tunnel_tpr_cnt
      */
+#define TMC_TUNNEL_MUTEX
+#if defined(__tile__) && defined(TMC_TUNNEL_MUTEX)
+    tmc_spin_queued_mutex_t tunnel_mutex;
+#else
     SCMutex tunnel_mutex;
+#endif
     /* ready to set verdict counter, only set in root */
     uint16_t tunnel_rtv_cnt;
     /* tunnel packet ref count */
@@ -586,12 +591,21 @@ typedef struct DecodeThreadVars_
  *  \brief Initialize a packet structure for use.
  */
 #ifndef __SC_CUDA_SUPPORT__
+#if defined(_tile__) && 0
+#define PACKET_INITIALIZE(p) { \
+    memset((p), 0x00, SIZE_OF_PACKET); \
+    tmc_spin_queued_mutex_init(&(p)->tunnel_mutex); \
+    PACKET_RESET_CHECKSUMS((p)); \
+    (p)->pkt = ((uint8_t *)(p)) + sizeof(Packet); \
+}
+#else
 #define PACKET_INITIALIZE(p) { \
     memset((p), 0x00, SIZE_OF_PACKET); \
     SCMutexInit(&(p)->tunnel_mutex, NULL); \
     PACKET_RESET_CHECKSUMS((p)); \
     (p)->pkt = ((uint8_t *)(p)) + sizeof(Packet); \
 }
+#endif
 #else
 #define PACKET_INITIALIZE(p) { \
     memset((p), 0x00, SIZE_OF_PACKET); \
@@ -608,6 +622,69 @@ typedef struct DecodeThreadVars_
  *  \brief Recycle a packet structure for reuse.
  *  \todo the mutex destroy & init is necessary because of the memset, reconsider
  */
+#if defined(__tile__) && defined(TMC_TUNNEL_MUTEX)
+#define PACKET_DO_RECYCLE(p) do {               \
+        CLEAR_ADDR(&(p)->src);                  \
+        CLEAR_ADDR(&(p)->dst);                  \
+        (p)->sp = 0;                            \
+        (p)->dp = 0;                            \
+        (p)->proto = 0;                         \
+        (p)->recursion_level = 0;               \
+        (p)->flags = 0;                         \
+        (p)->flowflags = 0;                     \
+        (p)->flow = NULL;                       \
+        (p)->ts.tv_sec = 0;                     \
+        (p)->ts.tv_usec = 0;                    \
+        (p)->datalink = 0;                      \
+        (p)->action = 0;                        \
+        if ((p)->pktvar != NULL) {              \
+            PktVarFree((p)->pktvar);            \
+            (p)->pktvar = NULL;                 \
+        }                                       \
+        (p)->ethh = NULL;                       \
+        if ((p)->ip4h != NULL) {                \
+            CLEAR_IPV4_PACKET((p));             \
+        }                                       \
+        if ((p)->ip6h != NULL) {                \
+            CLEAR_IPV6_PACKET((p));             \
+        }                                       \
+        if ((p)->tcph != NULL) {                \
+            CLEAR_TCP_PACKET((p));              \
+        }                                       \
+        if ((p)->udph != NULL) {                \
+            CLEAR_UDP_PACKET((p));              \
+        }                                       \
+        if ((p)->sctph != NULL) {                \
+            CLEAR_SCTP_PACKET((p));              \
+        }                                       \
+        if ((p)->icmpv4h != NULL) {             \
+            CLEAR_ICMPV4_PACKET((p));           \
+        }                                       \
+        if ((p)->icmpv6h != NULL) {             \
+            CLEAR_ICMPV6_PACKET((p));           \
+        }                                       \
+        (p)->ppph = NULL;                       \
+        (p)->pppoesh = NULL;                    \
+        (p)->pppoedh = NULL;                    \
+        (p)->greh = NULL;                       \
+        (p)->vlanh = NULL;                      \
+        (p)->payload = NULL;                    \
+        (p)->payload_len = 0;                   \
+        (p)->pktlen = 0;                        \
+        (p)->alerts.cnt = 0;                    \
+        (p)->pcap_cnt = 0;                      \
+        (p)->tunnel_rtv_cnt = 0;                \
+        (p)->tunnel_tpr_cnt = 0;                \
+        /*SCMutexDestroy(&(p)->tunnel_mutex);*/ \
+        tmc_spin_queued_mutex_init(&(p)->tunnel_mutex); \
+        (p)->events.cnt = 0;                    \
+        (p)->next = NULL;                       \
+        (p)->prev = NULL;                       \
+        (p)->root = NULL;                       \
+        PACKET_RESET_CHECKSUMS((p));            \
+        PACKET_PROFILING_RESET((p));            \
+    } while (0)
+#else
 #define PACKET_DO_RECYCLE(p) do {               \
         CLEAR_ADDR(&(p)->src);                  \
         CLEAR_ADDR(&(p)->dst);                  \
@@ -669,6 +746,7 @@ typedef struct DecodeThreadVars_
         PACKET_RESET_CHECKSUMS((p));            \
         PACKET_PROFILING_RESET((p));            \
     } while (0)
+#endif
 
 #ifndef __SC_CUDA_SUPPORT__
 #define PACKET_RECYCLE(p) PACKET_DO_RECYCLE((p))
@@ -687,12 +765,21 @@ typedef struct DecodeThreadVars_
  *  \brief Cleanup a packet so that we can free it. No memset needed..
  */
 #ifndef __SC_CUDA_SUPPORT__
+#if defined(__tile__) && defined(TMC_TUNNEL_MUTEX)
+#define PACKET_CLEANUP(p) do {                  \
+        if ((p)->pktvar != NULL) {              \
+            PktVarFree((p)->pktvar);            \
+        }                                       \
+        /*SCMutexDestroy(&(p)->tunnel_mutex);*/ \
+    } while (0)
+#else
 #define PACKET_CLEANUP(p) do {                  \
         if ((p)->pktvar != NULL) {              \
             PktVarFree((p)->pktvar);            \
         }                                       \
         SCMutexDestroy(&(p)->tunnel_mutex);     \
     } while (0)
+#endif
 #else
 #define PACKET_CLEANUP(p) do {                  \
     if ((p)->pktvar != NULL) {                  \
@@ -750,23 +837,47 @@ typedef struct DecodeThreadVars_
      ((p)->action = ACTION_PASS)); \
 } while (0)
 
+#if defined(__tile__) && defined(TMC_TUNNEL_MUTEX)
+#define TUNNEL_INCR_PKT_RTV(p) do {                                                 \
+        tmc_spin_queued_mutex_lock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);     \
+        ((p)->root ? (p)->root->tunnel_rtv_cnt++ : (p)->tunnel_rtv_cnt++);          \
+        tmc_spin_queued_mutex_unlock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);   \
+    } while (0)
+#else
 #define TUNNEL_INCR_PKT_RTV(p) do {                                                 \
         SCMutexLock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);     \
         ((p)->root ? (p)->root->tunnel_rtv_cnt++ : (p)->tunnel_rtv_cnt++);          \
         SCMutexUnlock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);   \
     } while (0)
+#endif
 
+#if defined(__tile__) && defined(TMC_TUNNEL_MUTEX)
+#define TUNNEL_INCR_PKT_TPR(p) do {                                                 \
+        tmc_spin_queued_mutex_lock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);     \
+        ((p)->root ? (p)->root->tunnel_tpr_cnt++ : (p)->tunnel_tpr_cnt++);          \
+        tmc_spin_queued_mutex_unlock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);   \
+    } while (0)
+#else
 #define TUNNEL_INCR_PKT_TPR(p) do {                                                 \
         SCMutexLock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);     \
         ((p)->root ? (p)->root->tunnel_tpr_cnt++ : (p)->tunnel_tpr_cnt++);          \
         SCMutexUnlock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);   \
     } while (0)
+#endif
 
+#if defined(__tile__) && defined(TMC_TUNNEL_MUTEX)
+#define TUNNEL_DECR_PKT_TPR(p) do {                                                 \
+        tmc_spin_queued_mutex_lock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);     \
+        ((p)->root ? (p)->root->tunnel_tpr_cnt-- : (p)->tunnel_tpr_cnt--);          \
+        tmc_spin_queued_mutex_unlock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);   \
+    } while (0)
+#else
 #define TUNNEL_DECR_PKT_TPR(p) do {                                                 \
         SCMutexLock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);     \
         ((p)->root ? (p)->root->tunnel_tpr_cnt-- : (p)->tunnel_tpr_cnt--);          \
         SCMutexUnlock((p)->root ? &(p)->root->tunnel_mutex : &(p)->tunnel_mutex);   \
     } while (0)
+#endif
 
 #define TUNNEL_DECR_PKT_TPR_NOLOCK(p) do {                                          \
         ((p)->root ? (p)->root->tunnel_tpr_cnt-- : (p)->tunnel_tpr_cnt--);          \

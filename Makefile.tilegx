@@ -117,7 +117,7 @@ TILE_MONITOR_STATIC_ARGS = \
   --run -+- suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe0 -+-
 
 TILE_MONITOR_UT_ARGS = \
-  --huge-pages 100 \
+  --huge-pages 400 \
   --mkdir /opt/test --cd /opt/test \
   --mount-tile /usr/lib \
   --mount-tile /lib \
@@ -133,16 +133,16 @@ TILE_MONITOR_UT_ARGS = \
   --run -+- suricata -u -+-
 
 WILDCAT_CPU = --hvd CHIP_WIDTH=6 --hvd CHIP_HEIGHT=6
-#WILDCAT_SPEED = --hvd MEM_SPEED=750 --hvd CPU_SPEED=750
+WILDCAT_SPEED = --hvd MEM_SPEED=750 --hvd CPU_SPEED=750
 #WILDCAT_SPEED = --hvd MEM_SPEED=1066 --hvd CPU_SPEED=1000
-WILDCAT_SPEED = --hvd MEM_SPEED=800 --hvd CPU_SPEED=1000
+#WILDCAT_SPEED = --hvd MEM_SPEED=800 --hvd CPU_SPEED=1000
 
 TILE_MONITOR_WILDCAT_ARGS = \
   $(WILDCAT_CPU) \
   $(WILDCAT_SPEED) \
   --hvx "dataplane=1-35" \
   --hvx "TLR_NETWORK=gbe1" \
-  --huge-pages 100 \
+  --huge-pages 400 \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
   --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
   --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
@@ -176,7 +176,7 @@ TILE_MONITOR_WILDCAT_STATIC_ARGS = \
 TILE_MONITOR_WILDCAT_FEEDBACK_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
-  --huge-pages 100 \
+  --huge-pages 400 \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
   --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
   --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
@@ -198,7 +198,7 @@ TILE_MONITOR_WILDCAT_FEEDBACK_ARGS = \
 TILE_MONITOR_WILDCAT_FEEDBACK_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
-  --huge-pages 100 \
+  --huge-pages 400 \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
   --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
   --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
@@ -222,7 +222,7 @@ TILE_MONITOR_WILDCAT_PROFILE_ARGS = \
   $(WILDCAT_SPEED) \
   --hvx "dataplane=1-35" \
   --hvx "TLR_NETWORK=gbe1" \
-  --huge-pages 100 \
+  --huge-pages 400 \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
   --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
   --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
@@ -254,7 +254,7 @@ TILE_MONITOR_WILDCAT_PROFILE_ARGS = \
 TILE_MONITOR_WILDCAT_PROFILE_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
-  --huge-pages 100 \
+  --huge-pages 400 \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
   --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
   --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \

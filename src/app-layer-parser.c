@@ -66,7 +66,11 @@ static AppLayerParserTableElement al_parser_table[MAX_PARSERS];
 static uint16_t al_max_parsers = 0; /* incremented for every registered parser */
 
 static Pool *al_result_pool = NULL;
+#ifdef __tile__
+static tmc_spin_queued_mutex_t al_result_pool_mutex = TMC_SPIN_QUEUED_MUTEX_INIT;
+#else
 static SCMutex al_result_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
 #ifdef DEBUG
 static uint32_t al_result_pool_elmts = 0;
 #endif /* DEBUG */
@@ -107,9 +111,17 @@ static void AlpResultElmtPoolFree(void *e)
 
 static AppLayerParserResultElmt *AlpGetResultElmt(void)
 {
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&al_result_pool_mutex);
+#else
     SCMutexLock(&al_result_pool_mutex);
+#endif
     AppLayerParserResultElmt *e = (AppLayerParserResultElmt *)PoolGet(al_result_pool);
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&al_result_pool_mutex);
+#else
     SCMutexUnlock(&al_result_pool_mutex);
+#endif
 
     if (e == NULL) {
         return NULL;
@@ -129,9 +141,17 @@ static void AlpReturnResultElmt(AppLayerParserResultElmt *e)
     e->data_len = 0;
     e->next = NULL;
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&al_result_pool_mutex);
+#else
     SCMutexLock(&al_result_pool_mutex);
+#endif
     PoolReturn(al_result_pool, (void *)e);
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&al_result_pool_mutex);
+#else
     SCMutexUnlock(&al_result_pool_mutex);
+#endif
 }
 
 static void AlpAppendResultElmt(AppLayerParserResult *r, AppLayerParserResultElmt *e)
@@ -1765,6 +1785,7 @@ void AppLayerRegisterProbingParser(AlpProtoDetectCtx *ctx,
     AppLayerProbingParser **probing_parsers = &ctx->probing_parsers;
     AppLayerProbingParserElement *pe = NULL;
     AppLayerProbingParser *pp = NULL;
+    AppLayerProbingParserElement *new_pe = NULL;
 
     /* Add info about this probing parser to our database.  Also detects any
      * duplicate existance of this parser but with conflicting parameters */
@@ -1776,7 +1797,7 @@ void AppLayerRegisterProbingParser(AlpProtoDetectCtx *ctx,
     /* \todo introduce parsing port range here */
 
     /* Get a new parser element */
-    AppLayerProbingParserElement *new_pe =
+    new_pe =
         AppLayerCreateAppLayerProbingParserElement(al_proto_name, ip_proto,
                                                    al_proto, min_depth,
                                                    max_depth, port,

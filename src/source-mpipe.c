@@ -432,13 +432,13 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         int group = result;
 
         /* Allocate a bucket. */
-        int num_buckets = 1024;
+        int num_buckets = 4096/*1024*/;
         result = gxio_mpipe_alloc_buckets(context, num_buckets, 0, 0);
         VERIFY(result, "gxio_mpipe_alloc_buckets()");
         int bucket = result;
 
         /* Init group and buckets, preserving packet order among flows. */
-        gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_DYNAMIC_FLOW_AFFINITY;
+        gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_STATIC_FLOW_AFFINITY;
         result = gxio_mpipe_init_notif_group_and_buckets(context, group,
                                                    ring, num_workers,
                                                    bucket, num_buckets, mode);

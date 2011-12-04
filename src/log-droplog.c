@@ -262,7 +262,11 @@ TmEcode LogDropLogNetFilter (ThreadVars *tv, Packet *p, void *data, PacketQueue 
 
     CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&dlt->file_ctx->fp_mutex);
+#else
     SCMutexLock(&dlt->file_ctx->fp_mutex);
+#endif
 
     char srcip[46] = "";
     char dstip[46] = "";
@@ -331,7 +335,11 @@ TmEcode LogDropLogNetFilter (ThreadVars *tv, Packet *p, void *data, PacketQueue 
     fflush(dlt->file_ctx->fp);
 
     dlt->drop_cnt++;
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&dlt->file_ctx->fp_mutex);
+#else
     SCMutexUnlock(&dlt->file_ctx->fp_mutex);
+#endif
 
     return TM_ECODE_OK;
 
