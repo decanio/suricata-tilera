@@ -591,7 +591,7 @@ typedef struct DecodeThreadVars_
  *  \brief Initialize a packet structure for use.
  */
 #ifndef __SC_CUDA_SUPPORT__
-#if defined(_tile__) && 0
+#if defined(__tile__) && defined(TMC_TUNNEL_MUTEX)
 #define PACKET_INITIALIZE(p) { \
     memset((p), 0x00, SIZE_OF_PACKET); \
     tmc_spin_queued_mutex_init(&(p)->tunnel_mutex); \

@@ -98,17 +98,17 @@ typedef struct DetectEngineState_ {
     uint16_t toclient_version;
     uint16_t toserver_version;
 #ifdef __tile__
-    struct DetectEngingState_ *pool_next;
+    struct DetectEngineState_ *pool_next;
 #endif
 } DetectEngineState;
 
 void DeStateRegisterTests(void);
 
-DeStateStore *DeStateStoreAlloc(void);
-void DeStateStoreFree(DeStateStore *);
+//static DeStateStore *DeStateStoreAlloc(void);
+//static void DeStateStoreFree(DeStateStore *);
 void DetectEngineStateReset(DetectEngineState *state);
 
-DetectEngineState *DetectEngineStateAlloc(void);
+//DetectEngineState *DetectEngineStateAlloc(void);
 void DetectEngineStateFree(DetectEngineState *);
 
 //void DeStateSignatureAppend(DetectEngineState *, Signature *, SigMatch *, char);

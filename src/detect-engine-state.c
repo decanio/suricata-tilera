@@ -82,7 +82,7 @@ static tmc_spin_queued_mutex_t DetectEngineStatePoolMutex = TMC_SPIN_QUEUED_MUTE
  *  \brief Alloc a DeStateStore object
  *  \retval d alloc'd object
  */
-DeStateStore *DeStateStoreAlloc(void) {
+static DeStateStore *DeStateStoreAlloc(void) {
     SCEnter();
 
 #ifdef __tile__
@@ -110,7 +110,7 @@ DeStateStore *DeStateStoreAlloc(void) {
 }
 
 #ifdef __tile__
-void inline _DeStateStoreFree(DeStateStore *store) {
+static inline void _DeStateStoreFree(DeStateStore *store) {
     tmc_spin_queued_mutex_lock(&DeStateStorePoolMutex);
     store->pool_next = DeStateStorePool;
     DeStateStorePool = store;
@@ -122,7 +122,7 @@ void inline _DeStateStoreFree(DeStateStore *store) {
  *  \brief free a DeStateStore object (recursively)
  *  \param store DeStateStore object to free
  */
-void DeStateStoreFree(DeStateStore *store) {
+static void DeStateStoreFree(DeStateStore *store) {
     SCEnter();
 
     if (store == NULL) {
@@ -145,7 +145,7 @@ void DeStateStoreFree(DeStateStore *store) {
  *  \brief Alloc a DetectEngineState object
  *  \param d alloc'd object
  */
-DetectEngineState *DetectEngineStateAlloc(void) {
+static DetectEngineState *DetectEngineStateAlloc(void) {
     SCEnter();
 
 #ifdef __tile__
