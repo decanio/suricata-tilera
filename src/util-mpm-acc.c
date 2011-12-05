@@ -1127,7 +1127,7 @@ static void SCACCCompressDeltaTable(MpmCtx *mpm_ctx)
     char_count += 1; // add a fail character
     printf("Slots in map %d\n", char_count);
     if (ctx->state_count < 127) {
-        ctx->state_table_u8;
+        //ctx->state_table_u8;
         state_table8_t *t8;
 
         t8 = SCMpmMalloc(sizeof(state_table_hdr_t) + ctx->state_count *
@@ -1159,7 +1159,7 @@ static void SCACCCompressDeltaTable(MpmCtx *mpm_ctx)
             }
         }
     } else if (ctx->state_count < 32767) {
-        ctx->state_table_u16;
+        //ctx->state_table_u16;
         state_table16_t *t16;
 
         t16 = SCMpmMalloc(sizeof(state_table_hdr_t) + ctx->state_count *
@@ -1192,7 +1192,7 @@ static void SCACCCompressDeltaTable(MpmCtx *mpm_ctx)
         }
 
     } else {
-        ctx->state_table_u32;
+        //ctx->state_table_u32;
         state_table32_t *t32;
 
         t32 = SCMpmMalloc(sizeof(state_table_hdr_t) + ctx->state_count *
@@ -1278,7 +1278,7 @@ static inline void SCACCDedupDeltaTable(MpmCtx *mpm_ctx)
             size_t bytes = m8->hdr.size;
 
             cumulative_bytes += bytes;
-            printf("BYTES %lld\n", bytes);
+            printf("BYTES %ld\n", bytes);
             printf("CUMULATIVE bytes %lld\n", cumulative_bytes);
             m8->hdr.next = head_state_table8;
             head_state_table8 = m8;
@@ -1330,7 +1330,7 @@ static inline void SCACCDedupDeltaTable(MpmCtx *mpm_ctx)
             size_t bytes = m16->hdr.size;
 
             cumulative_bytes += bytes;
-            printf("BYTES %lld\n", bytes);
+            printf("BYTES %ld\n", bytes);
             printf("CUMULATIVE bytes %lld\n", cumulative_bytes);
             m16->hdr.next = head_state_table16;
             head_state_table16 = m16;
