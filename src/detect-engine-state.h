@@ -85,6 +85,9 @@ typedef struct DeStateStoreItem_ {
 typedef struct DeStateStore_ {
     DeStateStoreItem store[DE_STATE_CHUNK_SIZE];    /**< array of storage objects */
     struct DeStateStore_ *next;                     /**< ptr to the next array */
+#ifdef __tile__
+    struct DeStateStore_ *pool_next;                /**< ptr to the next array */
+#endif
 } DeStateStore;
 
 /** \brief State store main object */
@@ -94,6 +97,9 @@ typedef struct DetectEngineState_ {
     SigIntId cnt;       /**< number of sigs in the storage */
     uint16_t toclient_version;
     uint16_t toserver_version;
+#ifdef __tile__
+    struct DetectEngingState_ *pool_next;
+#endif
 } DetectEngineState;
 
 void DeStateRegisterTests(void);

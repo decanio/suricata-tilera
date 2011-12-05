@@ -70,6 +70,14 @@ const char *DeStateMatchResultToString(DeStateMatchResult res)
     return NULL;
 }
 
+#ifdef __tile__
+#include <tmc/spin.h>
+static DeStateStore *DeStateStorePool = NULL;
+static tmc_spin_queued_mutex_t DeStateStorePoolMutex = TMC_SPIN_QUEUED_MUTEX_INIT;
+
+static DetectEngineState *DetectEngineStatePool = NULL;
+static tmc_spin_queued_mutex_t DetectEngineStatePoolMutex = TMC_SPIN_QUEUED_MUTEX_INIT;
+#endif
 /**
  *  \brief Alloc a DeStateStore object
  *  \retval d alloc'd object
@@ -77,14 +85,38 @@ const char *DeStateMatchResultToString(DeStateMatchResult res)
 DeStateStore *DeStateStoreAlloc(void) {
     SCEnter();
 
+#ifdef __tile__
+    DeStateStore *d;
+    tmc_spin_queued_mutex_lock(&DeStateStorePoolMutex);
+    if ((d = DeStateStorePool) != NULL) {
+        DeStateStorePool = d->pool_next;
+        tmc_spin_queued_mutex_unlock(&DeStateStorePoolMutex);
+    } else {
+        tmc_spin_queued_mutex_unlock(&DeStateStorePoolMutex);
+        d = SCMalloc(sizeof(DeStateStore));
+        if (d == NULL) {
+            SCReturnPtr(NULL, "DeStateStore");
+        }
+    }
+#else
     DeStateStore *d = SCMalloc(sizeof(DeStateStore));
     if (d == NULL) {
         SCReturnPtr(NULL, "DeStateStore");
     }
+#endif
     memset(d, 0x00, sizeof(DeStateStore));
 
     SCReturnPtr(d, "DeStateStore");
 }
+
+#ifdef __tile__
+void inline _DeStateStoreFree(DeStateStore *store) {
+    tmc_spin_queued_mutex_lock(&DeStateStorePoolMutex);
+    store->pool_next = DeStateStorePool;
+    DeStateStorePool = store;
+    tmc_spin_queued_mutex_unlock(&DeStateStorePoolMutex);
+}
+#endif
 
 /**
  *  \brief free a DeStateStore object (recursively)
@@ -101,7 +133,11 @@ void DeStateStoreFree(DeStateStore *store) {
         DeStateStoreFree(store->next);
     }
 
+#ifdef __tile__
+    _DeStateStoreFree(store);
+#else
     SCFree(store);
+#endif
     SCReturn;
 }
 
@@ -112,10 +148,25 @@ void DeStateStoreFree(DeStateStore *store) {
 DetectEngineState *DetectEngineStateAlloc(void) {
     SCEnter();
 
+#ifdef __tile__
+    DetectEngineState *d;
+    tmc_spin_queued_mutex_lock(&DetectEngineStatePoolMutex);
+    if ((d = DetectEngineStatePool) != NULL) {
+        DetectEngineStatePool = d->pool_next;
+        tmc_spin_queued_mutex_unlock(&DetectEngineStatePoolMutex);
+    } else {
+        tmc_spin_queued_mutex_unlock(&DetectEngineStatePoolMutex);
+        d = SCMalloc(sizeof(DetectEngineState));
+        if (d == NULL) {
+            SCReturnPtr(NULL, "DeStateStore");
+        }
+    }
+#else
     DetectEngineState *d = SCMalloc(sizeof(DetectEngineState));
     if (d == NULL) {
         SCReturnPtr(NULL, "DetectEngineState");
     }
+#endif
     memset(d, 0x00, sizeof(DetectEngineState));
 
     SCReturnPtr(d, "DetectEngineState");
@@ -138,7 +189,11 @@ void DetectEngineStateFree(DetectEngineState *state) {
     while (iter != NULL) {
         aux = iter;
         iter = iter->next;
+#ifdef __tile__
+        _DeStateStoreFree(aux);
+#else
         SCFree(aux);
+#endif
     }
 
     state->head = NULL;
@@ -146,7 +201,14 @@ void DetectEngineStateFree(DetectEngineState *state) {
 
     state->cnt = 0;
 
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&DetectEngineStatePoolMutex);
+    state->pool_next = DetectEngineStatePool;
+    DetectEngineStatePool = state;
+    tmc_spin_queued_mutex_unlock(&DetectEngineStatePoolMutex);
+#else
     SCFree(state);
+#endif
 }
 
 /**
