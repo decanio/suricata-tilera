@@ -211,9 +211,20 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
     uint16_t thread;
     uint32_t tile = 1;
     int pipe;
+    char *detectmode = NULL;
+    int pool_detect_threads = 0;
     extern TmEcode ReceiveMpipeInit(void); // move this
 
     SCLogInfo("RunModeIdsTileMpipeAuto\n");
+    
+    if (ConfGet("tile.detect", &detectmode) == 1) {
+        if (detectmode) {
+        	SCLogInfo("DEBUG: detectmode %s", detectmode);
+        	if (strcmp(detectmode, "pooled") == 0) {
+        		pool_detect_threads = 1;
+        	}
+        }   
+    }
 
     RunModeTileMpipeMapCores();
 
@@ -285,7 +296,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
         ThreadVars *tv_decode1 =
 	        TmThreadCreatePacketHandler(thread_name,
 		                    		    pickup_queue[pipe],"simple",
-                                        stream_queue[pipe],"simple",
+                                        stream_queue[(pool_detect_threads) ? 0 : pipe],"simple",
                                         "varslot");
         if (tv_decode1 == NULL) {
             printf("ERROR: TmThreadCreate failed for Decode1\n");
@@ -326,7 +337,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
 
             ThreadVars *tv_detect_ncpu =
                 TmThreadCreatePacketHandler(thread_name,
-                                            stream_queue[pipe],"simple", 
+                                            stream_queue[(pool_detect_threads) ? 0 : pipe],"simple", 
 #if 1
                                             verdict_queue[pipe],"simple",
 #else

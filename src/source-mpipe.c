@@ -187,7 +187,7 @@ cycle_pause(unsigned int delay)
 
 void MpipeFreePacket(Packet *p) {
 #ifdef MPIPE_DEBUG
-    SCLogInfo("MpipeFreePacket %p", p);
+    SCLogInfo("MpipeFreePacket stack %d", p->idesc.stack_idx);
 #endif
     gxio_mpipe_push_buffer(context, p->idesc.stack_idx, (void *)(intptr_t)p->idesc.va);
 
@@ -342,9 +342,40 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 #ifdef MPIPE_DEBUG
     SCLogInfo("ReceiveMpipeThreadInit\n");
 #endif
-    unsigned int num_buffers = 10000;
+    unsigned int num_buffers;
     unsigned int total_buffers = max_pending_packets;
     unsigned int num_workers = NUM_TILERA_MPIPE_PIPELINES;
+    unsigned int stack_count = 0;
+    const gxio_mpipe_buffer_size_enum_t gxio_buffer_sizes[] = {
+            GXIO_MPIPE_BUFFER_SIZE_128,
+            GXIO_MPIPE_BUFFER_SIZE_256,
+            GXIO_MPIPE_BUFFER_SIZE_512,
+            GXIO_MPIPE_BUFFER_SIZE_1024,
+            GXIO_MPIPE_BUFFER_SIZE_1664,
+            GXIO_MPIPE_BUFFER_SIZE_4096,
+            GXIO_MPIPE_BUFFER_SIZE_10368,
+            GXIO_MPIPE_BUFFER_SIZE_16384
+        };
+    const unsigned int buffer_sizes[] = {
+            128,
+            256,
+            512,
+            1024,
+            1664,
+            4096,
+            10368,
+            16384
+        };
+    const unsigned int buffer_counts[] = {
+            125440+125440/*+(16*1024*1024/128)*/,
+            10000,
+            10000,
+            10000,
+            30000,
+            0,
+            1000,
+            0
+        };
 
     if (initdata == NULL) {
         SCLogError(SC_ERR_INVALID_ARGUMENT, "initdata == NULL");
@@ -374,7 +405,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
         SCLogInfo("using interface %s", (char *)initdata);
 
-        SCLogInfo("Total mpipe %d packet buffers", total_buffers);
+        //SCLogInfo("Total mpipe %d packet buffers", total_buffers);
 
         /* Start the driver. */
         result = gxio_mpipe_init(context, gxio_mpipe_link_instance(link_name));
@@ -396,8 +427,11 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         VERIFY(result, "gxio_mpipe_alloc_notif_rings()");
         int ring = result;
 
+SCLogInfo("DEBUG: sizeof(gxio_mpipe_idesc_t) %ld\n", sizeof(gxio_mpipe_idesc_t));
+SCLogInfo("DEBUG: getpagesize() %d\n", getpagesize());
+SCLogInfo("DEBUG: idesc/page %ld\n", getpagesize()/sizeof(gxio_mpipe_idesc_t));
         /* Init the NotifRings. */
-        size_t notif_ring_entries = 128;
+        size_t notif_ring_entries = 512/*128*/;
         size_t notif_ring_size = notif_ring_entries * sizeof(gxio_mpipe_idesc_t);
         for (unsigned int i = 0; i < num_workers; i++) {
             tmc_alloc_t alloc = TMC_ALLOC_INIT;
@@ -415,16 +449,23 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             iqueues[i] = iqueue;
         }
 
+        /* Count required buffer stacks */
+        for (unsigned int i = 0; i < sizeof(gxio_buffer_sizes)/sizeof(gxio_buffer_sizes[0]); i++) {
+            if (buffer_counts[i] != 0)
+                ++stack_count;
+        }
+SCLogInfo("DEBUG: %u non-zero sized stacks", stack_count);
+
+#if 0
         /* Allocate one huge page to hold our buffer stack, notif ring, and
          * packets.  This should be more than enough space. */
         size_t page_size = (1 << 24);
         tmc_alloc_t alloc = TMC_ALLOC_INIT;
         tmc_alloc_set_huge(&alloc);
         void* page = tmc_alloc_map(&alloc, page_size);
-
         assert(page);
-
         void* mem = page;
+#endif
 
         /* Allocate a NotifGroup. */
         result = gxio_mpipe_alloc_notif_groups(context, 1, 0, 0);
@@ -445,69 +486,101 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         VERIFY(result, "gxio_mpipe_init_notif_group_and_buckets()");
 
 
-        // Allocate a buffer stack.
-        result = gxio_mpipe_alloc_buffer_stacks(context, 1, 0, 0);
+        /* Allocate a buffer stack. */
+        result = gxio_mpipe_alloc_buffer_stacks(context, stack_count, 0, 0);
         VERIFY(result, "gxio_mpipe_alloc_buffer_stacks()");
         int stack = result;
+SCLogInfo("DEBUG: initial stack at %d", stack);
 
-        // Initialize the buffer stack.
-        ALIGN(mem, 0x10000);
-        size_t stack_bytes = gxio_mpipe_calc_buffer_stack_bytes(total_buffers);
-        gxio_mpipe_buffer_size_enum_t buf_size = GXIO_MPIPE_BUFFER_SIZE_1664;
-        result = gxio_mpipe_init_buffer_stack(context, stack, buf_size,
-                                              mem, stack_bytes, 0);
-        VERIFY(result, "gxio_mpipe_init_buffer_stack()");
-        mem += stack_bytes;
+        unsigned int i = 0;
+        for (unsigned int stackidx = stack; stackidx < stack + stack_count; stackidx++, i++) {
+            for (;buffer_counts[i] == 0; i++) ;
 
-        ALIGN(mem, 0x10000);
+        /* Allocate one huge page to hold our buffer stack, notif ring, and
+         * packets.  This should be more than enough space. */
+        size_t page_size = (1 << 24);
+        tmc_alloc_t alloc = TMC_ALLOC_INIT;
+        tmc_alloc_set_huge(&alloc);
+        void* page = tmc_alloc_map(&alloc, page_size);
+        assert(page);
+        void* mem = page;
 
-        /* Register the entire huge page of memory which contains all the buffers. */
-        result = gxio_mpipe_register_page(context, stack, page, page_size, 0);
-        VERIFY(result, "gxio_mpipe_register_page()");
 
-        num_buffers = ((page + page_size) - mem) / 1664;
+            total_buffers = buffer_counts[i];
+            unsigned buffer_size = buffer_sizes[i];
 
-    	SCLogInfo("Adding %d packet buffers", num_buffers);
+SCLogInfo("Initializing stackidx %d i %d size %d buffers %d",
+           stackidx, i, buffer_size, total_buffers);
 
-        /* Push some buffers onto the stack. */
-        for (unsigned int i = 0; i < num_buffers; i++)
-        {
-            gxio_mpipe_push_buffer(context, stack, mem);
-            mem += 1664;
-        }
+            // Initialize the buffer stack.
+            ALIGN(mem, 0x10000);
+            size_t stack_bytes = gxio_mpipe_calc_buffer_stack_bytes(total_buffers);
+            //gxio_mpipe_buffer_size_enum_t buf_size = GXIO_MPIPE_BUFFER_SIZE_1664;
+            gxio_mpipe_buffer_size_enum_t buf_size = gxio_buffer_sizes[i];
+            result = gxio_mpipe_init_buffer_stack(context, stackidx, buf_size,
+                                                  mem, stack_bytes, 0);
+            VERIFY(result, "gxio_mpipe_init_buffer_stack()");
+            mem += stack_bytes;
 
-        /* Paranoia. */
-        assert(mem <= page + page_size);
+            ALIGN(mem, 0x10000);
 
-	total_buffers -= num_buffers;
-
-	num_buffers = min(total_buffers, page_size / 1664);
-
-	while (total_buffers) {
-
-            SCLogInfo("Adding additional %d packet buffers", num_buffers);
-
-            page = tmc_alloc_map(&alloc, page_size);
-            assert(page);
-
-            mem = page;
-
-            /* Register the huge page of memory which contains the buffers. */
-            result = gxio_mpipe_register_page(context, stack, page, page_size, 0);
+            /* Register the entire huge page of memory which contains all
+             * the buffers.
+             */
+            result = gxio_mpipe_register_page(context, stackidx, page,
+                                              page_size, 0);
             VERIFY(result, "gxio_mpipe_register_page()");
 
+            num_buffers = min(total_buffers, 
+                              ((page + page_size) - mem) / buffer_size);
+
+    	    SCLogInfo("Adding %d packet buffers", num_buffers);
+
             /* Push some buffers onto the stack. */
-            for (unsigned int i = 0; i < num_buffers; i++)
+            for (unsigned int j = 0; j < num_buffers; j++)
             {
-                gxio_mpipe_push_buffer(context, stack, mem);
-                mem += 1664;
+                gxio_mpipe_push_buffer(context, stackidx, mem);
+                mem += buffer_size;
             }
+
             /* Paranoia. */
             assert(mem <= page + page_size);
 
-            total_buffers -= num_buffers;
-            num_buffers = min(total_buffers, num_buffers);
-	}
+	        total_buffers -= num_buffers;
+            SCLogInfo("%d packet buffers remaining", total_buffers);
+
+	        num_buffers = min(total_buffers, page_size / buffer_size);
+
+            while (total_buffers) {
+
+                SCLogInfo("Adding additional %d packet buffers", num_buffers);
+                SCLogInfo("%d packet buffers remaining", total_buffers);
+
+                page = tmc_alloc_map(&alloc, page_size);
+                assert(page);
+
+                mem = page;
+
+                /* Register the huge page of memory which contains the
+                 * buffers.
+                 */
+                result = gxio_mpipe_register_page(context, stackidx, page,
+                                                  page_size, 0);
+                VERIFY(result, "gxio_mpipe_register_page()");
+
+                /* Push some buffers onto the stack. */
+                for (unsigned int j = 0; j < num_buffers; j++)
+                {
+                    gxio_mpipe_push_buffer(context, stackidx, mem);
+                    mem += buffer_size;
+                }
+                /* Paranoia. */
+                assert(mem <= page + page_size);
+
+                total_buffers -= num_buffers;
+                num_buffers = min(total_buffers, num_buffers);
+	        }
+        }
 
         /* Register for packets. */
         gxio_mpipe_rules_t rules;

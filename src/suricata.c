@@ -1461,9 +1461,6 @@ int main(int argc, char **argv)
         SCLogError(SC_ERR_FATAL, "Fatal error encountered while allocating a packet. Exiting...");
         exit(EXIT_FAILURE);
     }
-printf("DEBUG: Packet base %p\n", p);
-printf("DEBUG: sizeof Packet %ld\n", sizeof(Packet));
-printf("DEBUG: sizeof gxio_mpipe_idesc_t %ld\n", sizeof(gxio_mpipe_idesc_t));
 #endif
     for (i = 0; i < max_pending_packets; i++) {
         /* XXX pkt alloc function */

@@ -268,11 +268,20 @@ extern tmc_mspace mpm_mspace;
 #define SCMallocInit() ({\
     extern void *tile_pcre_malloc(size_t size); \
     extern void tile_pcre_free(void *ptr); \
+    size_t global_capacity = 8*1024*1024*1024; \
     tmc_alloc_t attr = TMC_ALLOC_INIT; \
     tmc_alloc_set_huge(&attr); \
     tmc_alloc_set_home(&attr, TMC_ALLOC_HOME_HASH); \
-    global_mspace = tmc_mspace_create_special(1024*1024*1024, \
-                                              TMC_MSPACE_LOCKED, &attr); \
+    global_mspace = tmc_mspace_create_special(global_capacity, \
+                                              TMC_MSPACE_LOCKED/*|TMC_MSPACE_NOGROW*/, &attr); \
+    int pagesize = tmc_alloc_get_pagesize(&attr); \
+    char *p, *p1; \
+    p = tmc_mspace_malloc(global_mspace, global_capacity-4096); \
+    for (p1 = p; p1 <= p + global_capacity-4096; \
+         p1 += pagesize) { \
+        *p1 = 0; \
+    } \
+    tmc_mspace_free(p); \
     tmc_alloc_t mpm_attr = TMC_ALLOC_INIT; \
     tmc_alloc_set_huge(&mpm_attr); \
     tmc_alloc_set_home(&mpm_attr, TMC_ALLOC_HOME_HASH); \

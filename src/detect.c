@@ -982,12 +982,14 @@ static inline void SigMatchSignaturesBuildMatchArrayNoSIMD(DetectEngineThreadCtx
         Packet *p, SignatureMask mask, uint16_t alproto)
 {
     uint32_t u;
+    SigGroupHead *sgh = det_ctx->sgh;
+    uint32_t sig_cnt = sgh->sig_cnt;
 
     /* reset previous run */
     det_ctx->match_array_cnt = 0;
 
-    for (u = 0; u < det_ctx->sgh->sig_cnt; u++) {
-        SignatureHeader *s = &det_ctx->sgh->head_array[u];
+    for (u = 0; u < sig_cnt; u++) {
+        SignatureHeader *s = &sgh->head_array[u];
         if ((mask & s->mask) == s->mask) {
             if (SigMatchSignaturesBuildMatchArrayAddSignature(det_ctx, p, s, alproto) == 1) {
                 /* okay, store it */
