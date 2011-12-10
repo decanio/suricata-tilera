@@ -88,7 +88,7 @@ $(IMAGE_FILE):
 
 TILE_MONITOR_ARGS = \
   --hvx "dataplane=1-35" \
-  --huge-pages 400 \
+  --huge-pages 800 \
   --mkdir /opt/test --cd /opt/test \
   --mount-tile /usr/lib \
   --mount-tile /lib \
@@ -103,21 +103,23 @@ TILE_MONITOR_ARGS = \
   --run -+- mkdir -p /var/log/suricata -+- \
   --run -+- suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe0 -+-
 
+
 TILE_MONITOR_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
-  --huge-pages 400 \
+  --huge-pages 800 \
   --mkdir /opt/test --cd /opt/test \
   --mount-tile /usr/lib \
   --mount-tile /lib \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
-  --upload $(TILERA_ROOT_ALPHA11)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
-  --upload $(TILERA_ROOT_ALPHA11)/tile/lib/libnl.so.1.1 /lib/libnl.so.1 \
-  --upload $(TILERA_ROOT_ALPHA11)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
+  --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
+  --upload $(TILERA_ROOT)/tile/lib/libnl.so.1.1 /lib/libnl.so.1 \
+  --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
+  --upload ./src/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
   --run -+- suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe0 -+-
 
 TILE_MONITOR_UT_ARGS = \
-  --huge-pages 400 \
+  --huge-pages 800 \
   --mkdir /opt/test --cd /opt/test \
   --mount-tile /usr/lib \
   --mount-tile /lib \
@@ -142,7 +144,7 @@ TILE_MONITOR_WILDCAT_ARGS = \
   $(WILDCAT_SPEED) \
   --hvx "dataplane=1-35" \
   --hvx "TLR_NETWORK=gbe1" \
-  --huge-pages 400 \
+  --huge-pages 800 \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
   --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
   --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
@@ -169,14 +171,15 @@ TILE_MONITOR_WILDCAT_STATIC_ARGS = \
   --upload $(TILERA_ROOT)/tile/lib/libz.so.1.2.3 /lib/libz.so.1 \
   --upload $(TILERA_ROOT)/tile/lib/libnl.so.1.1 /lib/libnl.so.1 \
   --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
+  --upload $(TILERA_ROOT)/tile/usr/bin/strace /usr/bin/strace \
   --upload ./src/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
-  --run -+- suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe3 -+-
+  --run -+- strace -e !nanosleep /suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe3 -+-
 
 TILE_MONITOR_WILDCAT_FEEDBACK_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
-  --huge-pages 400 \
+  --huge-pages 800 \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
   --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
   --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
@@ -198,7 +201,7 @@ TILE_MONITOR_WILDCAT_FEEDBACK_ARGS = \
 TILE_MONITOR_WILDCAT_FEEDBACK_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
-  --huge-pages 400 \
+  --huge-pages 800 \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
   --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
   --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
@@ -222,7 +225,7 @@ TILE_MONITOR_WILDCAT_PROFILE_ARGS = \
   $(WILDCAT_SPEED) \
   --hvx "dataplane=1-35" \
   --hvx "TLR_NETWORK=gbe1" \
-  --huge-pages 400 \
+  --huge-pages 800 \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
   --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
   --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
@@ -254,7 +257,7 @@ TILE_MONITOR_WILDCAT_PROFILE_ARGS = \
 TILE_MONITOR_WILDCAT_PROFILE_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
-  --huge-pages 400 \
+  --huge-pages 800 \
   --mount $(THREADMETER_DIR)/threatmeter /opt \
   --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
   --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \

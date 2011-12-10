@@ -86,6 +86,10 @@ int FlowKill(FlowQueue *);
 /* Run mode selected at suricata.c */
 extern int run_mode;
 
+#ifdef __tile__
+static void *FlowL7PtrPool = NULL;
+static tmc_spin_queued_mutex_t FlowL7PtrPoolMutex = TMC_SPIN_QUEUED_MUTEX_INIT;
+#endif
 /** \brief Initialize the l7data ptr in the Flow session used by the L7 Modules
  *         for data storage.
  *
@@ -99,16 +103,30 @@ void FlowL7DataPtrInit(Flow *f)
     if (f->aldata != NULL)
         return;
 
-    uint32_t size = (uint32_t)(sizeof (void *) * AppLayerGetStorageSize());
+    uint8_t entries = AppLayerGetStorageSize();
+    uint32_t size = (uint32_t)(sizeof (void *) * entries);
 
     // XXXPR pass to flow memcap   if (StreamTcpCheckMemcap(size) == 0)
     // XXXPR pass to flow memcap        return;
 
+#ifdef __tile__
+    void **p;
+    tmc_spin_queued_mutex_lock(&FlowL7PtrPoolMutex);
+    if ((p = FlowL7PtrPool)) {
+        FlowL7PtrPool = *p;
+        tmc_spin_queued_mutex_unlock(&FlowL7PtrPoolMutex);
+        f->aldata = p;
+    } else {
+        tmc_spin_queued_mutex_unlock(&FlowL7PtrPoolMutex);
+        f->aldata = (void **) SCMalloc(size);
+    }
+#else
     f->aldata = (void **) SCMalloc(size);
+#endif
     if (f->aldata != NULL) {
         // StreamTcpIncrMemuse(size);
         uint8_t u;
-        for (u = 0; u < AppLayerGetStorageSize(); u++) {
+        for (u = 0; u < entries; u++) {
             f->aldata[u] = NULL;
         }
     }
@@ -125,7 +143,17 @@ void FlowL7DataPtrFree(Flow *f)
         return;
 
     AppLayerParserCleanupState(f);
+#ifdef __tile__
+    if (f->aldata) {
+        tmc_spin_queued_mutex_lock(&FlowL7PtrPoolMutex);
+        void **p = f->aldata;
+        *p = FlowL7PtrPool;
+        FlowL7PtrPool = p;
+        tmc_spin_queued_mutex_unlock(&FlowL7PtrPoolMutex);
+    }
+#else
     SCFree(f->aldata);
+#endif
     f->aldata = NULL;
 
     // uint32_t size = (uint32_t)(sizeof (void *) * StreamL7GetStorageSize());

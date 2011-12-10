@@ -33,6 +33,7 @@
 #include "util-atomic.h"
 #ifdef __tile__
 #include <pcre.h>
+#include <sys/mman.h>
 #include <tmc/alloc.h>
 #include <tmc/mspace.h>
 #endif
@@ -265,23 +266,31 @@ SC_ATOMIC_EXTERN(unsigned int, engine_stage);
 extern tmc_mspace global_mspace;
 extern tmc_mspace mpm_mspace;
 
-#define SCMallocInit() ({\
-    extern void *tile_pcre_malloc(size_t size); \
-    extern void tile_pcre_free(void *ptr); \
-    size_t global_capacity = 8*1024*1024*1024; \
-    tmc_alloc_t attr = TMC_ALLOC_INIT; \
-    tmc_alloc_set_huge(&attr); \
-    tmc_alloc_set_home(&attr, TMC_ALLOC_HOME_HASH); \
-    global_mspace = tmc_mspace_create_special(global_capacity, \
-                                              TMC_MSPACE_LOCKED/*|TMC_MSPACE_NOGROW*/, &attr); \
+#if 0
     int pagesize = tmc_alloc_get_pagesize(&attr); \
     char *p, *p1; \
-    p = tmc_mspace_malloc(global_mspace, global_capacity-4096); \
+    p = tmc_mspace_malloc(global_mspace, global_capacity/2); \
+    printf("SCMallocInit malloc %p\n", p); \
     for (p1 = p; p1 <= p + global_capacity-4096; \
          p1 += pagesize) { \
         *p1 = 0; \
     } \
+    printf("SCMallocInit free %p\n", p); \
     tmc_mspace_free(p); \
+
+#endif
+
+#define SCMallocInit() ({\
+    extern void *tile_pcre_malloc(size_t size); \
+    extern void tile_pcre_free(void *ptr); \
+    size_t global_capacity = 8ULL*1024ULL*1024ULL*1024ULL; \
+    tmc_alloc_t attr = TMC_ALLOC_INIT; \
+    tmc_alloc_set_huge(&attr); \
+    tmc_alloc_set_home(&attr, TMC_ALLOC_HOME_HASH); \
+    printf("SCMallocInit %ld\n", global_capacity); \
+    global_mspace = tmc_mspace_create_special(global_capacity, \
+                                              TMC_MSPACE_LOCKED|TMC_MSPACE_NOGROW, &attr); \
+    printf("SCMallocInit mspace %p\n", global_mspace); \
     tmc_alloc_t mpm_attr = TMC_ALLOC_INIT; \
     tmc_alloc_set_huge(&mpm_attr); \
     tmc_alloc_set_home(&mpm_attr, TMC_ALLOC_HOME_HASH); \
