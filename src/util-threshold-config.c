@@ -486,7 +486,7 @@ int SCThresholdConfAddThresholdtype(char *rawstr, DetectEngineCtx *de_ctx)
            break;
         case THRESHOLD_TYPE_SUPPRESS:
             /* need to get IP if extension is provided */
-            if (strlen(rule_extend)) {
+            if (th_track != NULL) {
                 if (strcasecmp(th_track,"by_dst") == 0)
                     parsed_track = TRACK_DST;
                 else if (strcasecmp(th_track,"by_src") == 0)
@@ -828,7 +828,6 @@ void SCThresholdConfParseFile(DetectEngineCtx *de_ctx, FILE *fd)
 {
     char *line = NULL;
     int len = 0;
-    int c;
     int rule_num = 0;
 
     /* position of "\", on multiline rules */
@@ -855,7 +854,7 @@ void SCThresholdConfParseFile(DetectEngineCtx *de_ctx, FILE *fd)
                 break;
 
             /* Skip EOL to inspect the next line (or read EOF) */
-            c = fgetc(fd);
+            (void)fgetc(fd);
 
             if (SCThresholdConfIsLineBlankOrComment(line)) {
                 continue;
@@ -869,7 +868,7 @@ void SCThresholdConfParseFile(DetectEngineCtx *de_ctx, FILE *fd)
             }
         } else {
             /* Skip EOL to inspect the next line (or read EOF) */
-            c = fgetc(fd);
+            (void)fgetc(fd);
             if (feof(fd))
                 break;
         }

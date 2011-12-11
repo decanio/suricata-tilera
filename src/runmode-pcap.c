@@ -28,8 +28,6 @@
 
 #include "alert-fastlog.h"
 #include "alert-prelude.h"
-#include "alert-unified-log.h"
-#include "alert-unified-alert.h"
 #include "alert-unified2-alert.h"
 #include "alert-debuglog.h"
 
@@ -73,9 +71,6 @@ void PcapDerefConfig(void *conf)
     PcapIfaceConfig *pfp = (PcapIfaceConfig *)conf;
     /* Pcap config is used only once but cost of this low. */
     if (SC_ATOMIC_SUB(pfp->ref, 1) == 0) {
-        if (pfp->bpf_filter) {
-            SCFree(pfp->bpf_filter);
-        }
         SCFree(pfp);
     }
 }
@@ -100,7 +95,8 @@ void *ParsePcapConfig(const char *iface)
 
     aconf->buffer_size = 0;
     /* If set command line option has precedence over config */
-    if ((ConfGetInt("pcap.buffer_size", &value)) == 1) {
+    if ((ConfGetInt("pcap.buffer-size", &value)) == 1) {
+        SCLogInfo("Pcap will use %d buffer size", (int)value);
         aconf->buffer_size = value;
     }
 
@@ -131,6 +127,8 @@ void *ParsePcapConfig(const char *iface)
     if (aconf->buffer_size == 0) {
         if ((ConfGetChildValueInt(if_root, "buffer-size", &value)) == 1) {
             aconf->buffer_size = value;
+            SCLogInfo("Pcap will use %d buffer size (config file provided "
+                    "value)", (int)value);
         }
     }
 
@@ -139,8 +137,7 @@ void *ParsePcapConfig(const char *iface)
         if (ConfGetChildValue(if_root, "bpf-filter", &tmpbpf) != 1) {
             SCLogDebug("could not get bpf or none specified");
         } else {
-            /* TODO free this */
-            aconf->bpf_filter = SCStrdup(tmpbpf);
+            aconf->bpf_filter = tmpbpf;
         }
     } else {
         SCLogInfo("BPF filter set from command line or via old 'bpf-filter' option.");
@@ -218,7 +215,9 @@ int RunModeIdsPcapAuto(DetectEngineCtx *de_ctx)
     ConfGet("pcap.single_pcap_dev", &live_dev);
 
     ret = RunModeSetLiveCaptureAuto(de_ctx,
-                                    ParsePcapConfig, "ReceivePcap",
+                                    ParsePcapConfig,
+                                    PcapConfigGeThreadsCount,
+                                    "ReceivePcap",
                                     "DecodePcap", "RecvPcap",
                                     live_dev);
     if (ret != 0) {

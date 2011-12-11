@@ -2,7 +2,11 @@
  * Copyright (c) 2009, 2010 Open Information Security Foundation
  *
  * \author Kirby Kuehl <kkuehl@gmail.com>
+ *
+ * \todo Updated by AS: Inspect the possibilities of sending junk start at the
+ *       start of udp session to avoid alproto detection.
  */
+
 #include "suricata-common.h"
 #include "suricata.h"
 
@@ -613,8 +617,10 @@ static int DCERPCUDPParseHeader(Flow *f, void *dcerpcudp_state,
 }
 
 static int DCERPCUDPParse(Flow *f, void *dcerpc_state,
-		AppLayerParserState *pstate, uint8_t *input, uint32_t input_len,
-		AppLayerParserResult *output) {
+                          AppLayerParserState *pstate,
+                          uint8_t *input, uint32_t input_len,
+                          void *local_data, AppLayerParserResult *output)
+{
 	uint32_t retval = 0;
 	uint32_t parsed = 0;
 	int hdrretval = 0;
@@ -712,7 +718,6 @@ static void DCERPCUDPStateFree(void *s) {
 
 void RegisterDCERPCUDPParsers(void) {
     /** DCERPC */
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_UDP, ALPROTO_DCERPC_UDP, "|04 00|", 2, 0, STREAM_TOCLIENT);
     AlpProtoAdd(&alp_proto_ctx, IPPROTO_UDP, ALPROTO_DCERPC_UDP, "|04 00|", 2, 0, STREAM_TOSERVER);
 
 	AppLayerRegisterProto("dcerpcudp", ALPROTO_DCERPC_UDP, STREAM_TOSERVER,
@@ -927,16 +932,15 @@ int DCERPCUDPParserTest01(void) {
     FLOW_INITIALIZE(&f);
 
 	StreamTcpInitConfig(TRUE);
-	FlowL7DataPtrInit(&f);
 
-	int r = AppLayerParse(&f, ALPROTO_DCERPC_UDP, STREAM_TOSERVER|STREAM_START, dcerpcrequest, requestlen);
+	int r = AppLayerParse(NULL, &f, ALPROTO_DCERPC_UDP, STREAM_TOSERVER|STREAM_START, dcerpcrequest, requestlen);
 	if (r != 0) {
 		printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
 		result = 0;
 		goto end;
 	}
 
-	DCERPCUDPState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC_UDP)];
+	DCERPCUDPState *dcerpc_state = f.alstate;
 	if (dcerpc_state == NULL) {
 		printf("no dcerpc state: ");
 		result = 0;
@@ -967,7 +971,6 @@ int DCERPCUDPParserTest01(void) {
 	}
 
 end:
-	FlowL7DataPtrFree(&f);
 	StreamTcpFreeConfig(TRUE);
 	return result;
 }

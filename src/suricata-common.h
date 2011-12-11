@@ -68,8 +68,10 @@
 
 #ifdef HAVE_SYSLOG_H
 #include <syslog.h>
-#elif OS_WIN32
+#else
+#ifdef OS_WIN32
 #include "win32-syslog.h"
+#endif /* OS_WIN32 */
 #endif /* HAVE_SYSLOG_H */
 
 #ifdef OS_WIN32
@@ -154,6 +156,15 @@
         #endif
     #endif
 
+/** Windows does not define __WORDSIZE, but it uses __X86__ */
+	#if defined(__X86__) || defined(_X86_)
+		#define __WORDSIZE 32
+	#else
+		#if defined(__X86_64__) || defined(_X86_64_)
+			#define __WORDSIZE 64
+		#endif
+	#endif
+
     #ifndef __WORDSIZE
         #warning Defaulting to __WORDSIZE 32
         #define __WORDSIZE 32
@@ -162,8 +173,9 @@
 
 typedef enum PacketProfileDetectId_ {
     PROF_DETECT_MPM,
-    PROF_DETECT_MPM_PACKET,
-    PROF_DETECT_MPM_STREAM,
+    PROF_DETECT_MPM_PACKET,         /* PKT MPM */
+    PROF_DETECT_MPM_PKT_STREAM,     /* PKT inspected with stream MPM */
+    PROF_DETECT_MPM_STREAM,         /* STREAM MPM */
     PROF_DETECT_MPM_URI,
     PROF_DETECT_MPM_HCBD,
     PROF_DETECT_MPM_HHD,

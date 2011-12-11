@@ -56,7 +56,10 @@ void FlowQueueDestroy (FlowQueue *);
 
 void FlowEnqueue (FlowQueue *, Flow *);
 Flow *FlowDequeue (FlowQueue *);
-void FlowRequeue(Flow *, FlowQueue *, FlowQueue *, uint8_t);
+
+void FlowRequeue(Flow *, FlowQueue *, FlowQueue *);
+void FlowRequeueMoveToBot(Flow *, FlowQueue *);
+void FlowRequeueMoveToSpare(Flow *, FlowQueue *);
 
 #endif /* __FLOW_QUEUE_H__ */
 

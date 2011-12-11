@@ -28,8 +28,6 @@
 
 #include "alert-fastlog.h"
 #include "alert-prelude.h"
-#include "alert-unified-log.h"
-#include "alert-unified-alert.h"
 #include "alert-unified2-alert.h"
 #include "alert-debuglog.h"
 
@@ -84,6 +82,11 @@ void PfringDerefConfig(void *conf)
 {
     PfringIfaceConfig *pfp = (PfringIfaceConfig *)conf;
     if (SC_ATOMIC_SUB(pfp->ref, 1) == 0) {
+#ifdef HAVE_PFRING_SET_BPF_FILTER
+        if (pfp->bpf_filter) {
+            SCFree(pfp->bpf_filter);
+        }
+#endif
         SCFree(pfp);
     }
 }
@@ -108,7 +111,7 @@ void *OldParsePfringConfig(const char *iface)
     char *tmpclusterid;
 #ifdef HAVE_PFRING_CLUSTER_TYPE
     char *tmpctype = NULL;
-    char * default_ctype = SCStrdup("cluster_round_robin");
+    cluster_type default_ctype = CLUSTER_ROUND_ROBIN;
 #endif
 
     if (iface == NULL) {
@@ -122,7 +125,7 @@ void *OldParsePfringConfig(const char *iface)
     pfconf->threads = 1;
     pfconf->cluster_id = 1;
 #ifdef HAVE_PFRING_CLUSTER_TYPE
-    pfconf->ctype = (cluster_type)default_ctype;
+    pfconf->ctype = default_ctype;
 #endif
     pfconf->DerefFunc = PfringDerefConfig;
     SC_ATOMIC_INIT(pfconf->ref);
@@ -192,10 +195,12 @@ void *ParsePfringConfig(const char *iface)
     char *tmpclusterid;
 #ifdef HAVE_PFRING_CLUSTER_TYPE
     char *tmpctype = NULL;
-    /* TODO free me */
-    char * default_ctype = SCStrdup("cluster_round_robin");
+    cluster_type default_ctype = CLUSTER_ROUND_ROBIN;
     int getctype = 0;
 #endif
+#ifdef HAVE_PFRING_SET_BPF_FILTER
+    char *bpf_filter = NULL;
+#endif /* HAVE_PFRING_SET_BPF_FILTER */
 
     if (iface == NULL) {
         return NULL;
@@ -204,6 +209,7 @@ void *ParsePfringConfig(const char *iface)
     if (pfconf == NULL) {
         return NULL;
     }
+    memset(pfconf, 0, sizeof(PfringIfaceConfig));
     strlcpy(pfconf->iface, iface, sizeof(pfconf->iface));
     pfconf->threads = 1;
     pfconf->cluster_id = 1;
@@ -260,6 +266,24 @@ void *ParsePfringConfig(const char *iface)
             SCLogDebug("Going to use cluster-id %" PRId32, pfconf->cluster_id);
         }
     }
+#ifdef HAVE_PFRING_SET_BPF_FILTER
+    /*load pfring bpf filter*/
+    /* command line value has precedence */
+    if (ConfGet("bpf-filter", &bpf_filter) == 1) {
+        if (strlen(bpf_filter) > 0) {
+            pfconf->bpf_filter = SCStrdup(bpf_filter);
+            SCLogDebug("Going to use command-line provided bpf filter %s",
+                       pfconf->bpf_filter);
+        }
+    } else {
+        if (ConfGetChildValue(if_root, "bpf-filter", &bpf_filter) == 1) {
+            if (strlen(bpf_filter) > 0) {
+                pfconf->bpf_filter = SCStrdup(bpf_filter);
+                SCLogDebug("Going to use bpf filter %s", pfconf->bpf_filter);
+            }
+        }
+    }
+#endif /* HAVE_PFRING_SET_BPF_FILTER */
 
 #ifdef HAVE_PFRING_CLUSTER_TYPE
     if (ConfGet("pfring.cluster-type", &tmpctype) == 1) {
@@ -278,11 +302,11 @@ void *ParsePfringConfig(const char *iface)
         if (strcmp(tmpctype, "cluster_round_robin") == 0) {
             SCLogInfo("Using round-robin cluster mode for PF_RING (iface %s)",
                     pfconf->iface);
-            pfconf->ctype = (cluster_type)tmpctype;
+            pfconf->ctype = CLUSTER_ROUND_ROBIN;
         } else if (strcmp(tmpctype, "cluster_flow") == 0) {
             SCLogInfo("Using flow cluster mode for PF_RING (iface %s)",
                     pfconf->iface);
-            pfconf->ctype = (cluster_type)tmpctype;
+            pfconf->ctype = CLUSTER_FLOW;
         } else {
             SCLogError(SC_ERR_INVALID_CLUSTER_TYPE,
                        "invalid cluster-type %s",
@@ -379,7 +403,8 @@ int RunModeIdsPfringAuto(DetectEngineCtx *de_ctx)
         exit(EXIT_FAILURE);
     }
 
-    ret = RunModeSetLiveCaptureAuto(de_ctx, tparser, "ReceivePfring", "DecodePfring",
+    ret = RunModeSetLiveCaptureAuto(de_ctx, tparser, PfringConfigGeThreadsCount,
+                                    "ReceivePfring", "DecodePfring",
                                     "RxPFR", live_dev);
     if (ret != 0) {
         SCLogError(SC_ERR_RUNMODE, "Runmode start failed");

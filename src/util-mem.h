@@ -31,12 +31,18 @@
 #define __UTIL_MEM_H__
 
 #include "util-atomic.h"
+
 #ifdef __tile__
 #include <pcre.h>
 #include <sys/mman.h>
 #include <tmc/alloc.h>
 #include <tmc/mspace.h>
 #endif
+
+#if defined(_WIN32) || defined(__WIN32)
+#include "mm_malloc.h"
+#endif
+
 SC_ATOMIC_EXTERN(unsigned int, engine_stage);
 
 /* Use this only if you want to debug memory allocation and free()
@@ -225,6 +231,12 @@ SC_ATOMIC_EXTERN(unsigned int, engine_stage);
     (void*)ptrmem; \
 })
 
+#define SCFree(a) ({ \
+    free(a); \
+})
+
+#if defined(__WIN32) || defined(_WIN32)
+
 /** \brief wrapper for allocing aligned mem
  *  \param a size
  *  \param b alignement
@@ -232,7 +244,8 @@ SC_ATOMIC_EXTERN(unsigned int, engine_stage);
 #define SCMallocAligned(a, b) ({ \
     void *ptrmem = NULL; \
     \
-    if (posix_memalign(&ptrmem, (b), (a)) != 0) { \
+	ptrmem = _mm_malloc((a), (b)); \
+    if (ptrmem == NULL) { \
         if (SC_ATOMIC_GET(engine_stage) == SURICATA_INIT) {\
             SCLogError(SC_ERR_MEM_ALLOC, "SCMallocAligned(posix_memalign) failed: %s, while trying " \
                 "to allocate %"PRIuMAX" bytes, alignment %"PRIuMAX, strerror(errno), (uintmax_t)(a), (uintmax_t)(b)); \
@@ -243,8 +256,35 @@ SC_ATOMIC_EXTERN(unsigned int, engine_stage);
     (void*)ptrmem; \
 })
 
-#define SCFree(a) ({ \
-    free((a)); \
+/** \brief Free aligned memory
+ *
+ * Not needed for mem alloc'd by posix_memalign,
+ * but for possible future use of _mm_malloc needing
+ * _mm_free.
+ */
+#define SCFreeAligned(a) ({ \
+    _mm_free(a); \
+})
+
+#else /* !win */
+
+/** \brief wrapper for allocing aligned mem
+ *  \param a size
+ *  \param b alignement
+ */
+#define SCMallocAligned(a, b) ({ \
+    void *ptrmem = NULL; \
+    \
+    ptrmem = _mm_malloc((a), (b)); \
+    if (ptrmem == NULL) { \
+        if (SC_ATOMIC_GET(engine_stage) == SURICATA_INIT) {\
+            SCLogError(SC_ERR_MEM_ALLOC, "SCMallocAligned(posix_memalign) failed: %s, while trying " \
+                "to allocate %"PRIuMAX" bytes, alignment %"PRIuMAX, strerror(errno), (uintmax_t)a, (uintmax_t)b); \
+            SCLogError(SC_ERR_FATAL, "Out of memory. The engine cannot be initialized. Exiting..."); \
+            exit(EXIT_FAILURE); \
+        } \
+    } \
+    (void*)ptrmem; \
 })
 
 /** \brief Free aligned memory
@@ -256,6 +296,8 @@ SC_ATOMIC_EXTERN(unsigned int, engine_stage);
 #define SCFreeAligned(a) ({ \
     free((a)); \
 })
+
+#endif /* __WIN32 */
 
 #else /* __tile__ */
 

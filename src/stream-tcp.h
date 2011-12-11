@@ -80,6 +80,12 @@ typedef struct StreamTcpThread_ {
     uint16_t counter_tcp_pseudo;
     /** packets rejected because their csum is invalid */
     uint16_t counter_tcp_invalid_checksum;
+    /** TCP packets with no associated flow */
+    uint16_t counter_tcp_no_flow;
+    /** sessions reused */
+    uint16_t counter_tcp_reused_ssn;
+    /** sessions reused */
+    uint16_t counter_tcp_memuse;
 
     /** tcp reassembly thread data */
     TcpReassemblyThreadCtx *ra_ctx;
@@ -100,7 +106,9 @@ int StreamTcpCheckMemcap(uint64_t);
 void StreamTcpPseudoPacketSetupHeader(Packet *, Packet *);
 Packet *StreamTcpPseudoSetup(Packet *, uint8_t *, uint32_t);
 
-void StreamTcpSetEvent(Packet *p, uint8_t e);
+int StreamTcpSegmentForEach(Packet *p, uint8_t flag,
+                        StreamSegmentCallback CallbackFunc,
+                        void *data);
 
 /** ------- Inline functions: ------ */
 
@@ -147,19 +155,39 @@ static inline void StreamTcpPacketSwitchDir(TcpSession *ssn, Packet *p)
     }
 }
 
+enum {
+    /* stream has no segments for forced reassembly, nor for detection */
+    STREAM_HAS_UNPROCESSED_SEGMENTS_NONE = 0,
+    /* stream seems to have segments that need to be forced reassembled */
+    STREAM_HAS_UNPROCESSED_SEGMENTS_NEED_REASSEMBLY = 1,
+    /* stream has no segments for forced reassembly, but only segments that
+     * have been sent for detection, but are stuck in the detection queues */
+    STREAM_HAS_UNPROCESSED_SEGMENTS_NEED_ONLY_DETECTION = 2,
+};
+
 static inline int StreamHasUnprocessedSegments(TcpSession *ssn, int direction)
 {
     /* server tcp state */
     if (direction) {
-        return (ssn->server.seg_list == NULL ||
-                (ssn->server.seg_list_tail->flags & SEGMENTTCP_FLAG_RAW_PROCESSED &&
-                 ssn->server.seg_list_tail->flags & SEGMENTTCP_FLAG_APPLAYER_PROCESSED &&
-                 ssn->toclient_smsg_head == NULL)) ? 0 : 1;
+        if (ssn->server.seg_list != NULL &&
+            (!(ssn->server.seg_list_tail->flags & SEGMENTTCP_FLAG_RAW_PROCESSED) ||
+             !(ssn->server.seg_list_tail->flags & SEGMENTTCP_FLAG_APPLAYER_PROCESSED)) ) {
+            return STREAM_HAS_UNPROCESSED_SEGMENTS_NEED_REASSEMBLY;
+        } else if (ssn->toclient_smsg_head != NULL) {
+            return STREAM_HAS_UNPROCESSED_SEGMENTS_NEED_ONLY_DETECTION;
+        } else {
+            return STREAM_HAS_UNPROCESSED_SEGMENTS_NONE;
+        }
     } else {
-        return (ssn->client.seg_list == NULL ||
-                (ssn->client.seg_list_tail->flags & SEGMENTTCP_FLAG_RAW_PROCESSED &&
-                 ssn->client.seg_list_tail->flags & SEGMENTTCP_FLAG_APPLAYER_PROCESSED &&
-                 ssn->toserver_smsg_head == NULL)) ? 0 : 1;
+        if (ssn->client.seg_list != NULL &&
+            (!(ssn->client.seg_list_tail->flags & SEGMENTTCP_FLAG_RAW_PROCESSED) ||
+             !(ssn->client.seg_list_tail->flags & SEGMENTTCP_FLAG_APPLAYER_PROCESSED)) ) {
+            return STREAM_HAS_UNPROCESSED_SEGMENTS_NEED_REASSEMBLY;
+        } else if (ssn->toserver_smsg_head != NULL) {
+            return STREAM_HAS_UNPROCESSED_SEGMENTS_NEED_ONLY_DETECTION;
+        } else {
+            return STREAM_HAS_UNPROCESSED_SEGMENTS_NONE;
+        }
     }
 }
 

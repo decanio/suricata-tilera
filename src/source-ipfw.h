@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2010 Open Information Security Foundation
+/* Copyright (C) 2007-2011 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -19,6 +19,7 @@
  * \file
  *
  * \author Nick Rogness <nick@rogness.net>
+ * \author Eric Leblond <eric@regit.org>
  */
 
 #ifndef __SOURCE_IPFW_H__
@@ -26,14 +27,45 @@
 
 #include <pthread.h>
 
+#define IPFW_MAX_QUEUE 16
 
 /* per packet IPFW vars (Not used) */
 typedef struct IPFWPacketVars_
 {
+    int ipfw_index;
 } IPFWPacketVars;
+
+typedef struct IPFWQueueVars_
+{
+    int fd;
+    SCMutex socket_lock;
+    /* this one should be not changing after init */
+    uint16_t port_num;
+    /* position into the ipfw queue var array */
+    uint16_t ipfw_index;
+    struct sockaddr_in ipfw_sin;
+    socklen_t ipfw_sinlen;
+
+#ifdef DBG_PERF
+    int dbg_maxreadsize;
+#endif /* DBG_PERF */
+
+    /* counters */
+    uint32_t pkts;
+    uint64_t bytes;
+    uint32_t errs;
+    uint32_t accepted;
+    uint32_t dropped;
+    uint32_t replaced;
+
+} IPFWQueueVars;
+
+void *IPFWGetThread(int number);
+int IPFWRegisterQueue(char *queue);
 
 void TmModuleReceiveIPFWRegister (void);
 void TmModuleVerdictIPFWRegister (void);
 void TmModuleDecodeIPFWRegister (void);
+
 
 #endif /* __SOURCE_IPFW_H__ */

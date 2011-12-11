@@ -275,6 +275,13 @@ static int DetectDsizeSetup (DetectEngineCtx *de_ctx, Signature *s, char *rawstr
     DetectDsizeData *dd = NULL;
     SigMatch *sm = NULL;
 
+    if (SigMatchGetLastSM(s->sm_lists_tail[DETECT_SM_LIST_MATCH],
+                          DETECT_DSIZE) != NULL) {
+        SCLogError(SC_ERR_INVALID_SIGNATURE, "Can't use 2 or more dsizes in "
+                   "the same sig.  Invalidating signature.");
+        goto error;
+    }
+
     SCLogDebug("\'%s\'", rawstr);
 
     dd = DetectDsizeParse(rawstr);
@@ -288,6 +295,7 @@ static int DetectDsizeSetup (DetectEngineCtx *de_ctx, Signature *s, char *rawstr
     sm = SigMatchAlloc();
     if (sm == NULL){
         SCLogError(SC_ERR_MEM_ALLOC, "Failed to allocate memory for SigMatch");
+        SCFree(dd);
         goto error;
     }
 
@@ -299,17 +307,11 @@ static int DetectDsizeSetup (DetectEngineCtx *de_ctx, Signature *s, char *rawstr
     SCLogDebug("dd->dsize %"PRIu16", dd->dsize2 %"PRIu16", dd->mode %"PRIu8"",
             dd->dsize, dd->dsize2, dd->mode);
     /* tell the sig it has a dsize to speed up engine init */
-    s->flags |= SIG_FLAG_DSIZE;
-
-    if (s->dsize_sm != NULL) {
-        s->dsize_sm = sm;
-    }
+    s->flags |= SIG_FLAG_REQUIRE_PACKET;
 
     return 0;
 
 error:
-    if (dd) SCFree(dd);
-    if (sm) SCFree(sm);
     return -1;
 }
 

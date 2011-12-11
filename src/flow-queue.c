@@ -26,6 +26,7 @@
 #include "suricata-common.h"
 #include "threads.h"
 #include "debug.h"
+#include "flow-private.h"
 #include "flow-queue.h"
 #include "flow-util.h"
 #include "util-error.h"
@@ -70,13 +71,28 @@ void FlowQueueDestroy (FlowQueue *q) {
 #endif
 }
 
+/**
+ *  \brief add a flow to a queue
+ *
+ *  \param q queue
+ *  \param f flow
+ */
 void FlowEnqueue (FlowQueue *q, Flow *f) {
-    /* more packets in queue */
+#ifdef DEBUG
+    BUG_ON(q == NULL || f == NULL);
+#endif
+
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&q->mutex_q);
+#else
+    SCMutexLock(&q->mutex_q);
+#endif
+    /* more flows in queue */
     if (q->top != NULL) {
         f->lnext = q->top;
         q->top->lprev = f;
         q->top = f;
-    /* only packet */
+    /* only flow */
     } else {
         q->top = f;
         q->bot = f;
@@ -86,8 +102,20 @@ void FlowEnqueue (FlowQueue *q, Flow *f) {
     if (q->len > q->dbg_maxlen)
         q->dbg_maxlen = q->len;
 #endif /* DBG_PERF */
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&q->mutex_q);
+#else
+    SCMutexUnlock(&q->mutex_q);
+#endif
 }
 
+/**
+ *  \brief remove a flow from the queue
+ *
+ *  \param q queue
+ *
+ *  \retval f flow or NULL if empty list.
+ */
 Flow *FlowDequeue (FlowQueue *q) {
 #ifdef __tile__
     tmc_spin_queued_mutex_lock(&q->mutex_q);
@@ -115,7 +143,11 @@ Flow *FlowDequeue (FlowQueue *q) {
         q->bot = NULL;
     }
 
-    q->len--;
+#ifdef DEBUG
+    BUG_ON(q->len == 0);
+#endif
+    if (q->len > 0)
+        q->len--;
 
     f->lnext = NULL;
     f->lprev = NULL;
@@ -132,63 +164,57 @@ Flow *FlowDequeue (FlowQueue *q) {
  *  \brief Transfer a flow from one queue to another
  *
  *  \param f the flow to be transfered
- *  \param srcq the source queue, where the flow will be removed. The param may
- *              be NULL.
+ *  \param srcq the source queue, where the flow will be removed.
  *  \param dstq the dest queue where the flow will be placed
- *  \param need_srclock does the srcq need locking? 1 yes, 0 no
  *
+ *  \note srcq and dstq must be different queues.
  */
-void FlowRequeue(Flow *f, FlowQueue *srcq, FlowQueue *dstq, uint8_t need_srclock)
+void FlowRequeue(Flow *f, FlowQueue *srcq, FlowQueue *dstq)
 {
 #ifdef DEBUG
-    BUG_ON(dstq == NULL);
+    BUG_ON(srcq == NULL || dstq == NULL || srcq == dstq);
 #endif /* DEBUG */
 
-    if (srcq != NULL) {
-        if (need_srclock == 1) {
 #ifdef __tile__
-            tmc_spin_queued_mutex_lock(&srcq->mutex_q);
+    tmc_spin_queued_mutex_lock(&srcq->mutex_q);
 #else
-            SCMutexLock(&srcq->mutex_q);
+    SCMutexLock(&srcq->mutex_q);
 #endif
-        }
-        /* remove from old queue */
-        if (srcq->top == f)
-            srcq->top = f->lnext;       /* remove from queue top */
-        if (srcq->bot == f)
-            srcq->bot = f->lprev;       /* remove from queue bot */
-        if (f->lprev)
-            f->lprev->lnext = f->lnext; /* remove from flow prev */
-        if (f->lnext)
-            f->lnext->lprev = f->lprev; /* remove from flow next */
 
+    /* remove from old queue */
+    if (srcq->top == f)
+        srcq->top = f->lnext;       /* remove from queue top */
+    if (srcq->bot == f)
+        srcq->bot = f->lprev;       /* remove from queue bot */
+    if (f->lprev != NULL)
+        f->lprev->lnext = f->lnext; /* remove from flow prev */
+    if (f->lnext != NULL)
+        f->lnext->lprev = f->lprev; /* remove from flow next */
+
+#ifdef DEBUG
+    BUG_ON(srcq->len == 0);
+#endif
+    if (srcq->len > 0)
         srcq->len--; /* adjust len */
 
-        f->lnext = NULL;
-        f->lprev = NULL;
+    f->lnext = NULL;
+    f->lprev = NULL;
 
-        /* don't unlock if src and dst are the same */
-        if (srcq != dstq && need_srclock == 1) {
 #ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&srcq->mutex_q);
+    tmc_spin_queued_mutex_unlock(&srcq->mutex_q);
 #else
-            SCMutexUnlock(&srcq->mutex_q);
+    SCMutexUnlock(&srcq->mutex_q);
 #endif
-        }
-    }
 
-    /* now put it in dst */
-    if (srcq != dstq) {
 #ifdef __tile__
-        tmc_spin_queued_mutex_lock(&dstq->mutex_q);
+    tmc_spin_queued_mutex_lock(&dstq->mutex_q);
 #else
-        SCMutexLock(&dstq->mutex_q);
+    SCMutexLock(&dstq->mutex_q);
 #endif
-    }
 
     /* add to new queue (append) */
     f->lprev = dstq->bot;
-    if (f->lprev)
+    if (f->lprev != NULL)
         f->lprev->lnext = f;
     f->lnext = NULL;
     dstq->bot = f;
@@ -205,6 +231,115 @@ void FlowRequeue(Flow *f, FlowQueue *srcq, FlowQueue *dstq, uint8_t need_srclock
     tmc_spin_queued_mutex_unlock(&dstq->mutex_q);
 #else
     SCMutexUnlock(&dstq->mutex_q);
+#endif
+}
+
+/**
+ *  \brief Move flow to bottom of queue
+ *
+ *  \param f the flow to be transfered
+ *  \param q the queue
+ */
+void FlowRequeueMoveToBot(Flow *f, FlowQueue *q)
+{
+#ifdef DEBUG
+    BUG_ON(q == NULL || f == NULL);
+#endif /* DEBUG */
+
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&q->mutex_q);
+#else
+    SCMutexLock(&q->mutex_q);
+#endif
+
+    /* remove from the queue */
+    if (q->top == f)
+        q->top = f->lnext;       /* remove from queue top */
+    if (q->bot == f)
+        q->bot = f->lprev;       /* remove from queue bot */
+    if (f->lprev != NULL)
+        f->lprev->lnext = f->lnext; /* remove from flow prev */
+    if (f->lnext != NULL)
+        f->lnext->lprev = f->lprev; /* remove from flow next */
+
+    /* readd to the queue (append) */
+    f->lprev = q->bot;
+
+    if (f->lprev != NULL)
+        f->lprev->lnext = f;
+
+    f->lnext = NULL;
+
+    q->bot = f;
+
+    if (q->top == NULL)
+        q->top = f;
+
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&q->mutex_q);
+#else
+    SCMutexUnlock(&q->mutex_q);
+#endif
+}
+
+/**
+ *  \brief Transfer a flow from a queue to the spare queue
+ *
+ *  \param f the flow to be transfered
+ *  \param q the source queue, where the flow will be removed. This queue is locked.
+ *
+ *  \note spare queue needs locking
+ */
+void FlowRequeueMoveToSpare(Flow *f, FlowQueue *q)
+{
+#ifdef DEBUG
+    BUG_ON(q == NULL || f == NULL);
+#endif /* DEBUG */
+
+    /* remove from old queue */
+    if (q->top == f)
+        q->top = f->lnext;       /* remove from queue top */
+    if (q->bot == f)
+        q->bot = f->lprev;       /* remove from queue bot */
+    if (f->lprev != NULL)
+        f->lprev->lnext = f->lnext; /* remove from flow prev */
+    if (f->lnext != NULL)
+        f->lnext->lprev = f->lprev; /* remove from flow next */
+#ifdef DEBUG
+    BUG_ON(q->len == 0);
+#endif
+    if (q->len > 0)
+        q->len--; /* adjust len */
+
+    f->lnext = NULL;
+    f->lprev = NULL;
+
+    /* now put it in spare */
+#ifdef __tile__
+    tmc_spin_queued_mutex_lock(&flow_spare_q.mutex_q);
+#else
+    SCMutexLock(&flow_spare_q.mutex_q);
+#endif
+
+    /* add to new queue (append) */
+    f->lprev = flow_spare_q.bot;
+    if (f->lprev != NULL)
+        f->lprev->lnext = f;
+    f->lnext = NULL;
+    flow_spare_q.bot = f;
+    if (flow_spare_q.top == NULL)
+        flow_spare_q.top = f;
+
+    flow_spare_q.len++;
+#ifdef DBG_PERF
+    if (flow_spare_q.len > flow_spare_q.dbg_maxlen)
+        flow_spare_q.dbg_maxlen = flow_spare_q.len;
+#endif /* DBG_PERF */
+
+#ifdef __tile__
+    tmc_spin_queued_mutex_unlock(&flow_spare_q.mutex_q);
+#else
+    SCMutexUnlock(&flow_spare_q.mutex_q);
 #endif
 }
 

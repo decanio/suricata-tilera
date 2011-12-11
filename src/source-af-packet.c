@@ -64,8 +64,8 @@
 #include "tmqh-packetpool.h"
 #include "source-af-packet.h"
 
-#include <sys/ioctl.h>
 #ifdef HAVE_AF_PACKET
+#include <sys/ioctl.h>
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
 #include <linux/if_arp.h>
@@ -124,6 +124,12 @@ TmEcode NoAFPSupportExit(ThreadVars *tv, void *initdata, void **data)
 #define AFP_RECONNECT_TIMEOUT 500000
 
 #define POLL_TIMEOUT 100
+
+enum {
+    AFP_READ_OK,
+    AFP_READ_FAILURE,
+    AFP_FAILURE,
+};
 
 /**
  * \brief Structure to hold thread specific variables.
@@ -213,7 +219,7 @@ static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose);
  * \param user pointer to AFPThreadVars
  * \retval TM_ECODE_FAILED on failure and TM_ECODE_OK on success
  */
-TmEcode AFPRead(AFPThreadVars *ptv)
+int AFPRead(AFPThreadVars *ptv)
 {
     Packet *p = NULL;
     /* XXX should try to use read that get directly to packet */
@@ -252,12 +258,12 @@ TmEcode AFPRead(AFPThreadVars *ptv)
     if (caplen < 0) {
         SCLogWarning(SC_ERR_AFP_READ, "recvmsg failed with error code %" PRId32,
                 errno);
-        SCReturnInt(TM_ECODE_FAILED);
+        SCReturnInt(AFP_READ_FAILURE);
     }
 
     p = PacketGetFromQueueOrAlloc();
     if (p == NULL) {
-        SCReturnInt(TM_ECODE_FAILED);
+        SCReturnInt(AFP_FAILURE);
     }
 
     /* get timestamp of packet via ioctl */
@@ -265,7 +271,7 @@ TmEcode AFPRead(AFPThreadVars *ptv)
         SCLogWarning(SC_ERR_AFP_READ, "recvmsg failed with error code %" PRId32,
                 errno);
         TmqhOutputPacketpool(ptv->tv, p);
-        SCReturnInt(TM_ECODE_FAILED);
+        SCReturnInt(AFP_READ_FAILURE);
     }
 
     ptv->pkts++;
@@ -282,13 +288,16 @@ TmEcode AFPRead(AFPThreadVars *ptv)
     SET_PKT_LEN(p, caplen + offset);
     if (PacketCopyData(p, ptv->data, GET_PKT_LEN(p)) == -1) {
         TmqhOutputPacketpool(ptv->tv, p);
-        SCReturnInt(TM_ECODE_FAILED);
+        SCReturnInt(AFP_FAILURE);
     }
     SCLogDebug("pktlen: %" PRIu32 " (pkt %p, pkt data %p)",
                GET_PKT_LEN(p), p, GET_PKT_DATA(p));
 
-    TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
-    SCReturnInt(TM_ECODE_OK);
+    if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
+        TmqhOutputPacketpool(ptv->tv, p);
+        SCReturnInt(AFP_FAILURE);
+    }
+    SCReturnInt(AFP_READ_OK);
 }
 
 static int AFPTryReopen(AFPThreadVars *ptv)
@@ -380,8 +389,19 @@ TmEcode ReceiveAFPLoop(ThreadVars *tv, void *data, void *slot)
         } else if (r > 0) {
             /* AFPRead will call TmThreadsSlotProcessPkt on read packets */
             r = AFPRead(ptv);
-            if (r != TM_ECODE_OK) {
-                SCReturnInt(TM_ECODE_FAILED);
+            switch (r) {
+                case AFP_READ_FAILURE:
+                    /* AFPRead in error: best to reset the socket */
+                    SCLogError(SC_ERR_AFP_READ, "AFPRead error reading data from socket: (%d" PRIu32 ") %s",
+                            errno, strerror(errno));
+                    close(ptv->socket);
+                    ptv->afp_state = AFP_STATE_DOWN;
+                    continue;
+                case AFP_FAILURE:
+                    SCReturnInt(TM_ECODE_FAILED);
+                    break;
+                case AFP_READ_OK:
+                    break;
             }
         } else if ((r < 0) && (errno != EINTR)) {
             SCLogError(SC_ERR_AFP_READ, "Error reading data from socket: (%d" PRIu32 ") %s",
@@ -391,11 +411,6 @@ TmEcode ReceiveAFPLoop(ThreadVars *tv, void *data, void *slot)
             continue;
         }
         SCPerfSyncCountersIfSignalled(tv, 0);
-    }
-
-    if (suricata_ctl_flags & SURICATA_STOP ||
-            suricata_ctl_flags & SURICATA_KILL) {
-        SCReturnInt(TM_ECODE_OK);
     }
 
     SCReturnInt(TM_ECODE_OK);
@@ -452,7 +467,7 @@ static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose)
         SCLogError(SC_ERR_AFP_CREATE, "Couldn't create a AF_PACKET socket, error %s", strerror(errno));
         return -1;
     }
-    SCLogInfo("using interface %s", (char *)devname);
+    SCLogDebug("using interface %s", (char *)devname);
     /* bind socket */
     memset(&bind_address, 0, sizeof(bind_address));
     bind_address.sll_family = AF_PACKET;
@@ -624,6 +639,19 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data) {
 void ReceiveAFPThreadExitStats(ThreadVars *tv, void *data) {
     SCEnter();
     AFPThreadVars *ptv = (AFPThreadVars *)data;
+#ifdef PACKET_STATISTICS
+    struct tpacket_stats kstats;
+    socklen_t len = sizeof (struct tpacket_stats);
+#endif
+
+#ifdef PACKET_STATISTICS
+    if (getsockopt(ptv->socket, SOL_PACKET, PACKET_STATISTICS,
+                &kstats, &len) > -1) {
+        SCLogInfo("(%s) Kernel: Packets %" PRIu32 ", dropped %" PRIu32 "",
+                tv->name,
+                kstats.tp_packets, kstats.tp_drops);
+    }
+#endif
 
     SCLogInfo("(%s) Packets %" PRIu32 ", bytes %" PRIu64 "", tv->name, ptv->pkts, ptv->bytes);
 }

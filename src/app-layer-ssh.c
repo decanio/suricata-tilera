@@ -209,7 +209,7 @@ static int SSHParseServerVersion(Flow *f, void *ssh_state, AppLayerParserState *
  */
 static int SSHParseServerRecord(Flow *f, void *ssh_state, AppLayerParserState *pstate,
                                 uint8_t *input, uint32_t input_len,
-                                AppLayerParserResult *output)
+                                void *local_data, AppLayerParserResult *output)
 {
     SshState *state = (SshState *)ssh_state;
     if (state->flags & SSH_FLAG_PARSER_DONE) {
@@ -540,7 +540,7 @@ static int SSHParseClientVersion(Flow *f, void *ssh_state, AppLayerParserState *
  */
 static int SSHParseClientRecord(Flow *f, void *ssh_state, AppLayerParserState *pstate,
                                 uint8_t *input, uint32_t input_len,
-                                AppLayerParserResult *output)
+                                void *local_data, AppLayerParserResult *output)
 {
     SshState *state = (SshState *)ssh_state;
     if (state->flags & SSH_FLAG_PARSER_DONE) {
@@ -747,7 +747,6 @@ static void SSHStateFree(void *state)
 void RegisterSSHParsers(void)
 {
     /** SSH */
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_SSH, "SSH-", 4, 0, STREAM_TOCLIENT);
     AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_SSH, "SSH-", 4, 0, STREAM_TOSERVER);
 
     AppLayerRegisterProto("ssh", ALPROTO_SSH, STREAM_TOCLIENT,
@@ -775,16 +774,15 @@ static int SSHParserTest01(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER|STREAM_EOF, sshbuf, sshlen);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER|STREAM_EOF, sshbuf, sshlen);
     if (r != 0) {
         printf("toclient chunk 1 returned %" PRId32 ", expected 0: ", r);
         result = 0;
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         result = 0;
@@ -824,7 +822,6 @@ static int SSHParserTest01(void) {
     result = 1;
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -844,16 +841,15 @@ static int SSHParserTest02(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER|STREAM_EOF, sshbuf, sshlen);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER|STREAM_EOF, sshbuf, sshlen);
     if (r != 0) {
         printf("toclient chunk 1 returned %" PRId32 ", expected 0: ", r);
         result = 0;
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         result = 0;
@@ -893,7 +889,6 @@ static int SSHParserTest02(void) {
     result = 1;
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -913,9 +908,8 @@ static int SSHParserTest03(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER|STREAM_EOF, sshbuf, sshlen);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER|STREAM_EOF, sshbuf, sshlen);
     if (r == 0) {
         printf("toclient chunk 1 returned %" PRId32 ", expected != 0: ", r);
         result = 0;
@@ -923,7 +917,7 @@ static int SSHParserTest03(void) {
     }
     /* Ok, it returned an error. Let's make sure we didn't parse the string at all */
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         result = 0;
@@ -949,7 +943,6 @@ static int SSHParserTest03(void) {
     result = 1;
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -967,16 +960,15 @@ static int SSHParserTest04(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT|STREAM_EOF, sshbuf, sshlen);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT|STREAM_EOF, sshbuf, sshlen);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         result = 0;
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         result = 0;
@@ -1016,7 +1008,6 @@ static int SSHParserTest04(void) {
     result = 1;
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -1036,16 +1027,15 @@ static int SSHParserTest05(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT|STREAM_EOF, sshbuf, sshlen);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT|STREAM_EOF, sshbuf, sshlen);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         result = 0;
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         result = 0;
@@ -1085,7 +1075,6 @@ static int SSHParserTest05(void) {
     result = 1;
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -1105,9 +1094,8 @@ static int SSHParserTest06(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT|STREAM_EOF, sshbuf, sshlen);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT|STREAM_EOF, sshbuf, sshlen);
     if (r == 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected != 0: ", r);
         result = 0;
@@ -1115,7 +1103,7 @@ static int SSHParserTest06(void) {
     }
     /* Ok, it returned an error. Let's make sure we didn't parse the string at all */
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         result = 0;
@@ -1141,7 +1129,6 @@ static int SSHParserTest06(void) {
     result = 1;
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -1160,21 +1147,20 @@ static int SSHParserTest07(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf1, sshlen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf1, sshlen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf2, sshlen2);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf2, sshlen2);
     if (r != 0) {
         printf("toserver chunk 2 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         goto end;
@@ -1208,7 +1194,6 @@ static int SSHParserTest07(void) {
     result = 1;
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -1230,27 +1215,26 @@ static int SSHParserTest08(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf1, sshlen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf1, sshlen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf2, sshlen2);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf2, sshlen2);
     if (r != 0) {
         printf("toserver chunk 2 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf3, sshlen3);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf3, sshlen3);
     if (r != 0) {
         printf("toserver chunk 3 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         goto end;
@@ -1283,7 +1267,6 @@ static int SSHParserTest08(void) {
 
     result = 1;
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -1302,21 +1285,20 @@ static int SSHParserTest09(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf1, sshlen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf1, sshlen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf2, sshlen2);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf2, sshlen2);
     if (r != 0) {
         printf("toserver chunk 2 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         goto end;
@@ -1350,7 +1332,6 @@ static int SSHParserTest09(void) {
     result = 1;
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -1372,27 +1353,26 @@ static int SSHParserTest10(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf1, sshlen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf1, sshlen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf2, sshlen2);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf2, sshlen2);
     if (r != 0) {
         printf("toserver chunk 2 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf3, sshlen3);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf3, sshlen3);
     if (r != 0) {
         printf("toserver chunk 3 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         goto end;
@@ -1425,7 +1405,6 @@ static int SSHParserTest10(void) {
 
     result = 1;
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -1447,27 +1426,26 @@ static int SSHParserTest11(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf1, sshlen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf1, sshlen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf2, sshlen2);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf2, sshlen2);
     if (r != 0) {
         printf("toserver chunk 2 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf3, sshlen3);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf3, sshlen3);
     if (r != 0) {
         printf("toserver chunk 3 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         goto end;
@@ -1505,7 +1483,6 @@ static int SSHParserTest11(void) {
 
     result = 1;
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -1529,33 +1506,32 @@ static int SSHParserTest12(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf1, sshlen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf1, sshlen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf2, sshlen2);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf2, sshlen2);
     if (r != 0) {
         printf("toserver chunk 2 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf3, sshlen3);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf3, sshlen3);
     if (r != 0) {
         printf("toserver chunk 3 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf4, sshlen4);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOSERVER, sshbuf4, sshlen4);
     if (r != 0) {
         printf("toserver chunk 4 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         goto end;
@@ -1593,7 +1569,6 @@ static int SSHParserTest12(void) {
 
     result = 1;
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -1615,27 +1590,26 @@ static int SSHParserTest13(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf1, sshlen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf1, sshlen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf2, sshlen2);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf2, sshlen2);
     if (r != 0) {
         printf("toserver chunk 2 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf3, sshlen3);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf3, sshlen3);
     if (r != 0) {
         printf("toserver chunk 3 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         goto end;
@@ -1673,7 +1647,6 @@ static int SSHParserTest13(void) {
 
     result = 1;
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -1697,33 +1670,32 @@ static int SSHParserTest14(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf1, sshlen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf1, sshlen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf2, sshlen2);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf2, sshlen2);
     if (r != 0) {
         printf("toserver chunk 2 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf3, sshlen3);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf3, sshlen3);
     if (r != 0) {
         printf("toserver chunk 3 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf4, sshlen4);
+    r = AppLayerParse(NULL, &f, ALPROTO_SSH, STREAM_TOCLIENT, sshbuf4, sshlen4);
     if (r != 0) {
         printf("toserver chunk 4 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    SshState *ssh_state = f.aldata[AlpGetStateIdx(ALPROTO_SSH)];
+    SshState *ssh_state = f.alstate;
     if (ssh_state == NULL) {
         printf("no ssh state: ");
         goto end;
@@ -1761,7 +1733,6 @@ static int SSHParserTest14(void) {
 
     result = 1;
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }

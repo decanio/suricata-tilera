@@ -16,6 +16,30 @@
  */
 
 /**
+ * \defgroup decode Packet decoding
+ *
+ * \brief Code in charge of protocol decoding
+ *
+ * The task of decoding packets is made in different files and
+ * as Suricata is supporting encapsulation there is a potential
+ * recursivity in the call.
+ *
+ * For each protocol a DecodePROTO function is provided. For
+ * example we have DecodeIPV4() for IPv4 and DecodePPP() for
+ * PPP.
+ *
+ * These functions have all a pkt and and a len argument which
+ * are respectively a pointer to the protocol data and the length
+ * of this protocol data.
+ *
+ * \attention The pkt parameter must point to the effective data because
+ * it will be used later to set per protocol pointer like Packet::tcph
+ *
+ * @{
+ */
+
+
+/**
  * \file
  *
  * \author Victor Julien <victor@inliniac.net>
@@ -282,6 +306,12 @@ DecodeThreadVars *DecodeThreadVarsAlloc(ThreadVars *tv) {
 /**
  *  \brief Copy data to Packet payload at given offset
  *
+ * This function copies data/payload to a Packet. It uses the
+ * space allocated at Packet creation (pointed by Packet::pkt)
+ * or allocate some memory (pointed by Packet::ext_pkt) if the
+ * data size is to big to fit in initial space (of size
+ * default_packet_size).
+ *
  *  \param Pointer to the Packet to modify
  *  \param Offset of the copy relatively to payload of Packet
  *  \param Pointer to the data to copy
@@ -294,13 +324,13 @@ inline int PacketCopyDataOffset(Packet *p, int offset, uint8_t *data, int datale
         return -1;
     }
 
+    /* Do we have already an packet with allocated data */
     if (! p->ext_pkt) {
-        if (offset + datalen <= default_packet_size) {
+        if (offset + datalen <= (int)default_packet_size) {
+            /* data will fit in memory allocated with packet */
             memcpy(p->pkt + offset, data, datalen);
         } else {
-            /* here we need a dynamic allocation. This case should rarely
-             * occur as there is a high probability the first frag has
-             * reveal the packet size*/
+            /* here we need a dynamic allocation */
             p->ext_pkt = SCMalloc(MAX_PAYLOAD_SIZE);
             if (p->ext_pkt == NULL) {
                 SET_PKT_LEN(p, 0);
@@ -329,3 +359,6 @@ inline int PacketCopyData(Packet *p, uint8_t *pktdata, int pktlen)
     SET_PKT_LEN(p, (size_t)pktlen);
     return PacketCopyDataOffset(p, 0, pktdata, pktlen);
 }
+/**
+ * @}
+ */

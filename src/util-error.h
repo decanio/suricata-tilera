@@ -222,6 +222,10 @@ typedef enum {
     SC_ERR_AFP_DISPATCH,
     SC_ERR_NO_AF_PACKET,
     SC_ERR_PCAP_FILE_DELETE_FAILED,
+    SC_ERR_CMD_LINE,
+    SC_ERR_MAGIC_OPEN,
+    SC_ERR_MAGIC_LOAD,
+    SC_ERR_SIZE_PARSE,
 } SCError;
 
 const char *SCErrorToString(SCError);

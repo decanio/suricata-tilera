@@ -45,6 +45,7 @@
 #include "tmqh-packetpool.h"
 #include "tm-threads.h"
 #include "util-optimize.h"
+#include "flow-manager.h"
 
 extern uint8_t suricata_ctl_flags;
 extern int max_pending_packets;
@@ -70,6 +71,9 @@ typedef struct PcapFileThreadVars_
 
     ThreadVars *tv;
     TmSlot *slot;
+
+    /** callback result -- set if one of the thread module failed. */
+    int cb_result;
 
     uint8_t done;
     uint32_t errs;
@@ -138,7 +142,10 @@ void PcapFileCallbackLoop(char *user, struct pcap_pkthdr *h, u_char *pkt) {
         SCReturn;
     }
 
-    TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+    if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
+        pcap_breakloop(pcap_g.pcap_handle);
+        ptv->cb_result = TM_ECODE_FAILED;
+    }
 
     SCReturn;
 }
@@ -151,6 +158,7 @@ TmEcode ReceivePcapFileLoop(ThreadVars *tv, void *data, void *slot) {
     PcapFileThreadVars *ptv = (PcapFileThreadVars *)data;
     TmSlot *s = (TmSlot *)slot;
     ptv->slot = s->slot_next;
+    ptv->cb_result = TM_ECODE_OK;
     int r;
 
     SCEnter();
@@ -181,7 +189,7 @@ TmEcode ReceivePcapFileLoop(ThreadVars *tv, void *data, void *slot) {
         /* Right now we just support reading packets one at a time. */
         r = pcap_dispatch(pcap_g.pcap_handle, (int)packet_q_len,
                 (pcap_handler)PcapFileCallbackLoop, (u_char *)ptv);
-        if (unlikely(r < 0)) {
+        if (unlikely(r == -1)) {
             SCLogError(SC_ERR_PCAP_DISPATCH, "error code %" PRId32 " %s",
                     r, pcap_geterr(pcap_g.pcap_handle));
 
@@ -193,6 +201,10 @@ TmEcode ReceivePcapFileLoop(ThreadVars *tv, void *data, void *slot) {
 
             EngineStop();
             break;
+        } else if (ptv->cb_result == TM_ECODE_FAILED) {
+            SCLogError(SC_ERR_PCAP_DISPATCH, "Pcap callback PcapFileCallbackLoop failed");
+            EngineKill();
+            SCReturnInt(TM_ECODE_FAILED);
         }
         SCPerfSyncCountersIfSignalled(tv, 0);
     }
@@ -283,6 +295,8 @@ TmEcode ReceivePcapFileThreadDeinit(ThreadVars *tv, void *data) {
     SCReturnInt(TM_ECODE_OK);
 }
 
+double prev_signaled_ts = 0;
+
 TmEcode DecodePcapFile(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq)
 {
     SCEnter();
@@ -300,6 +314,12 @@ TmEcode DecodePcapFile(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, P
 #endif
     SCPerfCounterAddUI64(dtv->counter_avg_pkt_size, tv->sc_perf_pca, GET_PKT_LEN(p));
     SCPerfCounterSetUI64(dtv->counter_max_pkt_size, tv->sc_perf_pca, GET_PKT_LEN(p));
+
+    double curr_ts = p->ts.tv_sec + p->ts.tv_usec / 1000.0;
+    if (curr_ts < prev_signaled_ts || (curr_ts - prev_signaled_ts) > 2.0) {
+        prev_signaled_ts = curr_ts;
+        FlowWakeupFlowManagerThread();
+    }
 
     /* update the engine time representation based on the timestamp
      * of the packet. */

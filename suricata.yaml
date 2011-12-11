@@ -19,6 +19,10 @@
 # to get the runmode custom modes that can be used here for a particular runmode.
 #runmode: auto
 
+# Default pid file.
+# Will use this file if no --pidfile in command options.
+#pid-file: /var/run/suricata.pid
+
 # Preallocated size for packet. Default is 1514 which is the classical
 # size for pcap on ethernet. You should adjust this value to the highest
 # packet size (MTU + hardware header) on your system.
@@ -47,35 +51,21 @@ outputs:
       filename: fast.log
       append: yes
 
-  # log output for use with Barnyard
-  - unified-log:
-      enabled: no
-      filename: unified.log
-
-      # Limit in MB.
-      #limit: 32
-
-  # alert output for use with Barnyard
-  - unified-alert:
-      enabled: no
-      filename: unified.alert
-
-      # Limit in MB.
-      #limit: 32
-
   # alert output for use with Barnyard2
   - unified2-alert:
       enabled: yes
       filename: unified2.alert
 
-      # Limit in MB.
-      #limit: 32
+      # File size limit.  Can be specified in kb, mb, gb.  Just a number
+      # is parsed as bytes.
+      #limit: 32mb
 
   # a line based log of HTTP requests (no alerts)
   - http-log:
       enabled: yes
       filename: http.log
       append: yes
+      #extended: yes # enable this for extended logging information
 
   # a line based log to used with pcap file study.
   # this module is dedicated to offline pcap parsing (empty output
@@ -101,8 +91,9 @@ outputs:
       enabled:  no
       filename: log.pcap
 
-      # Limit in MB.
-      limit: 1000
+      # File size limit.  Can be specified in kb, mb, gb.  Just a number
+      # is parsed as bytes.
+      limit: 1000mb
 
       # If set to a value will enable ring buffer mode. Will keep Maximum of "max_files" of size "limit"
       max_files: 2000
@@ -150,6 +141,23 @@ outputs:
       filename: drop.log
       append: yes
 
+  # output module to store extracted files to disk
+  #
+  # The files are stored to the log-dir in a format "file.<id>" where <id> is
+  # an incrementing number starting at 1. For each file "file.<id>" a meta
+  # file "file.<id>.meta" is created.
+  #
+  # File extraction depends on a lot of things to be fully done:
+  # - stream reassembly depth. For optimal results, set this to 0 (unlimited)
+  # - http request / response body sizes. Again set to 0 for optimal results.
+  # - rules that contain the "filestore" keyword.
+  - file:
+      enabled: no       # set to yes to enable
+      log-dir: files    # directory to store the files
+      force-magic: no   # force logging magic on all stored files
+
+# Magic file. The extension .mgc is added to the value here.
+#magic-file: /usr/share/file/magic
 
 # When running in NFQ inline mode, it is possible to use a simulated
 # non-terminal NFQUEUE verdict.
@@ -319,6 +327,7 @@ cuda:
       packet_buffer_limit: 2400
       # The maximum length for a packet that we would buffer to the gpu.
       # Anything over this is MPM'ed on the CPU.  All entries > 0 are valid.
+      # Can be specified in kb, mb, gb.  Just a number indicates it's in bytes.
       packet_size_limit: 1500
       # No of packet buffers we initialize.  All entries > 0 are valid.
       packet_buffers: 10
@@ -411,9 +420,11 @@ pattern-matcher:
 # the emergency bit and it will try again with more agressive timeouts.
 # If that doesn't work, then it will try to kill the last time seen flows
 # not in use.
+# The memcap can be specified in kb, mb, gb.  Just a number indicates it's
+# in bytes.
 
 flow:
-  memcap: 33554432
+  memcap: 32mb
   hash_size: 65536
   prealloc: 10000
   emergency_recovery: 30
@@ -466,7 +477,8 @@ flow-timeouts:
 # engine is configured.
 #
 # stream:
-#   memcap: 33554432            # 32mb tcp session memcap
+#   memcap: 32mb                # Can be specified in kb, mb, gb.  Just a
+#                               # number indicates it's in bytes.
 #   checksum_validation: yes    # To validate the checksum of received
 #                               # packet. If csum validation is specified as
 #                               # "yes", then packet with invalid csum will not
@@ -481,19 +493,24 @@ flow-timeouts:
 #   inline: no                  # stream inline mode
 #
 #   reassembly:
-#     memcap: 67108864          # 64mb tcp reassembly memcap
-#     depth: 1048576            # 1 MB reassembly depth
+#     memcap: 64mb              # Can be specified in kb, mb, gb.  Just a number
+#                               # indicates it's in bytes.
+#     depth: 1mb                # Can be specified in kb, mb, gb.  Just a number
+#                               # indicates it's in bytes.
 #     toserver_chunk_size: 2560 # inspect raw stream in chunks of at least
-#                               # this size
+#                               # this size.  Can be specified in kb, mb,
+#                               # gb.  Just a number indicates it's in bytes.
 #     toclient_chunk_size: 2560 # inspect raw stream in chunks of at least
-#                               # this size
+#                               # this size.  Can be specified in kb, mb,
+#                               # gb.  Just a number indicates it's in bytes.
+
 stream:
-  memcap: 33554432              # 32mb
+  memcap: 32mb
   checksum_validation: yes      # reject wrong csums
   inline: no                    # no inline mode
   reassembly:
-    memcap: 67108864            # 64mb for reassembly
-    depth: 1048576              # reassemble 1mb into a stream
+    memcap: 64mb
+    depth: 1mb                  # reassemble 1mb into a stream
     toserver_chunk_size: 2560
     toclient_chunk_size: 2560
 
@@ -541,18 +558,20 @@ pfring:
     # Number of receive threads (>1 will enable experimental flow pinned
     # runmode)
     threads: 1
-  
+
     # Default interface we will listen on.
     interface: eth0
-  
+
     # Default clusterid.  PF_RING will load balance packets based on flow.
     # All threads/processes that will participate need to have the same
     # clusterid.
     cluster-id: 99
-  
+
     # Default PF_RING cluster type. PF_RING can load balance per flow or per hash.
     # This is only supported in versions of PF_RING > 4.1.1.
     cluster-type: cluster_round_robin
+    # bpf filter for this interface
+    #bpf-filter: tcp
   # Second interface
   #- interface: eth1
   #  threads: 3
@@ -679,7 +698,7 @@ vars:
 
     HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
 
-    EXTERNAL_NET: any
+    EXTERNAL_NET: "!$HOME_NET"
 
     HTTP_SERVERS: "$HOME_NET"
 
@@ -691,7 +710,7 @@ vars:
 
     TELNET_SERVERS: "$HOME_NET"
 
-    AIM_SERVERS: any
+    AIM_SERVERS: "$EXTERNAL_NET"
 
   # Holds the port group vars that would be passed in a Signature.
   # These would be retrieved during the Signature port parsing stage.
@@ -734,13 +753,13 @@ asn1_max_frames: 256
 #
 # default-config:       Used when no server-config matches
 #   personality:        List of personalities used by default
-#   request_body_limit: Limit reassembly of request body for inspection
+#   request-body-limit: Limit reassembly of request body for inspection
 #                       by http_client_body & pcre /P option.
 #
 # server-config:        List of server configurations to use if address matches
 #   address:            List of ip addresses or networks for this block
 #   personalitiy:       List of personalities used by this block
-#   request_body_limit: Limit reassembly of request body for inspection
+#   request-body-limit: Limit reassembly of request body for inspection
 #                       by http_client_body & pcre /P option.
 #
 # Currently Available Personalities:
@@ -760,21 +779,30 @@ libhtp:
 
    default-config:
      personality: IDS
+     # Can be specified in kb, mb, gb.  Just a number indicates
+     # it's in bytes.
      request_body_limit: 3072
+     response-body-limit: 3072
 
    server-config:
 
      - apache:
          address: [192.168.1.0/24, 127.0.0.0/8, "::1"]
          personality: Apache_2_2
+         # Can be specified in kb, mb, gb.  Just a number indicates
+         # it's in bytes.
          request_body_limit: 4096
+         response-body-limit: 4096
 
      - iis7:
          address:
            - 192.168.0.0/24
            - 192.168.10.0/24
          personality: IIS_7_0
+         # Can be specified in kb, mb, gb.  Just a number indicates
+         # it's in bytes.
          request_body_limit: 4096
+         response-body-limit: 4096
 
 # Profiling settings. Only effective if Suricata has been built with the
 # the --enable-profiling configure flag.
@@ -812,3 +840,15 @@ profiling:
       # performance impact if compiled in.
       enabled: no
       filename: packet_stats.csv
+
+# Suricata core dump configuration. Limits the size of the core dump file to
+# approximately max_dump. The actual core dump size will be a multiple of the
+# page size. Core dumps that would be larger than max_dump are truncated. On
+# Linux, the actual core dump size may be a few pages larger than max_dump.
+# Setting max_dump to 0 disables core dumping.
+# Setting max_dump to 'unlimited' will give the full core dump file.
+# On 32-bit Linux, a max_dump value >= ULONG_MAX may cause the core dump size
+# to be 'unlimited'.
+
+coredump:
+  max_dump: unlimited

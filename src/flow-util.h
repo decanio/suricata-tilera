@@ -53,7 +53,8 @@
         (f)->alproto = 0; \
         (f)->probing_parser_toserver_al_proto_masks = 0; \
         (f)->probing_parser_toclient_al_proto_masks = 0; \
-        (f)->aldata = NULL; \
+        (f)->alparser = NULL; \
+        (f)->alstate = NULL; \
         (f)->de_state = NULL; \
         (f)->sgh_toserver = NULL; \
         (f)->sgh_toclient = NULL; \
@@ -78,7 +79,8 @@
         (f)->alproto = 0; \
         (f)->probing_parser_toserver_al_proto_masks = 0; \
         (f)->probing_parser_toclient_al_proto_masks = 0; \
-        (f)->aldata = NULL; \
+        (f)->alparser = NULL; \
+        (f)->alstate = NULL; \
         (f)->de_state = NULL; \
         (f)->sgh_toserver = NULL; \
         (f)->sgh_toclient = NULL; \
@@ -105,7 +107,9 @@
         (f)->flags = 0; \
         (f)->lastts_sec = 0; \
         (f)->protoctx = NULL; \
-        FlowL7DataPtrFree(f); \
+        FlowCleanupAppLayer((f)); \
+        (f)->alparser = NULL; \
+        (f)->alstate = NULL; \
         (f)->alproto = 0; \
         (f)->probing_parser_toserver_al_proto_masks = 0; \
         (f)->probing_parser_toclient_al_proto_masks = 0; \
@@ -126,28 +130,28 @@
         SC_ATOMIC_DESTROY((f)->use_cnt); \
         \
         /*SCMutexDestroy(&(f)->m);*/ \
+        FlowCleanupAppLayer((f)); \
         if ((f)->de_state != NULL) { \
             DetectEngineStateFree((f)->de_state); \
         } \
-        /* clear app layer related memory */ \
-        FlowL7DataPtrFree(f); \
         DetectTagDataListFree((f)->tag_list); \
         GenericVarFree((f)->flowvar); \
         /*SCMutexDestroy(&(f)->de_state_m);*/ \
+        (f)->tag_list = NULL; \
     } while(0)
 #else
 #define FLOW_DESTROY(f) do { \
         SC_ATOMIC_DESTROY((f)->use_cnt); \
         \
         SCMutexDestroy(&(f)->m); \
+        FlowCleanupAppLayer((f)); \
         if ((f)->de_state != NULL) { \
             DetectEngineStateFree((f)->de_state); \
         } \
-        /* clear app layer related memory */ \
-        FlowL7DataPtrFree(f); \
         DetectTagDataListFree((f)->tag_list); \
         GenericVarFree((f)->flowvar); \
         SCMutexDestroy(&(f)->de_state_m); \
+        (f)->tag_list = NULL; \
     } while(0)
 #endif
 

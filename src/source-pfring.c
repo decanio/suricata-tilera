@@ -126,6 +126,9 @@ typedef struct PfringThreadVars_
 #endif /* HAVE_PFRING_CLUSTER_TYPE */
     uint8_t cluster_id;
     char *interface;
+#ifdef HAVE_PFRING_SET_BPF_FILTER
+    char *bpf_filter;
+#endif /* HAVE_PFRING_SET_BPF_FILTER */
 } PfringThreadVars;
 
 /**
@@ -138,7 +141,7 @@ void TmModuleReceivePfringRegister (void) {
     tmm_modules[TMM_RECEIVEPFRING].Func = NULL;
     tmm_modules[TMM_RECEIVEPFRING].PktAcqLoop = ReceivePfringLoop;
     tmm_modules[TMM_RECEIVEPFRING].ThreadExitPrintStats = ReceivePfringThreadExitStats;
-    tmm_modules[TMM_RECEIVEPFRING].ThreadDeinit = NULL;
+    tmm_modules[TMM_RECEIVEPFRING].ThreadDeinit = ReceivePfringThreadDeinit;
     tmm_modules[TMM_RECEIVEPFRING].RegisterTests = NULL;
 }
 
@@ -243,7 +246,10 @@ TmEcode ReceivePfringLoop(ThreadVars *tv, void *data, void *slot)
             //printf("RecievePfring src %" PRIu32 " sport %" PRIu32 " dst %" PRIu32 " dstport %" PRIu32 "\n",
             //        hdr.parsed_pkt.ipv4_src,hdr.parsed_pkt.l4_src_port, hdr.parsed_pkt.ipv4_dst,hdr.parsed_pkt.l4_dst_port);
             PfringProcessPacket(ptv, &hdr, p);
-            TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+            if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
+                TmqhOutputPacketpool(ptv->tv, p);
+                SCReturnInt(TM_ECODE_FAILED);
+            }
         } else {
             SCLogError(SC_ERR_PF_RING_RECV,"pfring_recv error  %" PRId32 "", r);
             TmqhOutputPacketpool(ptv->tv, p);
@@ -273,7 +279,6 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
     int rc;
     u_int32_t version = 0;
     char *tmpclusterid;
-    char *tmpctype;
     PfringIfaceConfig *pfconf = (PfringIfaceConfig *) initdata;
 
 
@@ -310,7 +315,7 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
         ptv->cluster_id = pfconf->cluster_id;
 
 #ifdef HAVE_PFRING_CLUSTER_TYPE
-        ptv->ctype = (cluster_type)SCStrdup((char *)pfconf->ctype);
+        ptv->ctype = pfconf->ctype;
         rc = pfring_set_cluster(ptv->pd, ptv->cluster_id, ptv->ctype);
 #else
         rc = pfring_set_cluster(ptv->pd, ptv->cluster_id);
@@ -331,6 +336,16 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
                 tv->name, (version & 0xFFFF0000) >> 16, (version & 0x0000FF00) >> 8,
                 version & 0x000000FF, ptv->interface);
     }
+
+#ifdef HAVE_PFRING_SET_BPF_FILTER
+    if (pfconf->bpf_filter) {
+        ptv->bpf_filter = SCStrdup(pfconf->bpf_filter);
+        rc = pfring_set_bpf_filter(ptv->pd, ptv->bpf_filter);
+        if (rc < 0) {
+            SCLogInfo("Set PF_RING bpf filter \"%s\" failed.", ptv->bpf_filter);
+        }
+    }
+#endif /* HAVE_PFRING_SET_BPF_FILTER */
 
 /* It seems that as of 4.7.1 this is required */
 #ifdef HAVE_PFRING_ENABLE
@@ -380,11 +395,13 @@ TmEcode ReceivePfringThreadDeinit(ThreadVars *tv, void *data) {
     PfringThreadVars *ptv = (PfringThreadVars *)data;
     if (ptv->interface)
         SCFree(ptv->interface);
-#ifdef HAVE_PFRING_CLUSTER_TYPE
-    if (ptv->ctype)
-        SCFree((char *)ptv->ctype);
-#endif
     pfring_remove_from_cluster(ptv->pd);
+#ifdef HAVE_PFRING_SET_BPF_FILTER
+    if (ptv->bpf_filter) {
+        pfring_remove_bpf_filter(ptv->pd);
+        SCFree(ptv->bpf_filter);
+    }
+#endif /* HAVE_PFRING_SET_BPF_FILTER */
     pfring_close(ptv->pd);
     return TM_ECODE_OK;
 }

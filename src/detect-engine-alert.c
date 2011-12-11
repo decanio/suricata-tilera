@@ -59,32 +59,33 @@ PacketAlert *PacketAlertGetTag(void) {
  * \param sig Signature pointer
  * \param p Packet structure
  *
+ * \retval 1 alert is not suppressed
+ * \retval 0 alert is suppressed
  */
 static int PacketAlertHandle(DetectEngineCtx *de_ctx, DetectEngineThreadCtx *det_ctx,
                        Signature *s, Packet *p, uint16_t pos)
 {
     SCEnter();
-    int ret = 0;
+    int ret = 1;
     DetectThresholdData *td = NULL;
+    SigMatch *sm = NULL;
 
-    /* retrieve the sig match data */
-    if (PKT_IS_IPV4(p) || PKT_IS_IPV6(p)) {
-        td = SigGetThresholdType(s,p);
+    if (!(PKT_IS_IPV4(p) || PKT_IS_IPV6(p))) {
+        SCReturnInt(1);
     }
 
-    SCLogDebug("td %p", td);
-
-    /* if have none just alert, otherwise handle thresholding */
-    if (td == NULL) {
-        /* Already inserted so get out */
-        ret = 1;
-    } else {
-        ret = PacketAlertThreshold(de_ctx, det_ctx, td, p, s);
-        if (ret == 0) {
-            /* It doesn't match threshold, remove it */
-            PacketAlertRemove(p, pos);
+    do {
+        td = SigGetThresholdTypeIter(s, p, &sm);
+        if (td != NULL) {
+            SCLogDebug("td %p", td);
+            ret = PacketAlertThreshold(de_ctx, det_ctx, td, p, s);
+            if (ret == 0) {
+                /* It doesn't match threshold, remove it */
+                PacketAlertRemove(p, pos);
+                break;
+            }
         }
-    }
+    } while (sm != NULL);
 
     SCReturnInt(ret);
 }
@@ -167,7 +168,7 @@ int PacketAlertAppend(DetectEngineThreadCtx *det_ctx, Signature *s, Packet *p, u
         p->alerts.alerts[p->alerts.cnt].s = s;
     } else {
         /* We need to make room for this s->num
-         (a bit ugly with mamcpy but we are planning changes here)*/
+         (a bit ugly with memcpy but we are planning changes here)*/
         for (i = p->alerts.cnt - 1; i >= 0 && p->alerts.alerts[i].order_id > s->order_id; i--) {
             memcpy(&p->alerts.alerts[i + 1], &p->alerts.alerts[i], sizeof(PacketAlert));
         }

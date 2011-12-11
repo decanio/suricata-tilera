@@ -24,6 +24,7 @@
 #ifndef __UTIL_UNITTEST_HELPER__
 #define __UTIL_UNITTEST_HELPER__
 
+#ifdef UNITTESTS
 uint32_t UTHSetIPv4Address(char *);
 
 Packet *UTHBuildPacketReal(uint8_t *, uint16_t, uint16_t, char *, char *, uint16_t, uint16_t);
@@ -40,6 +41,9 @@ Packet *UTHBuildPacketFromEth(uint8_t *, uint16_t);
 void UTHFreePacket(Packet *);
 void UTHFreePackets(Packet **, int);
 
+Flow *UTHBuildFlow(int family, char *src, char *dst, Port sp, Port dp);
+void UTHFreeFlow(Flow *flow);
+
 int UTHAppendSigs(DetectEngineCtx *, char **, int);
 int UTHMatchPackets(DetectEngineCtx *, Packet **, int);
 int UTHPacketMatchSig(Packet *p, char *);
@@ -52,6 +56,8 @@ int UTHGenericTest(Packet **, int, char **, uint32_t *, uint32_t *, int);
 uint32_t UTHBuildPacketOfFlows(uint32_t, uint32_t, uint8_t);
 Packet *UTHBuildPacketIPV6Real(uint8_t *, uint16_t , uint16_t , char *, char *,
                            uint16_t , uint16_t );
+#endif
+
 void UTHRegisterTests(void);
 
 #endif /* __UTIL_UNITTEST_HELPER__ */

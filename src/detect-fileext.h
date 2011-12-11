@@ -18,14 +18,21 @@
 /**
  * \file
  *
- * \author Victor Julien <victor@inliniac.net>
+ * \author Pablo Rincon <pablo.rincon.crespo@gmail.com>
  */
 
-#ifndef __ALERT_UNIFIED_ALERT_H__
-#define __ALERT_UNIFIED_ALERT_H__
+#ifndef __DETECT_FILEEXT_H__
+#define __DETECT_FILEEXT_H__
 
-void TmModuleAlertUnifiedAlertRegister (void);
-OutputCtx *AlertUnifiedAlertInitCtx(ConfNode *);
+#include "util-spm-bm.h"
 
-#endif /* __ALERT_UNIFIED_ALERT_H__ */
+typedef struct DetectFileextData_ {
+    uint8_t *ext;  /** file extension to match */
+    uint16_t len;  /** length of the file */
+    uint32_t flags;
+} DetectFileextData;
 
+/* prototypes */
+void DetectFileextRegister (void);
+
+#endif /* __DETECT_FILEEXT_H__ */

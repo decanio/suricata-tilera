@@ -404,27 +404,25 @@ static void SCPerfReleaseOPCtx()
     SCPerfClubTMInst *temp = NULL;
     pctmi = sc_perf_op_ctx->pctmi;
 
-    if (sc_perf_op_ctx != NULL) {
-        if (sc_perf_op_ctx->fp != NULL)
-            fclose(sc_perf_op_ctx->fp);
+    if (sc_perf_op_ctx->fp != NULL)
+        fclose(sc_perf_op_ctx->fp);
 
-        if (sc_perf_op_ctx->file != NULL)
-            SCFree(sc_perf_op_ctx->file);
+    if (sc_perf_op_ctx->file != NULL)
+        SCFree(sc_perf_op_ctx->file);
 
-        while (pctmi != NULL) {
-            if (pctmi->tm_name != NULL)
-                SCFree(pctmi->tm_name);
+    while (pctmi != NULL) {
+        if (pctmi->tm_name != NULL)
+            SCFree(pctmi->tm_name);
 
-            if (pctmi->head != NULL)
-                SCFree(pctmi->head);
+        if (pctmi->head != NULL)
+            SCFree(pctmi->head);
 
-            temp = pctmi->next;
-            SCFree(pctmi);
-            pctmi = temp;
-        }
-
-        SCFree(sc_perf_op_ctx);
+        temp = pctmi->next;
+        SCFree(pctmi);
+        pctmi = temp;
     }
+
+    SCFree(sc_perf_op_ctx);
 
     return;
 }
@@ -543,6 +541,21 @@ static void *SCPerfWakeupThread(void *arg)
                 SCCondSignal(&q->cond_q);
 #endif
             }
+
+            tv = tv->next;
+        }
+
+        /* mgt threads for flow manager */
+        tv = tv_root[TVT_MGMT];
+        while (tv != NULL) {
+            if (tv->sc_perf_pctx.head == NULL) {
+                tv = tv->next;
+                continue;
+            }
+
+            /* assuming the assignment of an int to be atomic, and even if it's
+             * not, it should be okay */
+            tv->sc_perf_pctx.perf_flag = 1;
 
             tv = tv->next;
         }
@@ -1842,6 +1855,7 @@ void SCPerfReleasePCA(SCPerfCounterArray *pca)
 
 /*----------------------------------Unit_Tests--------------------------------*/
 
+#ifdef UNITTESTS
 static int SCPerfTestCounterReg01()
 {
     SCPerfContext pctx;
@@ -2446,9 +2460,11 @@ static int SCPerfTestIntervalQual18()
 
     return result;
 }
+#endif
 
 void SCPerfRegisterTests()
 {
+#ifdef UNITTESTS
     UtRegisterTest("SCPerfTestCounterReg01", SCPerfTestCounterReg01, 0);
     UtRegisterTest("SCPerfTestCounterReg02", SCPerfTestCounterReg02, 0);
     UtRegisterTest("SCPerfTestCounterReg03", SCPerfTestCounterReg03, 1);
@@ -2468,6 +2484,5 @@ void SCPerfRegisterTests()
     UtRegisterTest("SCPerfTestIntervalQual16", SCPerfTestIntervalQual16, 1);
     UtRegisterTest("SCPerfTestIntervalQual17", SCPerfTestIntervalQual17, 1);
     UtRegisterTest("SCPerfTestIntervalQual18", SCPerfTestIntervalQual18, 1);
-
-    return;
+#endif
 }

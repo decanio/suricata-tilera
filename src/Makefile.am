@@ -15,6 +15,7 @@ runmode-ipfw.c runmode-ipfw.h \
 runmode-erf-file.c runmode-erf-file.h \
 runmode-erf-dag.c runmode-erf-dag.h \
 runmode-af-packet.c runmode-af-packet.h \
+runmode-tile.c runmode-tile.h \
 packet-queue.c packet-queue.h \
 data-queue.c data-queue.h \
 threads.c threads.h \
@@ -26,6 +27,8 @@ source-ipfw.c source-ipfw.h \
 source-erf-file.c source-erf-file.h \
 source-erf-dag.c source-erf-dag.h \
 source-af-packet.c source-af-packet.h \
+source-mpipe.c source-mpipe.h \
+source-netio.c source-netio.h \
 decode.c decode.h \
 decode-ethernet.c decode-ethernet.h \
 decode-vlan.c decode-vlan.h \
@@ -82,6 +85,7 @@ detect-engine-hmd.c detect-engine-hmd.h \
 detect-engine-hcd.c detect-engine-hcd.h \
 detect-engine-hrud.c detect-engine-hrud.h \
 detect-engine-state.c detect-engine-state.h \
+detect-engine-file.c detect-engine-file.h \
 detect-parse.c detect-parse.h \
 detect-ack.c detect-ack.h \
 detect-seq.c detect-seq.h \
@@ -116,6 +120,7 @@ detect-msg.c detect-msg.h \
 detect-id.c detect-id.h \
 detect-flow.c detect-flow.h \
 detect-dsize.c detect-dsize.h \
+detect-tos.c detect-tos.h \
 detect-stream_size.c detect-stream_size.h \
 detect-engine-event.c detect-engine-event.h \
 detect-ipopts.c detect-ipopts.h \
@@ -148,11 +153,17 @@ detect-detection-filter.c detect-detection-filter.h \
 detect-http-client-body.c detect-http-client-body.h \
 detect-http-stat-msg.c detect-http-stat-msg.h \
 detect-asn1.c detect-asn1.h \
+detect-filename.c detect-filename.h \
+detect-fileext.c detect-fileext.h \
+detect-filestore.c detect-filestore.h \
+detect-filemagic.c detect-filemagic.h \
 detect-http-stat-code.c detect-http-stat-code.h \
 detect-ssl-version.c detect-ssl-version.h \
 detect-ssl-state.c detect-ssl-state.h \
 detect-byte-extract.c detect-byte-extract.h \
 detect-replace.c detect-replace.h \
+util-magic.c util-magic.h \
+util-misc.c util-misc.h \
 util-atomic.h \
 util-print.c util-print.h \
 util-fmemopen.c util-fmemopen.h \
@@ -170,6 +181,7 @@ util-mpm-b3g.c util-mpm-b3g.h \
 util-mpm-b2gc.c util-mpm-b2gc.h \
 util-mpm-b2gm.c util-mpm-b2gm.h \
 util-mpm-ac.c util-mpm-ac.h \
+util-mpm-acc.c util-mpm-acch \
 util-mpm-ac-gfbs.c util-mpm-ac-gfbs.h \
 util-cidr.c util-cidr.h \
 util-unittest.c util-unittest.h \
@@ -196,6 +208,7 @@ util-random.c util-random.h \
 util-classification-config.c util-classification-config.h \
 util-threshold-config.c util-threshold-config.h \
 util-reference-config.c util-reference-config.h \
+util-coredump-config.c util-coredump-config.h \
 util-strlcatu.c \
 util-strlcpyu.c \
 util-cuda.c util-cuda.h \
@@ -212,6 +225,7 @@ util-vector.h \
 util-device.c util-device.h \
 util-checksum.c util-checksum.h \
 util-runmodes.c util-runmodes.h \
+util-file.c util-file.h \
 tm-modules.c tm-modules.h \
 tm-queues.c tm-queues.h \
 tm-queuehandlers.c tm-queuehandlers.h \
@@ -224,14 +238,13 @@ tmqh-ringbuffer.c tmqh-ringbuffer.h \
 alert-fastlog.c alert-fastlog.h \
 alert-debuglog.c alert-debuglog.h \
 alert-prelude.c alert-prelude.h \
-alert-unified-log.c alert-unified-log.h \
-alert-unified-alert.c alert-unified-alert.h \
 alert-unified2-alert.c alert-unified2-alert.h \
 alert-syslog.c alert-syslog.h \
 alert-pcapinfo.c alert-pcapinfo.h \
 log-droplog.c log-droplog.h \
 log-httplog.c log-httplog.h \
 log-pcap.c log-pcap.h \
+log-file.c log-file.h \
 stream.c stream.h \
 stream-tcp.c stream-tcp.h stream-tcp-private.h \
 stream-tcp-reassemble.c stream-tcp-reassemble.h \
@@ -248,6 +261,8 @@ app-layer-detect-proto.c app-layer-detect-proto.h \
 app-layer-parser.c app-layer-parser.h \
 app-layer-protos.c app-layer-protos.h \
 app-layer-htp.c app-layer-htp.h \
+app-layer-htp-body.c app-layer-htp-body.h \
+app-layer-htp-file.c app-layer-htp-file.h \
 app-layer-smb.c app-layer-smb.h \
 app-layer-smb2.c app-layer-smb2.h \
 app-layer-dcerpc.c app-layer-dcerpc.h \

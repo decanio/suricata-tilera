@@ -50,10 +50,13 @@
 #include "util-time.h"
 #include "util-debug.h"
 #include "util-error.h"
+#include "util-print.h"
 
 #include "output.h"
 #include "util-privs.h"
 #include "util-optimize.h"
+
+#include "stream.h"
 
 #ifndef PRELUDE
 /** Handle the case where no PRELUDE support is compiled in.
@@ -221,13 +224,13 @@ static int EventToImpact(PacketAlert *pa, Packet *p, idmef_alert_t *alert)
     if ( ret < 0 )
         SCReturnInt(ret);
 
-    if ( (uint)pa->s->prio < mid_priority )
+    if ( (unsigned int)pa->s->prio < mid_priority )
         severity = IDMEF_IMPACT_SEVERITY_HIGH;
 
-    else if ( (uint)pa->s->prio < low_priority )
+    else if ( (unsigned int)pa->s->prio < low_priority )
         severity = IDMEF_IMPACT_SEVERITY_MEDIUM;
 
-    else if ( (uint)pa->s->prio < info_priority )
+    else if ( (unsigned int)pa->s->prio < info_priority )
         severity = IDMEF_IMPACT_SEVERITY_LOW;
 
     else
@@ -621,6 +624,17 @@ static int EventToReference(PacketAlert *pa, Packet *p, idmef_classification_t *
     SCReturnInt(0);
 }
 
+static int PreludePrintStreamSegmentCallback(Packet *p, void *data, uint8_t *buf, uint32_t buflen)
+{
+    int ret;
+
+    ret = AddByteData((idmef_alert_t *)data, "stream-segment", buf, buflen);
+    if (ret == 0)
+        return 1;
+    else
+        return -1;
+}
+
 
 /**
  * \brief Handle Suricata alert: convert it to and IDMEF alert (see RFC 4765)
@@ -641,12 +655,11 @@ static int EventToReference(PacketAlert *pa, Packet *p, idmef_classification_t *
 TmEcode AlertPrelude (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq)
 {
     AlertPreludeThread *apn = (AlertPreludeThread *)data;
-    uint8_t ethh_offset = 0;
     int ret;
     idmef_time_t *time;
     idmef_alert_t *alert;
     prelude_string_t *str;
-    idmef_message_t *idmef;
+    idmef_message_t *idmef = NULL;
     idmef_classification_t *class;
     PacketAlert *pa;
 
@@ -661,12 +674,6 @@ TmEcode AlertPrelude (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pa
 
     if ( !IPH_IS_VALID(p) )
         SCReturnInt(TM_ECODE_OK);
-
-    /* if we have no ethernet header (e.g. when using nfq), we have to create
-     * one ourselves. */
-    if (p->ethh == NULL) {
-        ethh_offset = sizeof(EthernetHdr);
-    }
 
     /* XXX which one to add to this alert? Lets see how Snort solves this.
      * For now just take last alert. */
@@ -708,6 +715,20 @@ TmEcode AlertPrelude (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pa
     if ( ret < 0 )
         goto err;
 
+    if (pa->flags & PACKET_ALERT_FLAG_STATE_MATCH) {
+        uint8_t flag;
+        if (p->flowflags & FLOW_PKT_TOSERVER) {
+            flag = FLOW_PKT_TOCLIENT;
+        } else {
+            flag = FLOW_PKT_TOSERVER;
+        }
+        ret = StreamSegmentForEach(p, flag,
+                                   PreludePrintStreamSegmentCallback,
+                                   (void *)alert);
+    }
+    if (ret < 0)
+        goto err;
+
     ret = idmef_alert_new_detect_time(alert, &time);
     if ( ret < 0 )
         goto err;
@@ -727,7 +748,8 @@ TmEcode AlertPrelude (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pa
     SCReturnInt(TM_ECODE_OK);
 
 err:
-    idmef_message_destroy(idmef);
+    if (idmef != NULL)
+        idmef_message_destroy(idmef);
     SCReturnInt(TM_ECODE_FAILED);
 }
 

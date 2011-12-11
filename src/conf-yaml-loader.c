@@ -63,8 +63,8 @@ ConfYamlParse(yaml_parser_t *parser, ConfNode *parent, int inseq)
     while (!done) {
         if (!yaml_parser_parse(parser, &event)) {
             fprintf(stderr,
-                "Failed to parse configuration file at line %zu: %s\n",
-                parser->problem_mark.line, parser->problem);
+                "Failed to parse configuration file at line %" PRIuMAX ": %s\n",
+                (uintmax_t)parser->problem_mark.line, parser->problem);
             return -1;
         }
 

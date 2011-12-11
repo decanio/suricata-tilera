@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2010 Open Information Security Foundation
+/* Copyright (C) 2007-2011 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -21,11 +21,9 @@
  * \author Victor Julien <victor@inliniac.net>
  */
 
-#ifndef __ALERT_UNIFIED_LOG_H__
-#define __ALERT_UNIFIED_LOG_H__
+#ifndef __DETECT_ENGINE_FILE_H__
+#define __DETECT_ENGINE_FILE_H__
 
-void TmModuleAlertUnifiedLogRegister (void);
-OutputCtx *AlertUnifiedLogInitCtx(ConfNode *);
+int DetectFileInspectHttp(ThreadVars *, DetectEngineThreadCtx *, Flow *, Signature *, void *, uint8_t);
 
-#endif /* __ALERT_UNIFIED_LOG_H__ */
-
+#endif /* __DETECT_ENGINE_FILE_H__ */

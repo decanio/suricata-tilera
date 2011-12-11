@@ -38,8 +38,6 @@
 
 #include "alert-fastlog.h"
 #include "alert-prelude.h"
-#include "alert-unified-log.h"
-#include "alert-unified-alert.h"
 #include "alert-unified2-alert.h"
 #include "alert-debuglog.h"
 
@@ -248,7 +246,9 @@ int RunModeIdsAFPAuto(DetectEngineCtx *de_ctx)
     ConfGet("af-packet.live-interface", &live_dev);
 
     ret = RunModeSetLiveCaptureAuto(de_ctx,
-                                    ParseAFPConfig, "ReceiveAFP",
+                                    ParseAFPConfig,
+                                    AFPConfigGeThreadsCount,
+                                    "ReceiveAFP",
                                     "DecodeAFP", "RecvAFP",
                                     live_dev);
     if (ret != 0) {

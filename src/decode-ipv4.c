@@ -16,6 +16,13 @@
  */
 
 /**
+ * \ingroup decode
+ *
+ * @{
+ */
+
+
+/**
  * \file
  *
  * \author Victor Julien <victor@inliniac.net>
@@ -1545,15 +1552,13 @@ int DecodeIPV4DefragTest01(void)
     memset(&tv, 0, sizeof(ThreadVars));
     memset(&dtv, 0, sizeof(DecodeThreadVars));
     memset(&pq, 0, sizeof(PacketQueue));
-    memset(p, 0, sizeof(Packet));
 
     PACKET_INITIALIZE(p);
     FlowInitConfig(FLOW_QUIET);
 
-    p->pkt = pkt1;
-    p->pktlen = sizeof(pkt1);
-    DecodeIPV4(&tv, &dtv, p, pkt1 + ETHERNET_HEADER_LEN,
-               sizeof(pkt1) - ETHERNET_HEADER_LEN, &pq);
+    PacketCopyData(p, pkt1, sizeof(pkt1));
+    DecodeIPV4(&tv, &dtv, p, GET_PKT_DATA(p) + ETHERNET_HEADER_LEN,
+               GET_PKT_LEN(p) - ETHERNET_HEADER_LEN, &pq);
     if (p->tcph != NULL) {
         printf("tcp header should be NULL for ip fragment, but it isn't\n");
         result = 0;
@@ -1561,10 +1566,9 @@ int DecodeIPV4DefragTest01(void)
     }
     PACKET_DO_RECYCLE(p);
 
-    p->pkt = pkt2;
-    p->pktlen = sizeof(pkt2);
-    DecodeIPV4(&tv, &dtv, p, pkt2 + ETHERNET_HEADER_LEN,
-               sizeof(pkt2) - ETHERNET_HEADER_LEN, &pq);
+    PacketCopyData(p, pkt2, sizeof(pkt2));
+    DecodeIPV4(&tv, &dtv, p, GET_PKT_DATA(p) + ETHERNET_HEADER_LEN,
+               GET_PKT_LEN(p) - ETHERNET_HEADER_LEN, &pq);
     if (p->tcph != NULL) {
         printf("tcp header should be NULL for ip fragment, but it isn't\n");
         result = 0;
@@ -1572,10 +1576,9 @@ int DecodeIPV4DefragTest01(void)
     }
     PACKET_DO_RECYCLE(p);
 
-    p->pkt = pkt3;
-    p->pktlen = sizeof(pkt3);
-    DecodeIPV4(&tv, &dtv, p, pkt3 + ETHERNET_HEADER_LEN,
-               sizeof(pkt3) - ETHERNET_HEADER_LEN, &pq);
+    PacketCopyData(p, pkt3, sizeof(pkt3));
+    DecodeIPV4(&tv, &dtv, p, GET_PKT_DATA(p) + ETHERNET_HEADER_LEN,
+               GET_PKT_LEN(p) - ETHERNET_HEADER_LEN, &pq);
     if (p->tcph != NULL) {
         printf("tcp header should be NULL for ip fragment, but it isn't\n");
         result = 0;
@@ -1607,12 +1610,9 @@ int DecodeIPV4DefragTest01(void)
         result = 0;
         goto end;
     }
-    size_t i;
-    for (i = 0; i < sizeof(tunnel_pkt); i++) {
-        if (tunnel_pkt[i] != tp->pkt[i]) {
+    if (memcmp(GET_PKT_DATA(tp), tunnel_pkt, sizeof(tunnel_pkt)) != 0) {
             result = 0;
             goto end;
-        }
     }
 
     PACKET_CLEANUP(p);
@@ -1688,15 +1688,13 @@ int DecodeIPV4DefragTest02(void)
     memset(&tv, 0, sizeof(ThreadVars));
     memset(&dtv, 0, sizeof(DecodeThreadVars));
     memset(&pq, 0, sizeof(PacketQueue));
-    memset(p, 0, sizeof(Packet));
 
     PACKET_INITIALIZE(p);
     FlowInitConfig(FLOW_QUIET);
 
-    p->pkt = pkt1;
-    p->pktlen = sizeof(pkt1);
-    DecodeIPV4(&tv, &dtv, p, pkt1 + ETHERNET_HEADER_LEN,
-               sizeof(pkt1) - ETHERNET_HEADER_LEN, &pq);
+    PacketCopyData(p, pkt1, sizeof(pkt1));
+    DecodeIPV4(&tv, &dtv, p, GET_PKT_DATA(p) + ETHERNET_HEADER_LEN,
+               GET_PKT_LEN(p) - ETHERNET_HEADER_LEN, &pq);
     if (p->tcph != NULL) {
         printf("tcp header should be NULL for ip fragment, but it isn't\n");
         result = 0;
@@ -1704,10 +1702,9 @@ int DecodeIPV4DefragTest02(void)
     }
     PACKET_DO_RECYCLE(p);
 
-    p->pkt = pkt2;
-    p->pktlen = sizeof(pkt2);
-    DecodeIPV4(&tv, &dtv, p, pkt2 + ETHERNET_HEADER_LEN,
-               sizeof(pkt2) - ETHERNET_HEADER_LEN, &pq);
+    PacketCopyData(p, pkt2, sizeof(pkt2));
+    DecodeIPV4(&tv, &dtv, p, GET_PKT_DATA(p) + ETHERNET_HEADER_LEN,
+               GET_PKT_LEN(p) - ETHERNET_HEADER_LEN, &pq);
     if (p->tcph != NULL) {
         printf("tcp header should be NULL for ip fragment, but it isn't\n");
         result = 0;
@@ -1716,10 +1713,9 @@ int DecodeIPV4DefragTest02(void)
     PACKET_DO_RECYCLE(p);
 
     p->recursion_level = 3;
-    p->pkt = pkt3;
-    p->pktlen = sizeof(pkt3);
-    DecodeIPV4(&tv, &dtv, p, pkt3 + ETHERNET_HEADER_LEN,
-               sizeof(pkt3) - ETHERNET_HEADER_LEN, &pq);
+    PacketCopyData(p, pkt3, sizeof(pkt3));
+    DecodeIPV4(&tv, &dtv, p, GET_PKT_DATA(p) + ETHERNET_HEADER_LEN,
+               GET_PKT_LEN(p) - ETHERNET_HEADER_LEN, &pq);
     if (p->tcph != NULL) {
         printf("tcp header should be NULL for ip fragment, but it isn't\n");
         result = 0;
@@ -1751,12 +1747,10 @@ int DecodeIPV4DefragTest02(void)
         result = 0;
         goto end;
     }
-    size_t i;
-    for (i = 0; i < sizeof(tunnel_pkt); i++) {
-        if (tunnel_pkt[i] != tp->pkt[i]) {
+
+    if (memcmp(GET_PKT_DATA(tp), tunnel_pkt, sizeof(tunnel_pkt)) != 0) {
             result = 0;
             goto end;
-        }
     }
 
     PACKET_CLEANUP(p);
@@ -1828,15 +1822,13 @@ int DecodeIPV4DefragTest03(void)
     memset(&tv, 0, sizeof(ThreadVars));
     memset(&dtv, 0, sizeof(DecodeThreadVars));
     memset(&pq, 0, sizeof(PacketQueue));
-    memset(p, 0, sizeof(Packet));
 
     PACKET_INITIALIZE(p);
     FlowInitConfig(FLOW_QUIET);
 
-    p->pkt = pkt;
-    p->pktlen = sizeof(pkt);
-    DecodeIPV4(&tv, &dtv, p, pkt + ETHERNET_HEADER_LEN,
-               sizeof(pkt) - ETHERNET_HEADER_LEN, &pq);
+    PacketCopyData(p, pkt, sizeof(pkt));
+    DecodeIPV4(&tv, &dtv, p, GET_PKT_DATA(p) + ETHERNET_HEADER_LEN,
+               GET_PKT_LEN(p) - ETHERNET_HEADER_LEN, &pq);
     if (p->tcph == NULL) {
         printf("tcp header shouldn't be NULL, but it is\n");
         result = 0;
@@ -1850,10 +1842,9 @@ int DecodeIPV4DefragTest03(void)
     f = p->flow;
     PACKET_DO_RECYCLE(p);
 
-    p->pkt = pkt1;
-    p->pktlen = sizeof(pkt1);
-    DecodeIPV4(&tv, &dtv, p, pkt1 + ETHERNET_HEADER_LEN,
-               sizeof(pkt1) - ETHERNET_HEADER_LEN, &pq);
+    PacketCopyData(p, pkt1, sizeof(pkt1));
+    DecodeIPV4(&tv, &dtv, p, GET_PKT_DATA(p) + ETHERNET_HEADER_LEN,
+               GET_PKT_LEN(p) - ETHERNET_HEADER_LEN, &pq);
     if (p->tcph != NULL) {
         printf("tcp header should be NULL for ip fragment, but it isn't\n");
         result = 0;
@@ -1861,10 +1852,9 @@ int DecodeIPV4DefragTest03(void)
     }
     PACKET_DO_RECYCLE(p);
 
-    p->pkt = pkt2;
-    p->pktlen = sizeof(pkt2);
-    DecodeIPV4(&tv, &dtv, p, pkt2 + ETHERNET_HEADER_LEN,
-               sizeof(pkt2) - ETHERNET_HEADER_LEN, &pq);
+    PacketCopyData(p, pkt2, sizeof(pkt2));
+    DecodeIPV4(&tv, &dtv, p, GET_PKT_DATA(p) + ETHERNET_HEADER_LEN,
+               GET_PKT_LEN(p) - ETHERNET_HEADER_LEN, &pq);
     if (p->tcph != NULL) {
         printf("tcp header should be NULL for ip fragment, but it isn't\n");
         result = 0;
@@ -1872,10 +1862,9 @@ int DecodeIPV4DefragTest03(void)
     }
     PACKET_DO_RECYCLE(p);
 
-    p->pkt = pkt3;
-    p->pktlen = sizeof(pkt3);
-    DecodeIPV4(&tv, &dtv, p, pkt3 + ETHERNET_HEADER_LEN,
-               sizeof(pkt3) - ETHERNET_HEADER_LEN, &pq);
+    PacketCopyData(p, pkt3, sizeof(pkt3));
+    DecodeIPV4(&tv, &dtv, p, GET_PKT_DATA(p) + ETHERNET_HEADER_LEN,
+               GET_PKT_LEN(p) - ETHERNET_HEADER_LEN, &pq);
     if (p->tcph != NULL) {
         printf("tcp header should be NULL for ip fragment, but it isn't\n");
         result = 0;
@@ -1916,12 +1905,10 @@ int DecodeIPV4DefragTest03(void)
         result = 0;
         goto end;
     }
-    size_t i;
-    for (i = 0; i < sizeof(tunnel_pkt); i++) {
-        if (tunnel_pkt[i] != tp->pkt[i]) {
+
+    if (memcmp(GET_PKT_DATA(tp), tunnel_pkt, sizeof(tunnel_pkt)) != 0) {
             result = 0;
             goto end;
-        }
     }
 
     PACKET_CLEANUP(p);
@@ -1975,3 +1962,6 @@ void DecodeIPV4RegisterTests(void) {
     UtRegisterTest("DecodeIPV4DefragTest03", DecodeIPV4DefragTest03, 1);
 #endif /* UNITTESTS */
 }
+/**
+ * @}
+ */

@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2010 Open Information Security Foundation
+/* Copyright (C) 2007-2011 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -19,6 +19,7 @@
  * \file
  *
  * \author Victor Julien <victor@inliniac.net>
+ * \author Eric Leblond <eric@regit.org>
  *
  *  Netfilter's netfilter_queue support for reading packets from the
  *  kernel and setting verdicts back to it (inline mode).
@@ -41,7 +42,6 @@
 #include "conf.h"
 #include "config.h"
 #include "conf-yaml-loader.h"
-#include "source-nfq.h"
 #include "source-nfq-prototypes.h"
 #include "action-globals.h"
 
@@ -49,6 +49,9 @@
 #include "util-error.h"
 #include "util-byte.h"
 #include "util-privs.h"
+#include "util-device.h"
+
+#include "source-nfq.h"
 
 #ifndef NFQ
 /** Handle the case where no NFQ support is compiled in.
@@ -113,6 +116,16 @@ int already_seen_warning;
 //#define NFQ_DFT_QUEUE_LEN NFQ_BURST_FACTOR * MAX_PENDING
 //#define NFQ_NF_BUFSIZE 1500 * NFQ_DFT_QUEUE_LEN
 
+typedef struct NFQThreadVars_
+{
+    uint16_t nfq_index;
+    ThreadVars *tv;
+    TmSlot *slot;
+
+    char *data; /** Per function and thread data */
+    int datalen; /** Length of per function and thread data */
+
+} NFQThreadVars;
 /* shared vars for all for nfq queues and threads */
 static NFQGlobalVars nfq_g;
 
@@ -122,6 +135,7 @@ static uint16_t receive_queue_num = 0;
 static SCMutex nfq_init_lock;
 
 TmEcode ReceiveNFQ(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
+TmEcode ReceiveNFQLoop(ThreadVars *tv, void *data, void *slot);
 TmEcode ReceiveNFQThreadInit(ThreadVars *, void *, void **);
 TmEcode ReceiveNFQThreadDeinit(ThreadVars *, void *);
 void ReceiveNFQThreadExitStats(ThreadVars *, void *);
@@ -156,6 +170,7 @@ void TmModuleReceiveNFQRegister (void) {
     tmm_modules[TMM_RECEIVENFQ].name = "ReceiveNFQ";
     tmm_modules[TMM_RECEIVENFQ].ThreadInit = ReceiveNFQThreadInit;
     tmm_modules[TMM_RECEIVENFQ].Func = ReceiveNFQ;
+    tmm_modules[TMM_RECEIVENFQ].PktAcqLoop = ReceiveNFQLoop;
     tmm_modules[TMM_RECEIVENFQ].ThreadExitPrintStats = ReceiveNFQThreadExitStats;
     tmm_modules[TMM_RECEIVENFQ].ThreadDeinit = ReceiveNFQThreadDeinit;
     tmm_modules[TMM_RECEIVENFQ].RegisterTests = NULL;
@@ -308,7 +323,7 @@ int NFQSetupPkt (Packet *p, struct nfq_q_handle *qh, void *data)
 }
 
 static int NFQCallBack(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
-	      struct nfq_data *nfa, void *data)
+                       struct nfq_data *nfa, void *data)
 {
     NFQThreadVars *ntv = (NFQThreadVars *)data;
     ThreadVars *tv = ntv->tv;
@@ -340,8 +355,15 @@ static int NFQCallBack(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     nfq_q->bytes += GET_PKT_LEN(p);
 #endif /* COUNTERS */
 
-    /* pass on... */
-    tv->tmqh_out(tv, p);
+    if (ntv->slot) {
+        if (TmThreadsSlotProcessPkt(tv, ntv->slot, p) != TM_ECODE_OK) {
+            TmqhOutputPacketpool(ntv->tv, p);
+            return -1;
+        }
+    } else {
+        /* pass on... */
+        tv->tmqh_out(tv, p);
+    }
 
     return 0;
 }
@@ -589,19 +611,13 @@ int NFQRegisterQueue(char *queue)
     nq->queue_num = queue_num;
     receive_queue_num++;
     SCMutexUnlock(&nfq_init_lock);
+    LiveRegisterDevice(queue);
 
     SCLogDebug("Queue \"%s\" registered.", queue);
     return 0;
 }
 
-/**
- *  \brief Get the number of registered queues
- *
- *  \retval cnt the number of registered queues
- */
-int NFQGetQueueCount(void) {
-    return receive_queue_num;
-}
+
 
 /**
  *  \brief Get a pointer to the NFQ queue at index
@@ -612,29 +628,16 @@ int NFQGetQueueCount(void) {
  *  \retval NULL on error
  */
 void *NFQGetQueue(int number) {
-    if (number > receive_queue_num)
+    if (number >= receive_queue_num)
         return NULL;
 
     return (void *)&nfq_q[number];
 }
 
 /**
- *  \brief Get queue number to the NFQ at index
- *
- *  \param number idx of the queue in our array
- *
- *  \retval ptr pointer to the NFQThreadVars at index
- *  \retval -1 on error
- */
-int NFQGetQueueNum(int number) {
-    if (number > receive_queue_num)
-        return -1;
-
-    return nfq_q[number].queue_num;
-}
-
-/**
  *  \brief Get a pointer to the NFQ thread at index
+ *
+ *  This function is temporary used as configuration parser.
  *
  *  \param number idx of the queue in our array
  *
@@ -642,7 +645,7 @@ int NFQGetQueueNum(int number) {
  *  \retval NULL on error
  */
 void *NFQGetThread(int number) {
-    if (number > receive_queue_num)
+    if (number >= receive_queue_num)
         return NULL;
 
     return (void *)&nfq_t[number];
@@ -750,7 +753,7 @@ process_rv:
         SCMutexLock(&t->mutex_qh);
         if (t->qh) {
             ret = nfq_handle_packet(t->h, buf, rv);
-        } else {
+        } else {
             SCLogWarning(SC_ERR_NFQ_HANDLE_PKT, "NFQ handle has been destroyed");
             ret = -1;
         }
@@ -762,6 +765,28 @@ process_rv:
     }
 }
 #endif /* OS_WIN32 */
+
+/**
+ *  \brief Main NFQ reading Loop function
+ */
+TmEcode ReceiveNFQLoop(ThreadVars *tv, void *data, void *slot)
+{
+    SCEnter();
+    NFQThreadVars *ntv = (NFQThreadVars *)data;
+    NFQQueueVars *nq = NFQGetQueue(ntv->nfq_index);
+
+    ntv->slot = ((TmSlot *) slot)->slot_next;
+
+    while(1) {
+        if (suricata_ctl_flags != 0) {
+            break;
+        }
+        NFQRecvPkt(nq, ntv);
+
+        SCPerfSyncCountersIfSignalled(tv, 0);
+    }
+    SCReturnInt(TM_ECODE_OK);
+}
 
 /**
  * \brief NFQ receive module main entry function: receive a packet from NFQ
@@ -810,7 +835,12 @@ TmEcode NFQSetVerdict(Packet *p) {
     int iter = 0;
     int ret = 0;
     uint32_t verdict = NF_ACCEPT;
+    /* we could also have a direct pointer but we need to have a ref counf in this case */
     NFQQueueVars *t = nfq_q + p->nfq_v.nfq_index;
+
+    /** \todo add a test on validity of the entry NFQQueueVars could have been
+     *  wipeout
+     */
 
     /* can't verdict a "fake" packet */
     if (p->flags & PKT_PSEUDO_STREAM_END) {

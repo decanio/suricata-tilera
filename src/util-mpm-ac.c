@@ -1058,7 +1058,11 @@ void SCACInitThreadCtx(ThreadVars *tv, MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread
 {
     memset(mpm_thread_ctx, 0, sizeof(MpmThreadCtx));
 
-    mpm_thread_ctx->ctx = SCThreadMalloc(tv, sizeof(SCACThreadCtx));
+    /* Note the following ThreadMalloc worked until the addition of
+     * app-layer-smtp.c
+     */
+    //mpm_thread_ctx->ctx = SCThreadMalloc(tv, sizeof(SCACThreadCtx));
+    mpm_thread_ctx->ctx = SCMalloc(sizeof(SCACThreadCtx));
     if (mpm_thread_ctx->ctx == NULL) {
         exit(EXIT_FAILURE);
     }
@@ -1202,7 +1206,9 @@ uint32_t SCACSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
     /* \todo tried loop unrolling with register var, with no perf increase.  Need
      * to dig deeper */
     /* \todo Change it for stateful MPM.  Supply the state using mpm_thread_ctx */
-    if (buflen > 0) {
+    if (buflen == 0)
+        return matches;
+
     SCACPatternList *pid_pat_list = ctx->pid_pat_list;
 
     SC_AC_STATE_TYPE_U16 (*state_table_u16)[256];
@@ -1213,7 +1219,6 @@ uint32_t SCACSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
         for (i = 0; i < buflen; i++) {
             state = state_table_u16[state & 0x7FFF][c];
             c = u8_tolower(buf[i+1]);
-            //state = state_table_u16[state & 0x7FFF][u8_tolower(buf[i])];
             if (state & 0x8000) {
                 uint32_t no_of_entries = ctx->output_table[state & 0x7FFF].no_of_entries;
                 uint32_t *pids = ctx->output_table[state & 0x7FFF].pids;
@@ -1290,7 +1295,6 @@ uint32_t SCACSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
                 }
             }
         } /* for (i = 0; i < buflen; i++) */
-    }
     }
 
     return matches;

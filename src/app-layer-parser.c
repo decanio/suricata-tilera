@@ -41,6 +41,7 @@
 #include "stream.h"
 #include "stream-tcp-reassemble.h"
 
+#include "app-layer.h"
 #include "app-layer-protos.h"
 #include "app-layer-parser.h"
 #include "app-layer-smb.h"
@@ -55,11 +56,11 @@
 #include "util-spm.h"
 
 #include "util-debug.h"
+#include "util-unittest-helper.h"
 
-static uint16_t app_layer_sid = 0;
 static AppLayerProto al_proto_table[ALPROTO_MAX];   /**< Application layer protocol
-                                                       table mapped to their
-                                                       corresponding parsers */
+                                                         table mapped to their
+                                                         corresponding parsers */
 
 #define MAX_PARSERS 100
 static AppLayerParserTableElement al_parser_table[MAX_PARSERS];
@@ -75,6 +76,26 @@ static SCMutex al_result_pool_mutex = PTHREAD_MUTEX_INITIALIZER;
 static uint32_t al_result_pool_elmts = 0;
 #endif /* DEBUG */
 
+/** \brief Get the file container flow
+ *  \param f flow pointer to a LOCKED flow
+ *  \retval files void pointer to the state
+ *  \retval direction flow direction, either STREAM_TOCLIENT or STREAM_TOSERVER
+ *  \retval NULL in case we have no state */
+FileContainer *AppLayerGetFilesFromFlow(Flow *f, uint8_t direction) {
+    SCEnter();
+
+    uint16_t alproto = f->alproto;
+
+    if (alproto == ALPROTO_UNKNOWN)
+        SCReturnPtr(NULL, "FileContainer");
+
+    if (al_proto_table[alproto].StateGetFiles != NULL) {
+        FileContainer *ptr = al_proto_table[alproto].StateGetFiles(AppLayerGetProtoStateFromFlow(f), direction);
+        SCReturnPtr(ptr, "FileContainer");
+    } else {
+        SCReturnPtr(NULL, "FileContainer");
+    }
+}
 
 /** \brief Alloc a AppLayerParserResultElmt func for the pool */
 static void *AlpResultElmtPoolAlloc(void *null)
@@ -192,6 +213,20 @@ static int AlpStoreField(AppLayerParserResult *output, uint16_t idx,
     AlpAppendResultElmt(output, e);
 
     SCReturnInt(0);
+}
+
+void AppLayerSetEOF(Flow *f)
+{
+    if (f == NULL)
+        return;
+
+    AppLayerParserStateStore *parser_state_store =
+        (AppLayerParserStateStore *)f->alparser;
+    if (parser_state_store != NULL) {
+        parser_state_store->id_flags |= APP_LAYER_TRANSACTION_EOF;
+        parser_state_store->to_client.flags |= APP_LAYER_PARSER_EOF;
+        parser_state_store->to_server.flags |= APP_LAYER_PARSER_EOF;
+    }
 }
 
 /** \brief Parse a field up to we reach the size limit
@@ -490,30 +525,6 @@ int AlpParseFieldByDelimiter(AppLayerParserResult *output, AppLayerParserState *
     SCReturnInt(0);
 }
 
-/** app layer id counter */
-static uint8_t al_module_id = 0;
-
-/** \brief Get a unique app layer id
- */
-uint8_t AppLayerRegisterModule(void) {
-    uint8_t id = al_module_id;
-    al_module_id++;
-    return id;
-}
-
-uint8_t AppLayerGetStorageSize(void) {
-    return al_module_id;
-}
-
-/** \brief Get the Parsers id for storing the parser state.
- *
- * \retval Parser subsys id
- */
-uint16_t AppLayerParserGetStorageId(void)
-{
-    return app_layer_sid;
-}
-
 uint16_t AppLayerGetProtoByName(const char *name)
 {
     uint8_t u = 1;
@@ -541,16 +552,17 @@ uint16_t AppLayerGetProtoByName(const char *name)
  * \todo do we need recursive, so a "http" and a "request_line" where the engine
  *       knows it's actually "http.request_line"... same difference maybe.
  * \param AppLayerParser pointer to the parser function
- * \param max_outputs max number of unique outputs the parser can generate
  *
  * \retval 0 on success
  * \retval -1 on error
  */
 int AppLayerRegisterParser(char *name, uint16_t proto, uint16_t parser_id,
                            int (*AppLayerParser)(Flow *f, void *protocol_state,
-                            AppLayerParserState *parser_state, uint8_t *input,
-                            uint32_t input_len, AppLayerParserResult *output),
-                            char *dependency)
+                                                 AppLayerParserState *parser_state,
+                                                 uint8_t *input, uint32_t input_len,
+                                                 void *local_data,
+                                                 AppLayerParserResult *output),
+                           char *dependency)
 {
 
     al_max_parsers++;
@@ -566,9 +578,9 @@ int AppLayerRegisterParser(char *name, uint16_t proto, uint16_t parser_id,
     al_parser_table[al_max_parsers].AppLayerParser = AppLayerParser;
 
     SCLogDebug("registered %p at proto %" PRIu32 ", al_proto_table idx "
-               "%" PRIu32 ", storage_id %" PRIu32 ", parser_local_id %" PRIu32 "",
+               "%" PRIu32 ", parser_local_id %" PRIu32 "",
                 AppLayerParser, proto, al_max_parsers,
-                al_proto_table[proto].storage_id, parser_id);
+                parser_id);
     return 0;
 }
 
@@ -583,9 +595,10 @@ int AppLayerRegisterParser(char *name, uint16_t proto, uint16_t parser_id,
  * \retval -1 on error
  */
 int AppLayerRegisterProto(char *name, uint8_t proto, uint8_t flags,
-                         int (*AppLayerParser)(Flow *f, void *protocol_state,
-                         AppLayerParserState *parser_state, uint8_t *input,
-                         uint32_t input_len, AppLayerParserResult *output))
+                          int (*AppLayerParser)(Flow *f, void *protocol_state,
+                                                AppLayerParserState *parser_state,
+                                                uint8_t *input, uint32_t input_len,
+                                                void *local_data, AppLayerParserResult *output))
 {
 
     al_max_parsers++;
@@ -607,13 +620,9 @@ int AppLayerRegisterProto(char *name, uint8_t proto, uint8_t flags,
         al_proto_table[proto].to_client = al_max_parsers;
     }
 
-    if (al_proto_table[proto].storage_id == 0) {
-        al_proto_table[proto].storage_id = AppLayerRegisterModule();
-    }
-
     SCLogDebug("registered %p at proto %" PRIu32 " flags %02X, al_proto_table "
-                "idx %" PRIu32 ", storage_id %" PRIu32 " %s", AppLayerParser, proto,
-                flags, al_max_parsers, al_proto_table[proto].storage_id, name);
+                "idx %" PRIu32 ", %s", AppLayerParser, proto,
+                flags, al_max_parsers, name);
     return 0;
 }
 
@@ -631,6 +640,31 @@ void AppLayerRegisterTransactionIdFuncs(uint16_t proto,
     al_proto_table[proto].StateTransactionFree = StateTransactionFree;
 }
 
+void AppLayerRegisterLocalStorageFunc(uint16_t proto,
+                                      void *(*LocalStorageAlloc)(ThreadVars *),
+                                      void (*LocalStorageFree)(void *))
+{
+    al_proto_table[proto].LocalStorageAlloc = LocalStorageAlloc;
+    al_proto_table[proto].LocalStorageFree = LocalStorageFree;
+
+    return;
+}
+
+void *AppLayerGetProtocolParserLocalStorage(ThreadVars *tv, uint16_t proto)
+{
+    if (al_proto_table[proto].LocalStorageAlloc != NULL) {
+        return al_proto_table[proto].LocalStorageAlloc(tv);
+    }
+
+    return NULL;
+}
+
+void AppLayerRegisterGetFilesFunc(uint16_t proto,
+        FileContainer *(*StateGetFiles)(void *, uint8_t))
+{
+    al_proto_table[proto].StateGetFiles = StateGetFiles;
+}
+
 /** \brief Indicate to the app layer parser that a logger is active
  *         for this protocol.
  */
@@ -638,11 +672,6 @@ void AppLayerRegisterLogger(uint16_t proto) {
     al_proto_table[proto].logger = TRUE;
 }
 
-
-uint16_t AlpGetStateIdx(uint16_t proto)
-{
-    return al_proto_table[proto].storage_id;
-}
 
 AppLayerParserStateStore *AppLayerParserStateStoreAlloc(void)
 {
@@ -687,8 +716,11 @@ static void AppLayerParserResultCleanup(AppLayerParserResult *result)
     }
 }
 
-static int AppLayerDoParse(Flow *f, void *app_layer_state, AppLayerParserState *parser_state,
-                           uint8_t *input, uint32_t input_len, uint16_t parser_idx,
+static int AppLayerDoParse(void *local_data, Flow *f,
+                           void *app_layer_state,
+                           AppLayerParserState *parser_state,
+                           uint8_t *input, uint32_t input_len,
+                           uint16_t parser_idx,
                            uint16_t proto)
 {
     SCEnter();
@@ -701,14 +733,20 @@ static int AppLayerDoParse(Flow *f, void *app_layer_state, AppLayerParserState *
     //printf("---\n");
 
     /* invoke the parser */
-    int r = al_parser_table[parser_idx].AppLayerParser(f, app_layer_state,
-                                       parser_state, input, input_len, &result);
+    int r = al_parser_table[parser_idx].
+        AppLayerParser(f, app_layer_state,
+                       parser_state, input, input_len,
+                       local_data, &result);
     if (r < 0) {
         if (r == -1) {
             AppLayerParserResultCleanup(&result);
             SCReturnInt(-1);
+#ifdef DEBUG
         } else {
             BUG_ON(r);  /* this is not supposed to happen!! */
+#else
+            SCReturnInt(-1);
+#endif
         }
     }
 
@@ -735,7 +773,7 @@ static int AppLayerDoParse(Flow *f, void *app_layer_state, AppLayerParserState *
         parser_state->parse_field = 0;
         parser_state->flags |= APP_LAYER_PARSER_EOF;
 
-        r = AppLayerDoParse(f, app_layer_state, parser_state, e->data_ptr,
+        r = AppLayerDoParse(local_data, f, app_layer_state, parser_state, e->data_ptr,
                             e->data_len, idx, proto);
 
         /* restore */
@@ -747,8 +785,12 @@ static int AppLayerDoParse(Flow *f, void *app_layer_state, AppLayerParserState *
             if (r == -1) {
                 retval = -1;
                 break;
+#ifdef DEBUG
             } else {
-                BUG_ON(r);
+                BUG_ON(r);  /* this is not supposed to happen!! */
+#else
+                SCReturnInt(-1);
+#endif
             }
         }
     }
@@ -811,8 +853,8 @@ uint32_t applayerhttperrors = 0;
  * \retval -1 error
  * \retval 0 ok
  */
-int AppLayerParse(Flow *f, uint8_t proto, uint8_t flags, uint8_t *input,
-                  uint32_t input_len)
+int AppLayerParse(void *local_data, Flow *f, uint8_t proto,
+                  uint8_t flags, uint8_t *input, uint32_t input_len)
 {
     SCEnter();
 
@@ -823,32 +865,20 @@ int AppLayerParse(Flow *f, uint8_t proto, uint8_t flags, uint8_t *input,
     /* Used only if it's TCP */
     ssn = f->protoctx;
 
-    /** Do this check before calling AppLayerParse */
+    /* Do this check before calling AppLayerParse */
     if (flags & STREAM_GAP) {
         SCLogDebug("stream gap detected (missing packets), this is not yet supported.");
-        goto error;
+        goto gap;
     }
 
     /* Get the parser state (if any) */
-    AppLayerParserStateStore *parser_state_store = NULL;
+    AppLayerParserStateStore *parser_state_store = f->alparser;
+    if (parser_state_store == NULL) {
+        parser_state_store = AppLayerParserStateStoreAlloc();
+        if (parser_state_store == NULL)
+            goto error;
 
-    if (f->aldata != NULL) {
-        parser_state_store = (AppLayerParserStateStore *)
-                                                    f->aldata[app_layer_sid];
-        if (parser_state_store == NULL) {
-            parser_state_store = AppLayerParserStateStoreAlloc();
-            if (parser_state_store == NULL)
-                goto error;
-
-            f->aldata[app_layer_sid] = (void *)parser_state_store;
-        }
-    } else {
-        SCLogDebug("No App Layer Data");
-        /* Nothing is there to clean up, so just return from here after setting
-         * up the no reassembly flags */
-        FlowSetSessionNoApplayerInspectionFlag(f);
-
-        SCReturnInt(-1);
+        f->alparser = (void *)parser_state_store;
     }
 
     parser_state_store->version++;
@@ -893,9 +923,7 @@ int AppLayerParse(Flow *f, uint8_t proto, uint8_t flags, uint8_t *input,
         parser_state->flags |= APP_LAYER_PARSER_EOF;
 
     /* See if we already have a 'app layer' state */
-    void *app_layer_state = NULL;
-    app_layer_state = f->aldata[p->storage_id];
-
+    void *app_layer_state = f->alstate;
     if (app_layer_state == NULL) {
         /* lock the allocation of state as we may
          * alloc more than one otherwise */
@@ -904,24 +932,25 @@ int AppLayerParse(Flow *f, uint8_t proto, uint8_t flags, uint8_t *input,
             goto error;
         }
 
-        f->aldata[p->storage_id] = app_layer_state;
-        SCLogDebug("alloced new app layer state %p (p->storage_id %u, name %s)",
-                app_layer_state, p->storage_id, al_proto_table[f->alproto].name);
+        f->alstate = app_layer_state;
+        SCLogDebug("alloced new app layer state %p (name %s)",
+                app_layer_state, al_proto_table[f->alproto].name);
     } else {
-        SCLogDebug("using existing app layer state %p (p->storage_id %u, name %s))",
-                app_layer_state, p->storage_id, al_proto_table[f->alproto].name);
+        SCLogDebug("using existing app layer state %p (name %s))",
+                app_layer_state, al_proto_table[f->alproto].name);
     }
 
     /* invoke the recursive parser, but only on data. We may get empty msgs on EOF */
     if (input_len > 0) {
-        int r = AppLayerDoParse(f, app_layer_state, parser_state, input, input_len,
-                parser_idx, proto);
+        int r = AppLayerDoParse(local_data, f, app_layer_state, parser_state,
+                                input, input_len, parser_idx, proto);
         if (r < 0)
             goto error;
     }
 
     /* set the packets to no inspection and reassembly if required */
     if (parser_state->flags & APP_LAYER_PARSER_NO_INSPECTION) {
+        AppLayerSetEOF(f);
         FlowSetNoPayloadInspectionFlag(f);
         FlowSetSessionNoApplayerInspectionFlag(f);
 
@@ -949,20 +978,10 @@ int AppLayerParse(Flow *f, uint8_t proto, uint8_t flags, uint8_t *input,
     }
 
     SCReturnInt(0);
+
 error:
     if (ssn != NULL) {
-#ifdef DEBUG
-        applayererrors++;
-        if (f->alproto == ALPROTO_HTTP)
-            applayerhttperrors++;
-#endif
-        /* Set the no app layer inspection flag for both
-         * the stream in this Flow */
-        FlowSetSessionNoApplayerInspectionFlag(f);
-
-#if 0
-/* QUIET THIS DOWN.  It kills performance */
-        if (f->src.family == AF_INET) {
+        if (FLOW_IS_IPV4(f)) {
             char src[16];
             char dst[16];
             PrintInet(AF_INET, (const void*)&f->src.addr_data32[0], src,
@@ -977,7 +996,7 @@ error:
                        "dst port %"PRIu16"", al_proto_table[f->alproto].name,
                        f->proto, src, dst, f->sp, f->dp);
             fflush(stdout);
-        } else {
+        } else if (FLOW_IS_IPV6(f)) {
             char dst6[46];
             char src6[46];
 
@@ -994,7 +1013,19 @@ error:
                        f->proto, src6, dst6, f->sp, f->dp);
             fflush(stdout);
         }
+    }
+
+gap:
+    if (ssn != NULL) {
+#ifdef DEBUG
+        applayererrors++;
+        if (f->alproto == ALPROTO_HTTP)
+            applayerhttperrors++;
 #endif
+        /* Set the no app layer inspection flag for both
+         * the stream in this Flow */
+        FlowSetSessionNoApplayerInspectionFlag(f);
+        AppLayerSetEOF(f);
     }
 
     SCReturnInt(-1);
@@ -1004,14 +1035,8 @@ error:
 int AppLayerTransactionGetBaseId(Flow *f) {
     SCEnter();
 
-    /* Get the parser state (if any) */
-    if (f->aldata == NULL) {
-        SCLogDebug("no aldata");
-        goto error;
-    }
-
     AppLayerParserStateStore *parser_state_store =
-        (AppLayerParserStateStore *)f->aldata[app_layer_sid];
+        (AppLayerParserStateStore *)f->alparser;
 
     if (parser_state_store == NULL) {
         SCLogDebug("no state store");
@@ -1024,18 +1049,15 @@ error:
     SCReturnInt(-1);
 }
 
-/** \brief get the base transaction id */
+/** \brief get the base transaction id
+ *
+ *  \retval txid or -1 on error
+ */
 int AppLayerTransactionGetInspectId(Flow *f) {
     SCEnter();
 
-    /* Get the parser state (if any) */
-    if (f->aldata == NULL) {
-        SCLogDebug("no aldata");
-        goto error;
-    }
-
     AppLayerParserStateStore *parser_state_store =
-        (AppLayerParserStateStore *)f->aldata[app_layer_sid];
+        (AppLayerParserStateStore *)f->alparser;
 
     if (parser_state_store == NULL) {
         SCLogDebug("no state store");
@@ -1048,18 +1070,26 @@ error:
     SCReturnInt(-1);
 }
 
+uint16_t AppLayerTransactionGetAvailId(Flow *f) {
+    SCEnter();
+
+    AppLayerParserStateStore *parser_state_store =
+        (AppLayerParserStateStore *)f->alparser;
+
+    if (parser_state_store == NULL) {
+        SCLogDebug("no state store");
+        SCReturnUInt(0);
+    }
+
+    SCReturnUInt(parser_state_store->avail_id);
+}
+
 /** \brief get the highest loggable transaction id */
 int AppLayerTransactionGetLoggableId(Flow *f) {
     SCEnter();
 
-    /* Get the parser state (if any) */
-    if (f->aldata == NULL) {
-        SCLogDebug("no aldata");
-        goto error;
-    }
-
     AppLayerParserStateStore *parser_state_store =
-        (AppLayerParserStateStore *)f->aldata[app_layer_sid];
+        (AppLayerParserStateStore *)f->alparser;
 
     if (parser_state_store == NULL) {
         SCLogDebug("no state store");
@@ -1085,14 +1115,8 @@ error:
 void AppLayerTransactionUpdateLoggedId(Flow *f) {
     SCEnter();
 
-    /* Get the parser state (if any) */
-    if (f->aldata == NULL) {
-        SCLogDebug("no aldata");
-        goto error;
-    }
-
     AppLayerParserStateStore *parser_state_store =
-        (AppLayerParserStateStore *)f->aldata[app_layer_sid];
+        (AppLayerParserStateStore *)f->alparser;
 
     if (parser_state_store == NULL) {
         SCLogDebug("no state store");
@@ -1109,14 +1133,8 @@ error:
 int AppLayerTransactionGetLoggedId(Flow *f) {
     SCEnter();
 
-    /* Get the parser state (if any) */
-    if (f->aldata == NULL) {
-        SCLogDebug("no aldata");
-        goto error;
-    }
-
     AppLayerParserStateStore *parser_state_store =
-        (AppLayerParserStateStore *)f->aldata[app_layer_sid];
+        (AppLayerParserStateStore *)f->alparser;
 
     if (parser_state_store == NULL) {
         SCLogDebug("no state store");
@@ -1140,12 +1158,9 @@ uint16_t AppLayerGetStateVersion(Flow *f) {
     uint16_t version = 0;
     AppLayerParserStateStore *parser_state_store = NULL;
 
-    /* Get the parser state (if any) */
-    if (f->aldata != NULL) {
-        parser_state_store = (AppLayerParserStateStore *)f->aldata[app_layer_sid];
-        if (parser_state_store != NULL) {
-            version = parser_state_store->version;
-        }
+    parser_state_store = (AppLayerParserStateStore *)f->alparser;
+    if (parser_state_store != NULL) {
+        version = parser_state_store->version;
     }
 
     SCReturnUInt(version);
@@ -1164,47 +1179,43 @@ int AppLayerTransactionUpdateInspectId(Flow *f, char direction)
     SCEnter();
 
     int r = 0;
-
-    /* Get the parser state (if any) */
     AppLayerParserStateStore *parser_state_store = NULL;
 
-    if (f->aldata != NULL) {
-        parser_state_store = (AppLayerParserStateStore *)f->aldata[app_layer_sid];
-        if (parser_state_store != NULL) {
-            /* update inspect_id and see if it there are other transactions
-             * as well */
+    parser_state_store = (AppLayerParserStateStore *)f->alparser;
+    if (parser_state_store != NULL) {
+        /* update inspect_id and see if it there are other transactions
+         * as well */
 
-            SCLogDebug("avail_id %"PRIu16", inspect_id %"PRIu16,
-                    parser_state_store->avail_id, parser_state_store->inspect_id);
+        SCLogDebug("avail_id %"PRIu16", inspect_id %"PRIu16,
+                parser_state_store->avail_id, parser_state_store->inspect_id);
 
-            if (direction == STREAM_TOSERVER)
-                parser_state_store->id_flags |= APP_LAYER_TRANSACTION_TOSERVER;
-            else
-                parser_state_store->id_flags |= APP_LAYER_TRANSACTION_TOCLIENT;
+        if (direction == STREAM_TOSERVER)
+            parser_state_store->id_flags |= APP_LAYER_TRANSACTION_TOSERVER;
+        else
+            parser_state_store->id_flags |= APP_LAYER_TRANSACTION_TOCLIENT;
 
-            if ((parser_state_store->inspect_id+1) < parser_state_store->avail_id &&
-                    (parser_state_store->id_flags & APP_LAYER_TRANSACTION_TOCLIENT) &&
-                    (parser_state_store->id_flags & APP_LAYER_TRANSACTION_TOSERVER))
-            {
-                parser_state_store->id_flags &=~ APP_LAYER_TRANSACTION_TOCLIENT;
-                parser_state_store->id_flags &=~ APP_LAYER_TRANSACTION_TOSERVER;
+        if ((parser_state_store->inspect_id+1) < parser_state_store->avail_id &&
+                (parser_state_store->id_flags & APP_LAYER_TRANSACTION_TOCLIENT) &&
+                (parser_state_store->id_flags & APP_LAYER_TRANSACTION_TOSERVER))
+        {
+            parser_state_store->id_flags &=~ APP_LAYER_TRANSACTION_TOCLIENT;
+            parser_state_store->id_flags &=~ APP_LAYER_TRANSACTION_TOSERVER;
 
-                parser_state_store->inspect_id++;
-                if (parser_state_store->inspect_id < parser_state_store->avail_id) {
-                    /* done and more transactions available */
-                    r = 2;
+            parser_state_store->inspect_id = parser_state_store->avail_id - 1;
+            if (parser_state_store->inspect_id < parser_state_store->avail_id) {
+                /* done and more transactions available */
+                r = 2;
 
-                    SCLogDebug("inspect_id %"PRIu16", avail_id %"PRIu16,
-                            parser_state_store->inspect_id,
-                            parser_state_store->avail_id);
-                } else {
-                    /* done but no more transactions available */
-                    r = 1;
+                SCLogDebug("inspect_id %"PRIu16", avail_id %"PRIu16,
+                        parser_state_store->inspect_id,
+                        parser_state_store->avail_id);
+            } else {
+                /* done but no more transactions available */
+                r = 1;
 
-                    SCLogDebug("inspect_id %"PRIu16", avail_id %"PRIu16,
-                            parser_state_store->inspect_id,
-                            parser_state_store->avail_id);
-                }
+                SCLogDebug("inspect_id %"PRIu16", avail_id %"PRIu16,
+                        parser_state_store->inspect_id,
+                        parser_state_store->avail_id);
             }
         }
     }
@@ -1217,8 +1228,6 @@ void RegisterAppLayerParsers(void)
     /** \todo move to general init function */
     memset(&al_proto_table, 0, sizeof(al_proto_table));
     memset(&al_parser_table, 0, sizeof(al_parser_table));
-
-    app_layer_sid = AppLayerRegisterModule();
 
     /** setup result pool
      * \todo Per thread pool */
@@ -1234,11 +1243,11 @@ void RegisterAppLayerParsers(void)
     RegisterSMTPParsers();
 
     /** IMAP */
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_IMAP, "|2A 20|OK|20|", 5, 0, STREAM_TOCLIENT);
+    //AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_IMAP, "|2A 20|OK|20|", 5, 0, STREAM_TOCLIENT);
     AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_IMAP, "1|20|capability", 12, 0, STREAM_TOSERVER);
 
     /** MSN Messenger */
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_MSN, "MSNP", 10, 6, STREAM_TOCLIENT);
+    //AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_MSN, "MSNP", 10, 6, STREAM_TOCLIENT);
     AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_MSN, "MSNP", 10, 6, STREAM_TOSERVER);
 
     /** Jabber */
@@ -1261,25 +1270,17 @@ void AppLayerParserCleanupState(Flow *f)
 
     /* free the parser protocol state */
     AppLayerProto *p = &al_proto_table[f->alproto];
-    if (p->StateFree != NULL && f->aldata != NULL) {
-        if (f->aldata[p->storage_id] != NULL) {
-            SCLogDebug("calling StateFree");
-            p->StateFree(f->aldata[p->storage_id]);
-            f->aldata[p->storage_id] = NULL;
-        }
+    if (p->StateFree != NULL && f->alstate != NULL) {
+        SCLogDebug("calling StateFree");
+        p->StateFree(f->alstate);
+        f->alstate = NULL;
     }
 
     /* free the app layer parser api state */
-    if (f->aldata != NULL) {
-        if (f->aldata[app_layer_sid] != NULL) {
-            SCLogDebug("calling AppLayerParserStateStoreFree");
-            AppLayerParserStateStoreFree(f->aldata[app_layer_sid]);
-            f->aldata[app_layer_sid] = NULL;
-        }
-
-        //StreamTcpDecrMemuse((uint32_t)(StreamL7GetStorageSize() * sizeof(void *)));
-        SCFree(f->aldata);
-        f->aldata = NULL;
+    if (f->alparser != NULL) {
+        SCLogDebug("calling AppLayerParserStateStoreFree");
+        AppLayerParserStateStoreFree(f->alparser);
+        f->alparser = NULL;
     }
 }
 
@@ -1784,8 +1785,8 @@ void AppLayerRegisterProbingParser(AlpProtoDetectCtx *ctx,
 {
     AppLayerProbingParser **probing_parsers = &ctx->probing_parsers;
     AppLayerProbingParserElement *pe = NULL;
-    AppLayerProbingParser *pp = NULL;
     AppLayerProbingParserElement *new_pe = NULL;
+    AppLayerProbingParser *pp = NULL;
 
     /* Add info about this probing parser to our database.  Also detects any
      * duplicate existance of this parser but with conflicting parameters */
@@ -1797,8 +1798,7 @@ void AppLayerRegisterProbingParser(AlpProtoDetectCtx *ctx,
     /* \todo introduce parsing port range here */
 
     /* Get a new parser element */
-    new_pe =
-        AppLayerCreateAppLayerProbingParserElement(al_proto_name, ip_proto,
+    new_pe = AppLayerCreateAppLayerProbingParserElement(al_proto_name, ip_proto,
                                                    al_proto, min_depth,
                                                    max_depth, port,
                                                    priority, top,
@@ -1892,8 +1892,8 @@ typedef struct TestState_ {
  *          parser of occurence of an error.
  */
 static int TestProtocolParser(Flow *f, void *test_state, AppLayerParserState *pstate,
-                                     uint8_t *input, uint32_t input_len,
-                                     AppLayerParserResult *output)
+                              uint8_t *input, uint32_t input_len,
+                              void *local_data, AppLayerParserResult *output)
 {
     return -1;
 }
@@ -1923,19 +1923,12 @@ static void TestProtocolStateFree(void *s)
 static int AppLayerParserTest01 (void)
 {
     int result = 0;
-    Flow f;
+    Flow *f = NULL;
     uint8_t testbuf[] = { 0x11 };
     uint32_t testlen = sizeof(testbuf);
     TcpSession ssn;
-    struct in_addr addr;
-    struct in_addr addr1;
-    Address src;
-    Address dst;
 
-    memset(&f, 0, sizeof(f));
     memset(&ssn, 0, sizeof(ssn));
-    memset(&src, 0, sizeof(src));
-    memset(&dst, 0, sizeof(dst));
 
     /* Register the Test protocol state and parser functions */
     AppLayerRegisterProto("test", ALPROTO_TEST, STREAM_TOSERVER,
@@ -1943,33 +1936,24 @@ static int AppLayerParserTest01 (void)
     AppLayerRegisterStateFuncs(ALPROTO_TEST, TestProtocolStateAlloc,
                                 TestProtocolStateFree);
 
-    FLOW_INITIALIZE(&f);
-    f.alproto = ALPROTO_TEST;
-    f.protoctx = (void *)&ssn;
+    f = UTHBuildFlow(AF_INET, "1.2.3.4", "4.3.2.1", 20, 40);
+    if (f == NULL)
+        goto end;
+    f->protoctx = &ssn;
 
-    inet_pton(AF_INET, "1.2.3.4", &addr.s_addr);
-    src.family = AF_INET;
-    src.addr_data32[0] = addr.s_addr;
-    inet_pton(AF_INET, "4.3.2.1", &addr1.s_addr);
-    dst.family = AF_INET;
-    dst.addr_data32[0] = addr1.s_addr;
-    f.src = src;
-    f.dst = dst;
-    f.sp = htons(20);
-    f.dp = htons(40);
-    f.proto = IPPROTO_TCP;
+    f->alproto = ALPROTO_TEST;
+    f->proto = IPPROTO_TCP;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_TEST, STREAM_TOSERVER|STREAM_EOF, testbuf,
+    int r = AppLayerParse(NULL, f, ALPROTO_TEST, STREAM_TOSERVER|STREAM_EOF, testbuf,
                           testlen);
     if (r != -1) {
         printf("returned %" PRId32 ", expected -1: ", r);
         goto end;
     }
 
-    if (!(f.flags & FLOW_NO_APPLAYER_INSPECTION))
+    if (!(f->flags & FLOW_NO_APPLAYER_INSPECTION))
     {
         printf("flag should have been set, but is not: ");
         goto end;
@@ -1977,9 +1961,9 @@ static int AppLayerParserTest01 (void)
 
     result = 1;
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
-    FLOW_DESTROY(&f);
+
+    UTHFreeFlow(f);
     return result;
 }
 
@@ -1989,17 +1973,9 @@ end:
 static int AppLayerParserTest02 (void)
 {
     int result = 1;
-    Flow f;
+    Flow *f = NULL;
     uint8_t testbuf[] = { 0x11 };
     uint32_t testlen = sizeof(testbuf);
-    struct in_addr addr;
-    struct in_addr addr1;
-    Address src;
-    Address dst;
-
-    memset(&f, 0, sizeof(f));
-    memset(&src, 0, sizeof(src));
-    memset(&dst, 0, sizeof(dst));
 
     /* Register the Test protocol state and parser functions */
     AppLayerRegisterProto("test", ALPROTO_TEST, STREAM_TOSERVER,
@@ -2007,24 +1983,15 @@ static int AppLayerParserTest02 (void)
     AppLayerRegisterStateFuncs(ALPROTO_TEST, TestProtocolStateAlloc,
                                 TestProtocolStateFree);
 
-    f.alproto = ALPROTO_TEST;
-
-    inet_pton(AF_INET, "1.2.3.4", &addr.s_addr);
-    src.family = AF_INET;
-    src.addr_data32[0] = addr.s_addr;
-    inet_pton(AF_INET, "4.3.2.1", &addr1.s_addr);
-    dst.family = AF_INET;
-    dst.addr_data32[0] = addr1.s_addr;
-    f.src = src;
-    f.dst = dst;
-    f.sp = htons(20);
-    f.dp = htons(40);
-    f.proto = IPPROTO_UDP;
+    f = UTHBuildFlow(AF_INET, "1.2.3.4", "4.3.2.1", 20, 40);
+    if (f == NULL)
+        goto end;
+    f->alproto = ALPROTO_TEST;
+    f->proto = IPPROTO_UDP;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_TEST, STREAM_TOSERVER|STREAM_EOF, testbuf,
+    int r = AppLayerParse(NULL, f, ALPROTO_TEST, STREAM_TOSERVER|STREAM_EOF, testbuf,
                           testlen);
     if (r != -1) {
         printf("returned %" PRId32 ", expected -1: \n", r);
@@ -2033,8 +2000,8 @@ static int AppLayerParserTest02 (void)
     }
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
+    UTHFreeFlow(f);
     return result;
 }
 

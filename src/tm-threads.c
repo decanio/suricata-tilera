@@ -620,7 +620,11 @@ void *TmThreadsSlotPktAcqLoop(void *td) {
         TmThreadSetupOptions(tv);
 
     /* check if we are setup properly */
-    if (s == NULL || tv->tmqh_in == NULL || tv->tmqh_out == NULL) {
+    if (s == NULL || s->PktAcqLoop == NULL || tv->tmqh_in == NULL || tv->tmqh_out == NULL) {
+        SCLogError(SC_ERR_FATAL, "TmSlot or ThreadVars badly setup: s=%p,"
+                                 " PktAcqLoop=%p, tmqh_in=%p,"
+                                 " tmqh_out=%p",
+                   s, s->PktAcqLoop, tv->tmqh_in, tv->tmqh_out);
         EngineKill();
 
         TmThreadsSetFlag(tv, THV_CLOSED);
@@ -995,9 +999,9 @@ TmSlot *TmSlotGetSlotForTM(int tm_id)
     return NULL;
 }
 
-#if !defined OS_WIN32 && !defined __OpenBSD__
+#if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__
 static int SetCPUAffinitySet(cpu_set_t *cs) {
-#if  defined OS_FREEBSD
+#if defined OS_FREEBSD
     int r = cpuset_setaffinity(CPU_LEVEL_WHICH, CPU_WHICH_TID,
                                SCGetThreadIdLong(), sizeof(cpu_set_t),cs);
 #elif OS_DARWIN
@@ -1028,6 +1032,7 @@ static int SetCPUAffinitySet(cpu_set_t *cs) {
  */
 static int SetCPUAffinity(uint16_t cpuid)
 {
+#ifndef __CYGWIN__
 #if !defined __OpenBSD__
     int cpu = (int)cpuid;
 #endif
@@ -1057,6 +1062,7 @@ static int SetCPUAffinity(uint16_t cpuid)
 #elif !defined __OpenBSD__
     return SetCPUAffinitySet(&cs);
 #endif /* OS_WIN32 */
+#endif
 }
 
 
@@ -1081,6 +1087,7 @@ TmEcode TmThreadSetThreadPriority(ThreadVars *tv, int prio)
 void TmThreadSetPrio(ThreadVars *tv)
 {
     SCEnter();
+#ifndef __CYGWIN__
 #ifdef OS_WIN32
 	if (0 == SetThreadPriority(GetCurrentThread(), tv->thread_priority)) {
         SCLogError(SC_ERR_THREAD_NICE_PRIO, "Error setting priority for "
@@ -1099,6 +1106,7 @@ void TmThreadSetPrio(ThreadVars *tv)
                    tv->thread_priority, tv->name);
     }
 #endif /* OS_WIN32 */
+#endif
     SCReturn;
 }
 
@@ -1161,7 +1169,7 @@ TmEcode TmThreadSetupOptions(ThreadVars *tv)
         SetCPUAffinity(tv->cpu_affinity);
     }
 
-#if !defined OS_WIN32 && !defined __OpenBSD__
+#if !defined __CYGWIN__ && !defined OS_WIN32 && !defined __OpenBSD__
     if (tv->thread_setup_flags & THREAD_SET_PRIORITY)
         TmThreadSetPrio(tv);
     if (tv->thread_setup_flags & THREAD_SET_AFFTYPE) {
@@ -1679,7 +1687,7 @@ TmSlot *TmThreadGetFirstTmSlotForPartialPattern(const char *tm_name)
         while (slots != NULL) {
             TmModule *tm = TmModuleGetById(slots->tm_id);
 
-            char *found = strcasestr(tm->name, tm_name);
+            char *found = strstr(tm->name, tm_name);
             if (found != NULL)
                 goto end;
 
@@ -1956,6 +1964,7 @@ void TmThreadCheckThreadState(void)
 
         while (tv) {
             if (TmThreadsCheckFlag(tv, THV_FAILED)) {
+                TmThreadsSetFlag(tv, THV_DEINIT);
                 pthread_join(tv->t, NULL);
                 if (tv_aof & THV_ENGINE_EXIT || tv->aof & THV_ENGINE_EXIT) {
                     EngineKill();

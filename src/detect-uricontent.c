@@ -225,16 +225,21 @@ DetectContentData *DoDetectUricontentSetup (char * contentstr)
         if ((str = SCStrdup(temp + pos + 1)) == NULL)
             goto error;
         str[strlen(temp) - pos - 2] = '\0';
-    } else if (temp[pos] == '\"' || temp[pos + strlen(temp + pos) - 1] == '\"') {
-        goto error;
     } else {
-        if ((str = SCStrdup(temp + pos)) == NULL)
-            goto error;
+        SCLogError(SC_ERR_INVALID_SIGNATURE, "uricontent keywords's argument "
+                   "should be always enclosed in double quotes.  Invalid "
+                   "content keyword passed in this rule - \"%s\"",
+                   contentstr);
+        goto error;
     }
+    str[strlen(temp) - pos - 2] = '\0';
 
     SCFree(temp);
     temp = NULL;
+
     len = strlen(str);
+    if (len == 0)
+        goto error;
 
     SCLogDebug("\"%s\", len %" PRIu32 "", str, len);
     char converted = 0;
@@ -466,7 +471,7 @@ uint32_t DetectUricontentInspectMpm(DetectEngineThreadCtx *det_ctx, Flow *f, Htp
     SCEnter();
 
     uint32_t cnt = 0;
-    size_t idx = 0;
+    int idx = 0;
     htp_tx_t *tx = NULL;
 
     /* locking the flow, we will inspect the htp state */
@@ -486,8 +491,13 @@ uint32_t DetectUricontentInspectMpm(DetectEngineThreadCtx *det_ctx, Flow *f, Htp
         SCReturnUInt(0U);
     }
 
-    for (idx = AppLayerTransactionGetInspectId(f);
-         idx < list_size(htp_state->connp->conn->transactions); idx++)
+    idx = AppLayerTransactionGetInspectId(f);
+    if (idx == -1) {
+        goto end;
+    }
+
+    int size = (int)list_size(htp_state->connp->conn->transactions);
+    for (; idx < size; idx++)
     {
         tx = list_get(htp_state->connp->conn->transactions, idx);
         if (tx == NULL || tx->request_uri_normalized == NULL)
@@ -497,7 +507,7 @@ uint32_t DetectUricontentInspectMpm(DetectEngineThreadCtx *det_ctx, Flow *f, Htp
                 bstr_ptr(tx->request_uri_normalized),
                 bstr_len(tx->request_uri_normalized));
     }
-
+end:
 #ifdef __tile__
     tmc_spin_queued_mutex_unlock(&f->m);
 #else
@@ -517,7 +527,7 @@ uint32_t DetectUricontentInspectMpm(DetectEngineThreadCtx *det_ctx, Flow *f, Htp
 /** \test Test case where path traversal has been sent as a path string in the
  *        HTTP URL and normalized path string is checked */
 static int HTTPUriTest01(void) {
-    int result = 1;
+    int result = 0;
     Flow f;
     uint8_t httpbuf1[] = "GET /../../images.gif HTTP/1.1\r\nHost: www.ExA"
                          "mPlE.cOM\r\n\r\n";
@@ -529,18 +539,20 @@ static int HTTPUriTest01(void) {
 
     FLOW_INITIALIZE(&f);
     f.protoctx = (void *)&ssn;
-    f.src.family = AF_INET;
-    f.dst.family = AF_INET;
+    f.flags |= FLOW_IPV4;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_HTTP, STREAM_TOSERVER|STREAM_START|
+    r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER|STREAM_START|
                           STREAM_EOF, httpbuf1, httplen1);
-    HtpState *htp_state = f.aldata[AlpGetStateIdx(ALPROTO_HTTP)];
+    if (r != 0) {
+        printf("AppLayerParse failed: r(%d) != 0: ", r);
+        goto end;
+    }
+
+    HtpState *htp_state = f.alstate;
     if (htp_state == NULL) {
         printf("no http state: ");
-        result = 0;
         goto end;
     }
 
@@ -552,7 +564,6 @@ static int HTTPUriTest01(void) {
         printf("expected method GET and got %s: , expected protocol "
                 "HTTP/1.1 and got %s \n", bstr_tocstr(tx->request_method),
                 bstr_tocstr(tx->request_protocol));
-        result = 0;
         goto end;
     }
 
@@ -561,7 +572,6 @@ static int HTTPUriTest01(void) {
     {
         printf("expected www.example.com as hostname, but got: %s \n",
                 bstr_tocstr(tx->parsed_uri->hostname));
-        result = 0;
         goto end;
     }
 
@@ -570,12 +580,11 @@ static int HTTPUriTest01(void) {
     {
         printf("expected /images.gif as path, but got: %s \n",
                 bstr_tocstr(tx->parsed_uri->path));
-        result = 0;
         goto end;
     }
 
+    result = 1;
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -584,7 +593,7 @@ end:
 /** \test Test case where path traversal has been sent in special characters in
  *        HEX encoding in the HTTP URL and normalized path string is checked */
 static int HTTPUriTest02(void) {
-    int result = 1;
+    int result = 0;
     Flow f;
     HtpState *htp_state = NULL;
     uint8_t httpbuf1[] = "GET /%2e%2e/images.gif HTTP/1.1\r\nHost: www.ExA"
@@ -597,19 +606,20 @@ static int HTTPUriTest02(void) {
 
     FLOW_INITIALIZE(&f);
     f.protoctx = (void *)&ssn;
-    f.src.family = AF_INET;
-    f.dst.family = AF_INET;
+    f.flags |= FLOW_IPV4;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_HTTP, STREAM_TOSERVER|STREAM_START|
+    r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER|STREAM_START|
                           STREAM_EOF, httpbuf1, httplen1);
+    if (r != 0) {
+        printf("AppLayerParse failed: r(%d) != 0: ", r);
+        goto end;
+    }
 
-    htp_state = f.aldata[AlpGetStateIdx(ALPROTO_HTTP)];
+    htp_state = f.alstate;
     if (htp_state == NULL) {
         printf("no http state: ");
-        result = 0;
         goto end;
     }
 
@@ -621,7 +631,6 @@ static int HTTPUriTest02(void) {
         printf("expected method GET and got %s: , expected protocol "
                 "HTTP/1.1 and got %s \n", bstr_tocstr(tx->request_method),
                 bstr_tocstr(tx->request_protocol));
-        result = 0;
         goto end;
     }
 
@@ -630,7 +639,6 @@ static int HTTPUriTest02(void) {
     {
         printf("expected www.example.com as hostname, but got: %s \n",
                 bstr_tocstr(tx->parsed_uri->hostname));
-        result = 0;
         goto end;
     }
 
@@ -639,15 +647,14 @@ static int HTTPUriTest02(void) {
     {
         printf("expected /images.gif as path, but got: %s \n",
                 bstr_tocstr(tx->parsed_uri->path));
-        result = 0;
         goto end;
     }
 
-
+    result = 1;
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
-    if (htp_state != NULL) HTPStateFree(htp_state);
+    if (htp_state != NULL)
+        HTPStateFree(htp_state);
     FLOW_DESTROY(&f);
     return result;
 }
@@ -655,8 +662,9 @@ end:
 /** \test Test case where NULL character has been sent in HEX encoding in the
  *        HTTP URL and normalized path string is checked */
 static int HTTPUriTest03(void) {
-    int result = 1;
+    int result = 0;
     Flow f;
+    HtpState *htp_state = NULL;
     uint8_t httpbuf1[] = "GET%00 /images.gif HTTP/1.1\r\nHost: www.ExA"
                          "mPlE.cOM\r\n\r\n";
     uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
@@ -667,19 +675,20 @@ static int HTTPUriTest03(void) {
 
     FLOW_INITIALIZE(&f);
     f.protoctx = (void *)&ssn;
-    f.src.family = AF_INET;
-    f.dst.family = AF_INET;
+    f.flags |= FLOW_IPV4;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_HTTP, STREAM_TOSERVER|STREAM_START|
+    r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER|STREAM_START|
                           STREAM_EOF, httpbuf1, httplen1);
+    if (r != 0) {
+        printf("AppLayerParse failed: r(%d) != 0: ", r);
+        goto end;
+    }
 
-    HtpState *htp_state = f.aldata[AlpGetStateIdx(ALPROTO_HTTP)];
+    htp_state = f.alstate;
     if (htp_state == NULL) {
         printf("no http state: ");
-        result = 0;
         goto end;
     }
 
@@ -691,7 +700,6 @@ static int HTTPUriTest03(void) {
         printf("expected method GET and got %s: , expected protocol "
                 "HTTP/1.1 and got %s \n", bstr_tocstr(tx->request_method),
                 bstr_tocstr(tx->request_protocol));
-        result = 0;
         goto end;
     }
 
@@ -700,7 +708,6 @@ static int HTTPUriTest03(void) {
     {
         printf("expected www.example.com as hostname, but got: %s \n",
                 bstr_tocstr(tx->parsed_uri->hostname));
-        result = 0;
         goto end;
     }
 
@@ -709,14 +716,14 @@ static int HTTPUriTest03(void) {
     {
         printf("expected /images.gif as path, but got: %s \n",
                 bstr_tocstr(tx->parsed_uri->path));
-        result = 0;
         goto end;
     }
 
+    result = 1;
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
-    if (htp_state != NULL) HTPStateFree(htp_state);
+    if (htp_state != NULL)
+        HTPStateFree(htp_state);
     FLOW_DESTROY(&f);
     return result;
 }
@@ -725,8 +732,9 @@ end:
 /** \test Test case where self referencing directories request has been sent
  *        in the HTTP URL and normalized path string is checked */
 static int HTTPUriTest04(void) {
-    int result = 1;
+    int result = 0;
     Flow f;
+    HtpState *htp_state = NULL;
     uint8_t httpbuf1[] = "GET /./././images.gif HTTP/1.1\r\nHost: www.ExA"
                          "mPlE.cOM\r\n\r\n";
     uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
@@ -737,16 +745,18 @@ static int HTTPUriTest04(void) {
 
     FLOW_INITIALIZE(&f);
     f.protoctx = (void *)&ssn;
-    f.src.family = AF_INET;
-    f.dst.family = AF_INET;
+    f.flags |= FLOW_IPV4;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_HTTP, STREAM_TOSERVER|STREAM_START|
+    r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER|STREAM_START|
                           STREAM_EOF, httpbuf1, httplen1);
+    if (r != 0) {
+        printf("AppLayerParse failed: r(%d) != 0: ", r);
+        goto end;
+    }
 
-    HtpState *htp_state = f.aldata[AlpGetStateIdx(ALPROTO_HTTP)];
+    htp_state = f.alstate;
     if (htp_state == NULL) {
         printf("no http state: ");
         result = 0;
@@ -783,11 +793,11 @@ static int HTTPUriTest04(void) {
         goto end;
     }
 
-
+    result = 1;
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
-    if (htp_state != NULL) HTPStateFree(htp_state);
+    if (htp_state != NULL)
+        HTPStateFree(htp_state);
     FLOW_DESTROY(&f);
     return result;
 }
@@ -860,8 +870,7 @@ static int DetectUriSigTest02(void) {
 
     FLOW_INITIALIZE(&f);
     f.protoctx = (void *)&ssn;
-    f.src.family = AF_INET;
-    f.dst.family = AF_INET;
+    f.flags |= FLOW_IPV4;
 
     p->flow = &f;
     p->flowflags |= FLOW_PKT_TOSERVER;
@@ -870,7 +879,6 @@ static int DetectUriSigTest02(void) {
     f.alproto = ALPROTO_HTTP;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
     DetectEngineCtx *de_ctx = DetectEngineCtxInit();
     if (de_ctx == NULL) {
@@ -904,13 +912,13 @@ static int DetectUriSigTest02(void) {
     SigGroupBuild(de_ctx);
     DetectEngineThreadCtxInit(&th_v, (void *)de_ctx, (void *)&det_ctx);
 
-    int r = AppLayerParse(&f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf1, httplen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf1, httplen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    http_state = f.aldata[AlpGetStateIdx(ALPROTO_HTTP)];
+    http_state = f.alstate;
     if (http_state == NULL) {
         printf("no http state: ");
         goto end;
@@ -938,7 +946,6 @@ end:
     if (det_ctx != NULL) DetectEngineThreadCtxDeinit(&th_v, det_ctx);
     if (de_ctx != NULL) DetectEngineCtxFree(de_ctx);
 
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     UTHFreePackets(&p, 1);
@@ -971,8 +978,7 @@ static int DetectUriSigTest03(void) {
 
     FLOW_INITIALIZE(&f);
     f.protoctx = (void *)&ssn;
-    f.src.family = AF_INET;
-    f.dst.family = AF_INET;
+    f.flags |= FLOW_IPV4;
 
     p->flow = &f;
     p->flowflags |= FLOW_PKT_TOSERVER;
@@ -981,7 +987,6 @@ static int DetectUriSigTest03(void) {
     f.alproto = ALPROTO_HTTP;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
     DetectEngineCtx *de_ctx = DetectEngineCtxInit();
     if (de_ctx == NULL) {
@@ -1015,7 +1020,7 @@ static int DetectUriSigTest03(void) {
     SigGroupBuild(de_ctx);
     DetectEngineThreadCtxInit(&th_v, (void *)de_ctx, (void *)&det_ctx);
 
-    int r = AppLayerParse(&f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf1, httplen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf1, httplen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
@@ -1036,13 +1041,13 @@ static int DetectUriSigTest03(void) {
     }
 
 
-    r = AppLayerParse(&f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf2, httplen2);
+    r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf2, httplen2);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
     }
 
-    http_state = f.aldata[AlpGetStateIdx(ALPROTO_HTTP)];
+    http_state = f.alstate;
     if (http_state == NULL) {
         printf("no http state: ");
         goto end;
@@ -1070,7 +1075,6 @@ end:
     if (det_ctx != NULL) DetectEngineThreadCtxDeinit(&th_v, det_ctx);
     if (de_ctx != NULL) DetectEngineCtxFree(de_ctx);
 
-    //FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     UTHFreePackets(&p, 1);
@@ -1301,8 +1305,7 @@ static int DetectUriSigTest05(void) {
 
     FLOW_INITIALIZE(&f);
     f.protoctx = (void *)&ssn;
-    f.src.family = AF_INET;
-    f.dst.family = AF_INET;
+    f.flags |= FLOW_IPV4;
 
     p->flow = &f;
     p->flowflags |= FLOW_PKT_TOSERVER;
@@ -1312,7 +1315,6 @@ static int DetectUriSigTest05(void) {
     f.proto = p->proto;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
     StreamMsg *stream_msg = StreamMsgGetFromPool();
     if (stream_msg == NULL) {
@@ -1356,7 +1358,7 @@ static int DetectUriSigTest05(void) {
     SigGroupBuild(de_ctx);
     DetectEngineThreadCtxInit(&th_v, (void *)de_ctx, (void *)&det_ctx);
 
-    int r = AppLayerParse(&f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf1, httplen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf1, httplen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
@@ -1365,7 +1367,7 @@ static int DetectUriSigTest05(void) {
     /* do detect */
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
 
-    http_state = f.aldata[AlpGetStateIdx(ALPROTO_HTTP)];
+    http_state = f.alstate;
     if (http_state == NULL) {
         printf("no http state: ");
         goto end;
@@ -1389,7 +1391,6 @@ end:
     if (det_ctx != NULL) DetectEngineThreadCtxDeinit(&th_v, det_ctx);
     if (de_ctx != NULL) DetectEngineCtxFree(de_ctx);
 
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     UTHFreePackets(&p, 1);
@@ -1425,8 +1426,7 @@ static int DetectUriSigTest06(void) {
 
     FLOW_INITIALIZE(&f);
     f.protoctx = (void *)&ssn;
-    f.src.family = AF_INET;
-    f.dst.family = AF_INET;
+    f.flags |= FLOW_IPV4;
 
     p->flow = &f;
     p->flowflags |= FLOW_PKT_TOSERVER;
@@ -1436,7 +1436,6 @@ static int DetectUriSigTest06(void) {
     f.proto = p->proto;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
     StreamMsg *stream_msg = StreamMsgGetFromPool();
     if (stream_msg == NULL) {
@@ -1492,7 +1491,7 @@ static int DetectUriSigTest06(void) {
     SigGroupBuild(de_ctx);
     DetectEngineThreadCtxInit(&th_v, (void *)de_ctx, (void *)&det_ctx);
 
-    int r = AppLayerParse(&f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf1, httplen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf1, httplen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
@@ -1501,7 +1500,7 @@ static int DetectUriSigTest06(void) {
    /* do detect */
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
 
-    http_state = f.aldata[AlpGetStateIdx(ALPROTO_HTTP)];
+    http_state = f.alstate;
     if (http_state == NULL) {
         printf("no http state: ");
         goto end;
@@ -1526,7 +1525,6 @@ end:
     if (det_ctx != NULL) DetectEngineThreadCtxDeinit(&th_v, det_ctx);
     if (de_ctx != NULL) DetectEngineCtxFree(de_ctx);
 
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     UTHFreePackets(&p, 1);
@@ -1557,8 +1555,7 @@ static int DetectUriSigTest07(void) {
 
     FLOW_INITIALIZE(&f);
     f.protoctx = (void *)&ssn;
-    f.src.family = AF_INET;
-    f.dst.family = AF_INET;
+    f.flags |= FLOW_IPV4;
 
     p->flow = &f;
     p->flowflags |= FLOW_PKT_TOSERVER;
@@ -1567,7 +1564,6 @@ static int DetectUriSigTest07(void) {
     f.alproto = ALPROTO_HTTP;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
     DetectEngineCtx *de_ctx = DetectEngineCtxInit();
     if (de_ctx == NULL) {
@@ -1611,7 +1607,7 @@ static int DetectUriSigTest07(void) {
     SigGroupBuild(de_ctx);
     DetectEngineThreadCtxInit(&th_v, (void *)de_ctx, (void *)&det_ctx);
 
-    int r = AppLayerParse(&f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf1, httplen1);
+    int r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER, httpbuf1, httplen1);
     if (r != 0) {
         printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
         goto end;
@@ -1620,7 +1616,7 @@ static int DetectUriSigTest07(void) {
     /* do detect */
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
 
-    http_state = f.aldata[AlpGetStateIdx(ALPROTO_HTTP)];
+    http_state = f.alstate;
     if (http_state == NULL) {
         printf("no http state: ");
         goto end;
@@ -1645,7 +1641,6 @@ end:
     if (det_ctx != NULL) DetectEngineThreadCtxDeinit(&th_v, det_ctx);
     if (de_ctx != NULL) DetectEngineCtxFree(de_ctx);
 
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     UTHFreePackets(&p, 1);
@@ -1667,7 +1662,7 @@ int DetectUriSigTest08(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:""; sid:238012;)");
+                               "(msg:\"test\"; uricontent:\"\"; sid:238012;)");
     if (de_ctx->sig_list != NULL) {
         result = 0;
         goto end;
@@ -1823,7 +1818,7 @@ int DetectUriContentParseTest13(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:|; sid:1;)");
+                               "(msg:\"test\"; uricontent:\"|\"; sid:1;)");
     if (de_ctx->sig_list != NULL) {
         result = 0;
         goto end;
@@ -1852,7 +1847,7 @@ int DetectUriContentParseTest14(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:|af; sid:1;)");
+                               "(msg:\"test\"; uricontent:\"|af\"; sid:1;)");
     if (de_ctx->sig_list != NULL) {
         result = 0;
         goto end;
@@ -1881,7 +1876,7 @@ int DetectUriContentParseTest15(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:af|; sid:1;)");
+                               "(msg:\"test\"; uricontent:\"af|\"; sid:1;)");
     if (de_ctx->sig_list != NULL) {
         result = 0;
         goto end;
@@ -1910,7 +1905,7 @@ int DetectUriContentParseTest16(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:|af|; sid:1;)");
+                               "(msg:\"test\"; uricontent:\"|af|\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         result = 0;
         goto end;
@@ -1939,7 +1934,7 @@ int DetectUriContentParseTest17(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:aast|; sid:1;)");
+                               "(msg:\"test\"; uricontent:\"aast|\"; sid:1;)");
     if (de_ctx->sig_list != NULL) {
         result = 0;
         goto end;
@@ -1968,7 +1963,7 @@ int DetectUriContentParseTest18(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:aast|af; sid:1;)");
+                               "(msg:\"test\"; uricontent:\"aast|af\"; sid:1;)");
     if (de_ctx->sig_list != NULL) {
         result = 0;
         goto end;
@@ -1997,7 +1992,7 @@ int DetectUriContentParseTest19(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:aast|af|; sid:1;)");
+                               "(msg:\"test\"; uricontent:\"aast|af|\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         result = 0;
         goto end;
@@ -2026,7 +2021,7 @@ int DetectUriContentParseTest20(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:|af|asdf; sid:1;)");
+                               "(msg:\"test\"; uricontent:\"|af|asdf\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         result = 0;
         goto end;
@@ -2055,7 +2050,7 @@ int DetectUriContentParseTest21(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:|af|af|; sid:1;)");
+                               "(msg:\"test\"; uricontent:\"|af|af|\"; sid:1;)");
     if (de_ctx->sig_list != NULL) {
         result = 0;
         goto end;
@@ -2084,7 +2079,7 @@ int DetectUriContentParseTest22(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:|af|af|af; sid:1;)");
+                               "(msg:\"test\"; uricontent:\"|af|af|af\"; sid:1;)");
     if (de_ctx->sig_list != NULL) {
         result = 0;
         goto end;
@@ -2113,7 +2108,7 @@ int DetectUriContentParseTest23(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert udp any any -> any any "
-                               "(msg:\"test\"; uricontent:|af|af|af|; sid:1;)");
+                               "(msg:\"test\"; uricontent:\"|af|af|af|\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         result = 0;
         goto end;
@@ -2137,7 +2132,7 @@ int DetectUricontentSigTest08(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; content:one; http_uri; sid:1;)");
+                               "(content:\"one\"; content:\"one\"; http_uri; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -2176,7 +2171,7 @@ int DetectUricontentSigTest09(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(uricontent:one; content:one; sid:1;)");
+                               "(uricontent:\"one\"; content:\"one\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -2215,8 +2210,8 @@ int DetectUricontentSigTest10(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(uricontent:one; content:one; content:one; http_uri; "
-                               "content:two; content:one; sid:1;)");
+                               "(uricontent:\"one\"; content:\"one\"; content:\"one\"; http_uri; "
+                               "content:\"two\"; content:\"one\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -2258,8 +2253,8 @@ int DetectUricontentSigTest11(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; http_uri; content:one; uricontent:one; "
-                               "content:two; content:one; sid:1;)");
+                               "(content:\"one\"; http_uri; content:\"one\"; uricontent:\"one\"; "
+                               "content:\"two\"; content:\"one\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -2301,10 +2296,10 @@ int DetectUricontentSigTest12(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; http_uri; content:one; uricontent:one; "
-                               "content:two; content:one; http_uri; content:one; "
-                               "uricontent:one; uricontent: two; "
-                               "content:one; content:three; sid:1;)");
+                               "(content:\"one\"; http_uri; content:\"one\"; uricontent:\"one\"; "
+                               "content:\"two\"; content:\"one\"; http_uri; content:\"one\"; "
+                               "uricontent:\"one\"; uricontent: \"two\"; "
+                               "content:\"one\"; content:\"three\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;

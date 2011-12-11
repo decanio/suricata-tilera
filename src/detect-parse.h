@@ -64,10 +64,13 @@ void SigMatchAppendUricontent(Signature *, SigMatch *);
 void SigMatchAppendAppLayer(Signature *, SigMatch *);
 void SigMatchAppendTag(Signature *, SigMatch *);
 void SigMatchAppendSMToList(Signature *, SigMatch *, int);
+void SigMatchRemoveSMFromList(Signature *, SigMatch *, int);
 int SigMatchListSMBelongsTo(Signature *, SigMatch *);
 
 int DetectParseDupSigHashInit(DetectEngineCtx *);
 void DetectParseDupSigHashFree(DetectEngineCtx *);
+
+int DetectParseContentString (char *, uint8_t **, uint16_t *, uint32_t *);
 
 #endif /* __DETECT_PARSE_H__ */
 

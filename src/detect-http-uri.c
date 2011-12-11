@@ -16,6 +16,13 @@
  */
 
 /**
+ * \ingroup httplayer
+ *
+ * @{
+ */
+
+
+/**
  * \file
  *
  * \author Gerardo Iglesias  <iglesiasg@gmail.com>
@@ -343,7 +350,7 @@ int DetectHttpUriTest06(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; content:one; http_uri; sid:1;)");
+                               "(content:\"one\"; content:\"one\"; http_uri; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -382,7 +389,7 @@ int DetectHttpUriTest07(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; http_uri; content:one; sid:1;)");
+                               "(content:\"one\"; http_uri; content:\"one\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -421,7 +428,7 @@ int DetectHttpUriTest08(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; content:one; content:one; http_uri; content:one; sid:1;)");
+                               "(content:\"one\"; content:\"one\"; content:\"one\"; http_uri; content:\"one\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -460,7 +467,7 @@ int DetectHttpUriTest09(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; http_uri; content:one; content:one; content:one; sid:1;)");
+                               "(content:\"one\"; http_uri; content:\"one\"; content:\"one\"; content:\"one\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -499,8 +506,8 @@ int DetectHttpUriTest10(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; http_uri; "
-                               "content:one; content:one; http_uri; content:one; sid:1;)");
+                               "(content:\"one\"; http_uri; "
+                               "content:\"one\"; content:\"one\"; http_uri; content:\"one\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -540,8 +547,8 @@ int DetectHttpUriTest11(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; http_uri; "
-                               "content:one; content:one; http_uri; content:two; sid:1;)");
+                               "(content:\"one\"; http_uri; "
+                               "content:\"one\"; content:\"one\"; http_uri; content:\"two\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -581,8 +588,8 @@ int DetectHttpUriTest12(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; http_uri; "
-                               "content:two; distance:0; http_uri; sid:1;)");
+                               "(content:\"one\"; http_uri; "
+                               "content:\"two\"; distance:0; http_uri; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -625,8 +632,8 @@ int DetectHttpUriTest13(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; http_uri; "
-                               "content:two; within:5; http_uri; sid:1;)");
+                               "(content:\"one\"; http_uri; "
+                               "content:\"two\"; within:5; http_uri; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -669,7 +676,7 @@ int DetectHttpUriTest14(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; within:5; http_uri; sid:1;)");
+                               "(content:\"one\"; within:5; http_uri; sid:1;)");
     if (de_ctx->sig_list != NULL) {
         printf("de_ctx->sig_list != NULL\n");
         goto end;
@@ -693,7 +700,7 @@ int DetectHttpUriTest15(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; http_uri; within:5; sid:1;)");
+                               "(content:\"one\"; http_uri; within:5; sid:1;)");
     if (de_ctx->sig_list != NULL) {
         printf("de_ctx->sig_list != NULL\n");
         goto end;
@@ -717,7 +724,7 @@ int DetectHttpUriTest16(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(content:one; within:5; sid:1;)");
+                               "(content:\"one\"; within:5; sid:1;)");
     if (de_ctx->sig_list != NULL) {
         printf("de_ctx->sig_list != NULL\n");
         goto end;
@@ -741,8 +748,8 @@ int DetectHttpUriTest17(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(uricontent:one; "
-                               "content:two; distance:0; http_uri; sid:1;)");
+                               "(uricontent:\"one\"; "
+                               "content:\"two\"; distance:0; http_uri; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -785,8 +792,8 @@ int DetectHttpUriTest18(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(uricontent:one; "
-                               "content:two; within:5; http_uri; sid:1;)");
+                               "(uricontent:\"one\"; "
+                               "content:\"two\"; within:5; http_uri; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -848,3 +855,6 @@ void DetectHttpUriRegisterTests (void)
 #endif /* UNITTESTS */
 
 }
+/**
+ * @}
+ */

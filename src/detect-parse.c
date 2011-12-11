@@ -35,6 +35,7 @@
 #include "detect-content.h"
 #include "detect-uricontent.h"
 #include "detect-reference.h"
+#include "detect-ipproto.h"
 #include "detect-flow.h"
 
 #include "flow.h"
@@ -280,6 +281,22 @@ void SigMatchAppendTag(Signature *s, SigMatch *new) {
 
     new->idx = s->sm_cnt;
     s->sm_cnt++;
+
+    return;
+}
+
+void SigMatchRemoveSMFromList(Signature *s, SigMatch *sm, int sm_list)
+{
+    if (sm == s->sm_lists[sm_list]) {
+        s->sm_lists[sm_list] = sm->next;
+    }
+    if (sm == s->sm_lists_tail[sm_list]) {
+        s->sm_lists_tail[sm_list] = sm->prev;
+    }
+    if (sm->prev != NULL)
+        sm->prev->next = sm->next;
+    if (sm->next != NULL)
+        sm->next->prev = sm->prev;
 
     return;
 }
@@ -1046,6 +1063,8 @@ int SigParse(DetectEngineCtx *de_ctx, Signature *s, char *sigstr, uint8_t addrs_
 
     s->sig_str = NULL;
 
+    DetectIPProtoRemoveAllSMs(s);
+
     SCReturnInt(ret);
 }
 
@@ -1348,6 +1367,21 @@ static int SigValidate(Signature *s) {
                 " raw payload");
             SCReturnInt(0);
         }
+
+        if (s->sm_lists_tail[DETECT_SM_LIST_UMATCH] ||
+                s->sm_lists_tail[DETECT_SM_LIST_HRUDMATCH] ||
+                s->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH] ||
+                s->sm_lists_tail[DETECT_SM_LIST_HHDMATCH]  ||
+                s->sm_lists_tail[DETECT_SM_LIST_HRHDMATCH] ||
+                s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH]  ||
+                s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH])
+        {
+            SCLogError(SC_ERR_INVALID_SIGNATURE, "Signature combines packet "
+                    "specific matches (like dsize, flags, ttl) with stream / "
+                    "state matching by matching on app layer proto (like using "
+                    "http_* keywords).");
+            SCReturnInt(0);
+        }
     }
 
     SCReturnInt(1);
@@ -1475,6 +1509,8 @@ Signature *SigInit(DetectEngineCtx *de_ctx, char *sigstr) {
     if (sig->sm_lists[DETECT_SM_LIST_HCDMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
     if (sig->sm_lists[DETECT_SM_LIST_HRUDMATCH])
+        sig->flags |= SIG_FLAG_STATE_MATCH;
+    if (sig->sm_lists[DETECT_SM_LIST_FILEMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
 
     SCLogDebug("sig %"PRIu32" SIG_FLAG_APPLAYER: %s, SIG_FLAG_PACKET: %s",
@@ -1678,6 +1714,8 @@ Signature *SigInitReal(DetectEngineCtx *de_ctx, char *sigstr) {
         sig->flags |= SIG_FLAG_STATE_MATCH;
     if (sig->sm_lists[DETECT_SM_LIST_HCDMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
+    if (sig->sm_lists[DETECT_SM_LIST_FILEMATCH])
+        sig->flags |= SIG_FLAG_STATE_MATCH;
 
     SigBuildAddressMatchArray(sig);
 
@@ -1759,27 +1797,14 @@ char DetectParseDupSigCompareFunc(void *data1, uint16_t len1, void *data2,
     SigDuplWrapper *sw1 = (SigDuplWrapper *)data1;
     SigDuplWrapper *sw2 = (SigDuplWrapper *)data2;
 
-    if (sw1 == NULL || sw2 == NULL)
+    if (sw1 == NULL || sw2 == NULL ||
+        sw1->s == NULL || sw2->s == NULL)
         return 0;
 
-    if (sw1->s->id != sw2->s->id)
-        return 0;
+    /* sid and gid match required */
+    if (sw1->s->id == sw2->s->id && sw1->s->gid == sw2->s->gid) return 1;
 
-    /* be careful all you non-related signatures with the same sid and no msg.
-     * We treat you all as the same signature */
-    if ((sw1->s->msg == NULL) && (sw2->s->msg == NULL))
-        return 1;
-
-    if ((sw1->s->msg == NULL) || (sw2->s->msg == NULL))
-        return 0;
-
-    if (strlen(sw1->s->msg) != strlen(sw2->s->msg))
-        return 0;
-
-    if (strcmp(sw1->s->msg, sw2->s->msg) != 0)
-        return 0;
-
-    return 1;
+    return 0;
 }
 
 /**
@@ -1797,12 +1822,9 @@ int DetectParseDupSigHashInit(DetectEngineCtx *de_ctx)
                                                    DetectParseDupSigCompareFunc,
                                                    DetectParseDupSigFreeFunc);
     if (de_ctx->dup_sig_hash_table == NULL)
-        goto error;
+        return -1;
 
     return 0;
-
-error:
-    return -1;
 }
 
 /**
@@ -2011,6 +2033,197 @@ error:
     return NULL;
 }
 
+/**
+ *  \brief Parse a content string, ie "abc|DE|fgh"
+ *
+ *  \param content_str null terminated string containing the content
+ *  \param result result pointer to pass the fully parsed byte array
+ *  \param result_len size of the resulted data
+ *  \param flags flags to be set by this parsing function
+ *
+ *  \retval -1 error
+ *  \retval 0 ok
+ *
+ *  \initonly
+ */
+int DetectParseContentString (char *contentstr, uint8_t **result, uint16_t *result_len, uint32_t *result_flags)
+{
+    char *str = NULL;
+    char *temp = NULL;
+    uint16_t len;
+    uint16_t pos = 0;
+    uint16_t slen = 0;
+    uint8_t *content = NULL;
+    uint16_t content_len = 0;
+    uint32_t flags = 0;
+
+    if ((temp = SCStrdup(contentstr)) == NULL) {
+        SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory. Exiting...");
+        exit(EXIT_FAILURE);
+    }
+
+    if (strlen(temp) == 0) {
+        SCFree(temp);
+        return -1;
+    }
+
+    /* skip the first spaces */
+    slen = strlen(temp);
+    while (pos < slen && isspace(temp[pos])) {
+        pos++;
+    }
+
+    if (temp[pos] == '!') {
+        SCFree(temp);
+
+        if ((temp = SCStrdup(contentstr + pos + 1)) == NULL) {
+            SCLogError(SC_ERR_MEM_ALLOC, "error allocating memory. exiting...");
+            exit(EXIT_FAILURE);
+        }
+
+        pos = 0;
+        flags |= DETECT_CONTENT_NEGATED;
+        SCLogDebug("negation in place");
+    }
+
+    if (temp[pos] == '\"' && strlen(temp + pos) == 1)
+        goto error;
+
+    if (temp[pos] == '\"' && temp[pos + strlen(temp + pos) - 1] == '\"') {
+        if ((str = SCStrdup(temp + pos + 1)) == NULL) {
+            SCLogError(SC_ERR_MEM_ALLOC, "error allocating memory. exiting...");
+            exit(EXIT_FAILURE);
+        }
+
+        str[strlen(temp) - pos - 2] = '\0';
+    } else if (temp[pos] == '\"' || temp[pos + strlen(temp + pos) - 1] == '\"') {
+        goto error;
+    } else {
+        if ((str = SCStrdup(temp + pos)) == NULL) {
+            SCLogError(SC_ERR_MEM_ALLOC, "error allocating memory. exiting...");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    SCFree(temp);
+    temp = NULL;
+
+    len = strlen(str);
+    if (len == 0)
+        goto error;
+
+    //SCLogDebug("DetectContentParse: \"%s\", len %" PRIu32 "", str, len);
+    char converted = 0;
+
+    {
+        uint16_t i, x;
+        uint8_t bin = 0;
+        uint8_t escape = 0;
+        uint8_t binstr[3] = "";
+        uint8_t binpos = 0;
+        uint16_t bin_count = 0;
+
+        for (i = 0, x = 0; i < len; i++) {
+            // SCLogDebug("str[%02u]: %c", i, str[i]);
+            if (str[i] == '|') {
+                bin_count++;
+                if (bin) {
+                    bin = 0;
+                } else {
+                    bin = 1;
+                }
+            } else if(!escape && str[i] == '\\') {
+                escape = 1;
+            } else {
+                if (bin) {
+                    if (isdigit(str[i]) ||
+                            str[i] == 'A' || str[i] == 'a' ||
+                            str[i] == 'B' || str[i] == 'b' ||
+                            str[i] == 'C' || str[i] == 'c' ||
+                            str[i] == 'D' || str[i] == 'd' ||
+                            str[i] == 'E' || str[i] == 'e' ||
+                            str[i] == 'F' || str[i] == 'f')
+                    {
+                        // SCLogDebug("part of binary: %c", str[i]);
+
+                        binstr[binpos] = (char)str[i];
+                        binpos++;
+
+                        if (binpos == 2) {
+                            uint8_t c = strtol((char *)binstr, (char **) NULL, 16) & 0xFF;
+                            binpos = 0;
+                            str[x] = c;
+                            x++;
+                            converted = 1;
+                        }
+                    } else if (str[i] == ' ') {
+                        // SCLogDebug("space as part of binary string");
+                    }
+                } else if (escape) {
+                    if (str[i] == ':' ||
+                        str[i] == ';' ||
+                        str[i] == '\\' ||
+                        str[i] == '\"')
+                    {
+                        str[x] = str[i];
+                        x++;
+                    } else {
+                        //SCLogDebug("Can't escape %c", str[i]);
+                        goto error;
+                    }
+                    escape = 0;
+                    converted = 1;
+                } else {
+                    str[x] = str[i];
+                    x++;
+                }
+            }
+        }
+
+        if (bin_count % 2 != 0) {
+            SCLogError(SC_ERR_INVALID_SIGNATURE, "Invalid hex code assembly in "
+                       "content - %s.  Invalidating signature", str);
+            goto error;
+        }
+
+#if 0//def DEBUG
+        if (SCLogDebugEnabled()) {
+            for (i = 0; i < x; i++) {
+                if (isprint(str[i])) SCLogDebug("%c", str[i]);
+                else                 SCLogDebug("\\x%02u", str[i]);
+            }
+            SCLogDebug("");
+        }
+#endif
+
+        if (converted) {
+            len = x;
+        }
+    }
+
+    content = SCMalloc(len);
+    if (content == NULL) {
+        exit(EXIT_FAILURE);
+    }
+
+    memcpy(content, str, len);
+    content_len = len;
+
+    SCFree(str);
+
+    *result = content;
+    *result_len = content_len;
+    *result_flags = flags;
+    SCLogDebug("flags %02X, result_flags %02X", flags, *result_flags);
+    return 0;
+
+error:
+    SCFree(str);
+    SCFree(temp);
+    if (content != NULL)
+        SCFree(content);
+    return -1;
+}
 /*
  * TESTS
  */

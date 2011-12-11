@@ -606,13 +606,18 @@ int DetectAddressJoinIPv4(DetectEngineCtx *de_ctx, DetectAddress *target,
 
 static int DetectAddressIPv4TestAddressCmp01(void)
 {
-    DetectAddress *a = DetectAddressInit();
-    DetectAddress *b = DetectAddressInit();
     struct in_addr in;
     int result = 1;
 
-    if (a == NULL || b == NULL)
-        goto error;
+    DetectAddress *a = DetectAddressInit();
+    if (a == NULL)
+        return 0;
+
+    DetectAddress *b = DetectAddressInit();
+    if (b == NULL) {
+        DetectAddressFree(a);
+        return 0;
+    }
 
     if (inet_pton(AF_INET, "1.2.3.4", &in) < 0)
         goto error;
@@ -1036,17 +1041,13 @@ static int DetectAddressIPv4TestAddressCmp01(void)
     b->ip2.addr_data32[0] = in.s_addr;
     result &= (DetectAddressCmpIPv4(a, b) != ADDRESS_GT);
 
-    if (a != NULL)
-        DetectAddressFree(a);
-    if (b != NULL)
-        DetectAddressFree(b);
+    DetectAddressFree(a);
+    DetectAddressFree(b);
     return result;
 
  error:
-    if (a != NULL)
-        DetectAddressFree(a);
-    if (b != NULL)
-        DetectAddressFree(b);
+    DetectAddressFree(a);
+    DetectAddressFree(b);
     return 0;
 }
 
@@ -1260,7 +1261,7 @@ static int DetectAddressIPv4CutNot05(void)
     int result = 1;
 
     if ( (a = DetectAddressInit()) == NULL)
-        goto error;
+        return 0;
 
     if (inet_pton(AF_INET, "0.0.0.0", &in) < 0)
         goto error;
@@ -1270,15 +1271,13 @@ static int DetectAddressIPv4CutNot05(void)
     a->ip2.addr_data32[0] = in.s_addr;
     result &= (DetectAddressCutNotIPv4(a, &b) == -1);
 
-    if (a != NULL)
-        DetectAddressFree(a);
+    DetectAddressFree(a);
     if (b != NULL)
         DetectAddressFree(b);
     return result;
 
  error:
-    if (a != NULL)
-        DetectAddressFree(a);
+    DetectAddressFree(a);
     if (b != NULL)
         DetectAddressFree(b);
     return 0;
@@ -1292,7 +1291,7 @@ static int DetectAddressIPv4CutNot06(void)
     int result = 1;
 
     if ( (a = DetectAddressInit()) == NULL)
-        goto error;
+        return 0;
 
     if (inet_pton(AF_INET, "0.0.0.0", &in) < 0)
         goto error;
@@ -1308,17 +1307,14 @@ static int DetectAddressIPv4CutNot06(void)
     if (inet_pton(AF_INET, "255.255.255.255", &in) < 0)
         goto error;
     result &= (a->ip2.addr_data32[0] = in.s_addr);
-    result &= (b == NULL);
 
-    if (a != NULL)
-        DetectAddressFree(a);
+    DetectAddressFree(a);
     if (b != NULL)
         DetectAddressFree(b);
     return result;
 
  error:
-    if (a != NULL)
-        DetectAddressFree(a);
+    DetectAddressFree(a);
     if (b != NULL)
         DetectAddressFree(b);
     return 0;
@@ -1332,7 +1328,7 @@ static int DetectAddressIPv4CutNot07(void)
     int result = 1;
 
     if ( (a = DetectAddressInit()) == NULL)
-        goto error;
+        return 0;
 
     if (inet_pton(AF_INET, "1.2.3.4", &in) < 0)
         goto error;
@@ -1348,17 +1344,14 @@ static int DetectAddressIPv4CutNot07(void)
     if (inet_pton(AF_INET, "1.2.3.3", &in) < 0)
         goto error;
     result &= (a->ip2.addr_data32[0] = in.s_addr);
-    result &= (b == NULL);
 
-    if (a != NULL)
-        DetectAddressFree(a);
+    DetectAddressFree(a);
     if (b != NULL)
         DetectAddressFree(b);
     return result;
 
  error:
-    if (a != NULL)
-        DetectAddressFree(a);
+    DetectAddressFree(a);
     if (b != NULL)
         DetectAddressFree(b);
     return 0;
@@ -1372,7 +1365,7 @@ static int DetectAddressIPv4CutNot08(void)
     int result = 1;
 
     if ( (a = DetectAddressInit()) == NULL)
-        goto error;
+        return 0;
 
     if (inet_pton(AF_INET, "1.2.3.4", &in) < 0)
         goto error;
@@ -1402,15 +1395,13 @@ static int DetectAddressIPv4CutNot08(void)
         goto error;
     result &= (b->ip2.addr_data32[0] = in.s_addr);
 
-    if (a != NULL)
-        DetectAddressFree(a);
+    DetectAddressFree(a);
     if (b != NULL)
         DetectAddressFree(b);
     return result;
 
  error:
-    if (a != NULL)
-        DetectAddressFree(a);
+    DetectAddressFree(a);
     if (b != NULL)
         DetectAddressFree(b);
     return 0;
@@ -1424,7 +1415,7 @@ static int DetectAddressIPv4CutNot09(void)
     int result = 1;
 
     if ( (a = DetectAddressInit()) == NULL)
-        goto error;
+        return 0;
 
     if (inet_pton(AF_INET, "1.2.3.4", &in) < 0)
         goto error;
@@ -1454,15 +1445,13 @@ static int DetectAddressIPv4CutNot09(void)
         goto error;
     result &= (b->ip2.addr_data32[0] = in.s_addr);
 
-    if (a != NULL)
-        DetectAddressFree(a);
+    DetectAddressFree(a);
     if (b != NULL)
         DetectAddressFree(b);
     return result;
 
  error:
-    if (a != NULL)
-        DetectAddressFree(a);
+    DetectAddressFree(a);
     if (b != NULL)
         DetectAddressFree(b);
     return 0;
@@ -1470,13 +1459,18 @@ static int DetectAddressIPv4CutNot09(void)
 
 static int DetectAddressIPv4Join10(void)
 {
-    DetectAddress *source = DetectAddressInit();
-    DetectAddress *target = DetectAddressInit();
     struct in_addr in;
     int result = 1;
 
-    if (source == NULL || target == NULL)
-        goto error;
+    DetectAddress *source = DetectAddressInit();
+    if (source == NULL)
+        return 0;
+
+    DetectAddress *target = DetectAddressInit();
+    if (target == NULL) {
+        DetectAddressFree(source);
+        return 0;
+    }
 
     if (inet_pton(AF_INET, "128.51.61.124", &in) < 0)
         goto error;
@@ -1588,17 +1582,13 @@ static int DetectAddressIPv4Join10(void)
         goto error;
     result &= (target->ip2.addr_data32[0] == in.s_addr);
 
-    if (source != NULL)
-        DetectAddressFree(source);
-    if (target != NULL)
-        DetectAddressFree(target);
+    DetectAddressFree(source);
+    DetectAddressFree(target);
     return result;
 
  error:
-    if (source != NULL)
-        DetectAddressFree(source);
-    if (target != NULL)
-        DetectAddressFree(target);
+    DetectAddressFree(source);
+    DetectAddressFree(target);
     return 0;
 }
 

@@ -15,6 +15,47 @@
  * 02110-1301, USA.
  */
 
+/** \mainpage Doxygen documentation
+ *
+ * \section intro_sec Introduction
+ *
+ * The Suricata Engine is an Open Source Next Generation Intrusion Detection
+ * and Prevention Engine. This engine is not intended to just replace or
+ * emulate the existing tools in the industry, but will bring new ideas and
+ * technologies to the field.
+ *
+ * \section dev_doc Developer documentation
+ *
+ * You've reach the automically generated documentation of Suricata. This
+ * document contains information about architecture and code structure. It
+ * is attended for developers wanting to understand or contribute to Suricata.
+ *
+ * \subsection modules Modules
+ *
+ * Documentation is generate from comments placed in all parts of the code.
+ * But you will also find some groups describing specific functional parts:
+ *  - \ref decode
+ *  - \ref httplayer
+ *  - \ref sigstate
+ *  - \ref threshold
+ *
+ * \section archi Architecture
+ *
+ * \subsection datastruct Data structures
+ *
+ * Regarding matching, there is three main data structures which are:
+ *  - ::Packet: Data relative to an individual packet with information about
+ *  linked structure such as the ::Flow the ::Packet belongs to.
+ *  - ::Flow: Information about a flow for example a TCP session
+ *  - ::StreamMsg: structure containing the reassembled data
+ *
+ *  \subsection runmode Running mode
+ *
+ *  Suricata is multithreaded and running modes define how the different
+ *  threads are working together. You can see util-runmodes.c for example
+ *  of running mode.
+ */
+
 /**
  * \file
  *
@@ -30,7 +71,7 @@
 
 /* the name of our binary */
 #define PROG_NAME "Suricata"
-#define PROG_VER "1.1beta2"
+#define PROG_VER "1.2dev"
 
 /* runtime engine control flags */
 #define SURICATA_STOP    0x01   /**< gracefully stop the engine: process all

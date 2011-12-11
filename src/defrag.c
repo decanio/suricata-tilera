@@ -1104,7 +1104,7 @@ DefragTimeoutTracker(ThreadVars *tv, DecodeThreadVars *dtv, DefragContext *dc,
     while (next != NULL) {
         tracker = HashListTableGetListData(next);
 
-        if (tracker->timeout < (uint)p->ts.tv_sec) {
+        if (tracker->timeout < (unsigned int)p->ts.tv_sec) {
             /* Tracker has timeout out. */
             HashListTableRemove(dc->frag_table, tracker, sizeof(tracker));
             DefragTrackerReset(tracker);
@@ -1380,8 +1380,6 @@ BuildTestPacket(uint16_t id, uint16_t off, int mf, const char content,
 
     PACKET_INITIALIZE(p);
 
-    p->pkt = ((uint8_t *)p) + sizeof(*p);
-
     gettimeofday(&p->ts, NULL);
     //p->ip4h = (IPV4Hdr *)GET_PKT_DATA(p);
     ip4h.ip_verhl = 4 << 4;
@@ -1454,7 +1452,6 @@ IPV6BuildTestPacket(uint32_t id, uint16_t off, int mf, const char content,
 
     PACKET_INITIALIZE(p);
 
-    p->pkt = ((uint8_t *)p) + sizeof(*p);
     gettimeofday(&p->ts, NULL);
 
     ip6h.s_ip6_nxt = 44;

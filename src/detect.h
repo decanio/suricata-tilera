@@ -98,6 +98,8 @@ enum {
     DETECT_SM_LIST_HCDMATCH,
     /* list for http_raw_uri keyword and the ones relative to it */
     DETECT_SM_LIST_HRUDMATCH,
+
+    DETECT_SM_LIST_FILEMATCH,
     DETECT_SM_LIST_MAX,
 };
 
@@ -268,6 +270,7 @@ typedef struct DetectPort_ {
 #define SIG_FLAG_FLOW           (1<<2)  /**< signature has a flow setting */
 #define SIG_FLAG_BIDIREC        (1<<3)  /**< signature has bidirectional operator */
 #define SIG_FLAG_PAYLOAD        (1<<4)  /**< signature is inspecting the packet payload */
+#define SIG_FLAG_FILESTORE      (1<<5)  /**< signature has filestore keyword */
 
 /* signature mask flags */
 #define SIG_MASK_REQUIRE_PAYLOAD            1
@@ -285,6 +288,11 @@ typedef struct DetectPort_ {
 #define DETECT_ENGINE_THREAD_CTX_INSPECTING_PACKET 0x0001
 #define DETECT_ENGINE_THREAD_CTX_INSPECTING_STREAM 0x0002
 
+#define FILE_SIG_NEED_FILE          0x01
+#define FILE_SIG_NEED_FILENAME      0x02
+#define FILE_SIG_NEED_TYPE          0x04
+#define FILE_SIG_NEED_MAGIC         0x08    /**< need the start of the file */
+#define FILE_SIG_NEED_FILECONTENT   0x10
 
 /* Detection Engine flags */
 #define DE_QUIET           0x01     /**< DE is quiet (esp for unittests) */
@@ -416,8 +424,6 @@ typedef struct Signature_ {
     /** netblocks and hosts specified at the sid, in CIDR format */
     IPOnlyCIDRItem *CidrSrc, *CidrDst;
 
-    struct SigMatch_ *dsize_sm;
-
     /* helper for init phase */
     uint16_t mpm_content_maxlen;
     uint16_t mpm_uricontent_maxlen;
@@ -433,7 +439,7 @@ typedef struct Signature_ {
 
     uint32_t id;  /**< sid, set by the 'sid' rule keyword */
     uint32_t gid; /**< generator id */
-    uint8_t rev;
+    uint32_t rev;
 
     /** classification id **/
     uint8_t class;
@@ -463,6 +469,8 @@ typedef struct Signature_ {
     struct SigMatch_ *sm_lists[DETECT_SM_LIST_MAX];
     /* holds all sm lists' tails */
     struct SigMatch_ *sm_lists_tail[DETECT_SM_LIST_MAX];
+
+    uint8_t file_flags;
 
     /** address settings for this signature */
     DetectAddressHead src, dst;
@@ -780,6 +788,9 @@ typedef struct DetectionEngineThreadCtx_ {
     PatternMatcherQueue pmq;
     PatternMatcherQueue smsg_pmq[256];
 
+    /** ID of the transaction currently being inspected. */
+    uint16_t tx_id;
+
     /* counters */
     uint32_t pkts;
     uint32_t pkts_searched;
@@ -855,6 +866,7 @@ typedef struct SigTableElmt_ {
 #define SIG_GROUP_HEAD_MPM_HCD          0x00100000
 #define SIG_GROUP_HEAD_MPM_HRUD         0x00200000
 #define SIG_GROUP_HEAD_REFERENCED       0x00400000 /**< sgh is being referenced by others, don't clear */
+#define SIG_GROUP_HEAD_HAVEFILEMAGIC    0x00800000
 
 typedef struct SigGroupHeadInitData_ {
     /* list of content containers
@@ -909,9 +921,10 @@ typedef struct SigGroupHead_ {
 
     uint16_t mpm_streamcontent_maxlen;
     uint16_t mpm_uricontent_maxlen;
-#if __WORDSIZE == 64
-    uint32_t pad2;
-#endif
+
+    /** the number of signatures in this sgh that have the filestore keyword
+     *  set. */
+    uint16_t filestore_cnt;
 
     /** Array with sig ptrs... size is sig_cnt * sizeof(Signature *) */
     Signature **match_array;
@@ -987,6 +1000,7 @@ enum {
     DETECT_TTL,
     DETECT_ITYPE,
     DETECT_ICODE,
+    DETECT_TOS,
     DETECT_ICMP_ID,
     DETECT_ICMP_SEQ,
     DETECT_DETECTION_FILTER,
@@ -1028,6 +1042,11 @@ enum {
     DETECT_ENGINE_EVENT,
     DETECT_STREAM_EVENT,
 
+    DETECT_FILENAME,
+    DETECT_FILEEXT,
+    DETECT_FILESTORE,
+    DETECT_FILEMAGIC,
+
     /* make sure this stays last */
     DETECT_TBLSIZE,
 };
@@ -1049,7 +1068,7 @@ int SigGroupBuild(DetectEngineCtx *);
 int SigGroupCleanup (DetectEngineCtx *de_ctx);
 void SigAddressPrepareBidirectionals (DetectEngineCtx *);
 
-int SigLoadSignatures (DetectEngineCtx *, char *);
+int SigLoadSignatures (DetectEngineCtx *, char *, int);
 void SigTableSetup(void);
 int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx,
                        DetectEngineThreadCtx *det_ctx, Packet *p);
@@ -1058,6 +1077,9 @@ int SignatureIsIPOnly(DetectEngineCtx *de_ctx, Signature *s);
 SigGroupHead *SigMatchSignaturesGetSgh(DetectEngineCtx *de_ctx, DetectEngineThreadCtx *det_ctx, Packet *p);
 
 Signature *DetectGetTagSignature(void);
+
+int SignatureIsFilestoring(Signature *);
+int SignatureIsFilemagicInspecting(Signature *);
 
 #endif /* __DETECT_H__ */
 

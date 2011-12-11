@@ -161,6 +161,8 @@ TILE_MONITOR_WILDCAT_ARGS = \
   --run -+- mkdir -p /var/log/suricata -+- \
   --run -+- suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe3 -+-
 
+#  --run -+- strace -e !nanosleep /suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe3 -+-
+
 TILE_MONITOR_WILDCAT_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
@@ -174,7 +176,7 @@ TILE_MONITOR_WILDCAT_STATIC_ARGS = \
   --upload $(TILERA_ROOT)/tile/usr/bin/strace /usr/bin/strace \
   --upload ./src/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
-  --run -+- strace -e !nanosleep /suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe3 -+-
+  --run -+- suricata -c /opt/threatmeter/etc/suricata.yaml -I xgbe3 -+-
 
 TILE_MONITOR_WILDCAT_FEEDBACK_ARGS = \
   --hvx "dataplane=1-35" \

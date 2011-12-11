@@ -1741,8 +1741,9 @@ int32_t DCERPCParser(DCERPC *dcerpc, uint8_t *input, uint32_t input_len) {
 }
 
 static int DCERPCParse(Flow *f, void *dcerpc_state,
-        AppLayerParserState *pstate, uint8_t *input, uint32_t input_len,
-        AppLayerParserResult *output) {
+                       AppLayerParserState *pstate,
+                       uint8_t *input, uint32_t input_len,
+                       void *local_data, AppLayerParserResult *output) {
     SCEnter();
 
     int32_t retval = 0;
@@ -1825,7 +1826,6 @@ void DCERPCUpdateTransactionId(void *state, uint16_t *id) {
 
 void RegisterDCERPCParsers(void) {
     /** DCERPC */
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_DCERPC, "|05 00|", 2, 0, STREAM_TOCLIENT);
     AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_DCERPC, "|05 00|", 2, 0, STREAM_TOSERVER);
 
     AppLayerRegisterProto("dcerpc", ALPROTO_DCERPC, STREAM_TOSERVER,
@@ -2211,16 +2211,15 @@ int DCERPCParserTest01(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START, dcerpcbind, bindlen);
+    int r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START, dcerpcbind, bindlen);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
         result = 0;
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -2246,7 +2245,7 @@ int DCERPCParserTest01(void) {
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOCLIENT, dcerpcbindack, bindacklen);
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOCLIENT, dcerpcbindack, bindacklen);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
         result = 0;
@@ -2267,7 +2266,7 @@ int DCERPCParserTest01(void) {
         printUUID("BIND_ACK", uuid_entry);
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_EOF, dcerpcrequest, requestlen);
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_EOF, dcerpcrequest, requestlen);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
         result = 0;
@@ -2279,7 +2278,6 @@ int DCERPCParserTest01(void) {
         goto end;
     }
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -2431,16 +2429,15 @@ int DCERPCParserTest02(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START, dcerpcrequest, requestlen);
+    int r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START, dcerpcrequest, requestlen);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
         result = 0;
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -2473,7 +2470,6 @@ int DCERPCParserTest02(void) {
     }
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -2625,16 +2621,15 @@ int DCERPCParserTest03(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    int r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START, dcerpcrequest, requestlen);
+    int r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START, dcerpcrequest, requestlen);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
         result = 0;
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -2660,7 +2655,6 @@ int DCERPCParserTest03(void) {
         goto end;
     }
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -3791,10 +3785,9 @@ int DCERPCParserTest04(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
     /* bind */
-    int r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START,
+    int r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START,
                           bind, bind_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -3802,7 +3795,7 @@ int DCERPCParserTest04(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -3817,7 +3810,7 @@ int DCERPCParserTest04(void) {
         goto end;
 
     /* bind_ack */
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOCLIENT,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOCLIENT,
                           bind_ack, bind_ack_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -3833,7 +3826,7 @@ int DCERPCParserTest04(void) {
         goto end;
 
     /* request1 */
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request1, request1_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -3851,7 +3844,7 @@ int DCERPCParserTest04(void) {
     dcerpc_state->dcerpc.dcerpcrequest.stub_data_fresh = 0;
 
     /* request2 */
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request2, request2_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -3869,7 +3862,7 @@ int DCERPCParserTest04(void) {
     dcerpc_state->dcerpc.dcerpcrequest.stub_data_fresh = 0;
 
     /* request3 */
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request3, request3_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -3887,7 +3880,7 @@ int DCERPCParserTest04(void) {
     dcerpc_state->dcerpc.dcerpcrequest.stub_data_fresh = 0;
 
     /* request4 */
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request4, request4_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -3905,7 +3898,7 @@ int DCERPCParserTest04(void) {
     dcerpc_state->dcerpc.dcerpcrequest.stub_data_fresh = 0;
 
     /* request5 */
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request5, request5_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -3920,7 +3913,7 @@ int DCERPCParserTest04(void) {
         goto end;
 
     /* request6 */
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request6, request6_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -3938,7 +3931,7 @@ int DCERPCParserTest04(void) {
     dcerpc_state->dcerpc.dcerpcrequest.stub_data_fresh = 0;
 
     /* request7 */
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request7, request7_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -3956,7 +3949,7 @@ int DCERPCParserTest04(void) {
     dcerpc_state->dcerpc.dcerpcrequest.stub_data_fresh = 0;
 
     /* request8 */
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request8, request8_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -3974,7 +3967,7 @@ int DCERPCParserTest04(void) {
     dcerpc_state->dcerpc.dcerpcrequest.stub_data_fresh = 0;
 
     /* request9 */
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request9, request9_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -3992,7 +3985,7 @@ int DCERPCParserTest04(void) {
     dcerpc_state->dcerpc.dcerpcrequest.stub_data_fresh = 0;
 
     /* request1 again */
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request1, request1_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4009,7 +4002,6 @@ int DCERPCParserTest04(void) {
         goto end;
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     return result;
 }
@@ -4056,9 +4048,8 @@ int DCERPCParserTest05(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER | STREAM_START,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER | STREAM_START,
                       bind1, bind1_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4066,7 +4057,7 @@ int DCERPCParserTest05(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -4081,7 +4072,7 @@ int DCERPCParserTest05(void) {
         m++;
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       bind2, bind2_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4101,7 +4092,6 @@ int DCERPCParserTest05(void) {
     result = 1;
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -4222,9 +4212,8 @@ int DCERPCParserTest06(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START,
                       bind1, bind1_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4232,7 +4221,7 @@ int DCERPCParserTest06(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -4244,7 +4233,7 @@ int DCERPCParserTest06(void) {
     result &= (dcerpc_state->dcerpc.dcerpcbindbindack.numctxitems == 16);
     result &= (dcerpc_state->dcerpc.dcerpcbindbindack.numctxitemsleft == 8);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       bind2, bind2_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4258,7 +4247,6 @@ int DCERPCParserTest06(void) {
     result &= (dcerpc_state->dcerpc.dcerpcbindbindack.numctxitemsleft == 0);
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -4299,9 +4287,8 @@ int DCERPCParserTest07(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START,
                       request1, request1_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4309,7 +4296,7 @@ int DCERPCParserTest07(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -4321,7 +4308,7 @@ int DCERPCParserTest07(void) {
                dcerpc_state->dcerpc.dcerpcrequest.stub_data_buffer_len ==  12);
     result &= (dcerpc_state->dcerpc.pdu_fragged = 1);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request2, request2_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4334,7 +4321,7 @@ int DCERPCParserTest07(void) {
                dcerpc_state->dcerpc.dcerpcrequest.stub_data_buffer_len == 14);
     result &= (dcerpc_state->dcerpc.pdu_fragged = 1);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request3, request3_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4348,7 +4335,6 @@ int DCERPCParserTest07(void) {
     result &= (dcerpc_state->dcerpc.pdu_fragged == 0);
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -4379,9 +4365,8 @@ int DCERPCParserTest08(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER | STREAM_START,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER | STREAM_START,
                       request, request_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4389,7 +4374,7 @@ int DCERPCParserTest08(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -4402,7 +4387,6 @@ int DCERPCParserTest08(void) {
     result &= (dcerpc_state->dcerpc.pdu_fragged == 0);
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -4433,9 +4417,8 @@ int DCERPCParserTest09(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER | STREAM_START,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER | STREAM_START,
                       request, request_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4443,7 +4426,7 @@ int DCERPCParserTest09(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -4456,7 +4439,6 @@ int DCERPCParserTest09(void) {
     result &= (dcerpc_state->dcerpc.pdu_fragged == 1);
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -4501,9 +4483,8 @@ int DCERPCParserTest10(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER|STREAM_START,
                       fault, fault_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4511,14 +4492,14 @@ int DCERPCParserTest10(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request1, request1_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4530,7 +4511,7 @@ int DCERPCParserTest10(void) {
     result &= (dcerpc_state->dcerpc.dcerpcrequest.stub_data_buffer == NULL);
     result &= (dcerpc_state->dcerpc.pdu_fragged == 1);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request2, request2_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4544,7 +4525,6 @@ int DCERPCParserTest10(void) {
     result &= (dcerpc_state->dcerpc.pdu_fragged == 0);
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -4590,9 +4570,8 @@ int DCERPCParserTest11(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request1, request1_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4600,7 +4579,7 @@ int DCERPCParserTest11(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -4612,7 +4591,7 @@ int DCERPCParserTest11(void) {
                dcerpc_state->dcerpc.dcerpcrequest.stub_data_buffer_len ==  12);
     result &= (dcerpc_state->dcerpc.pdu_fragged == 0);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request2, request2_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4623,7 +4602,7 @@ int DCERPCParserTest11(void) {
     result &= (dcerpc_state->dcerpc.bytesprocessed == 2);
     result &= (dcerpc_state->dcerpc.pdu_fragged == 1);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request3, request3_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4637,7 +4616,6 @@ int DCERPCParserTest11(void) {
     result &= (dcerpc_state->dcerpc.pdu_fragged == 0);
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -4677,9 +4655,8 @@ int DCERPCParserTest12(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       bind_ack1, bind_ack1_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4687,7 +4664,7 @@ int DCERPCParserTest12(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -4697,7 +4674,7 @@ int DCERPCParserTest12(void) {
     result &= (dcerpc_state->dcerpc.bytesprocessed == 24);
     result &= (dcerpc_state->dcerpc.pdu_fragged == 1);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOCLIENT,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOCLIENT,
                       bind_ack2, bind_ack2_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4709,7 +4686,6 @@ int DCERPCParserTest12(void) {
     result &= (dcerpc_state->dcerpc.pdu_fragged == 0);
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -4746,9 +4722,8 @@ int DCERPCParserTest13(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       bind, bind_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4756,7 +4731,7 @@ int DCERPCParserTest13(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -4789,7 +4764,6 @@ int DCERPCParserTest13(void) {
     }
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -4831,9 +4805,8 @@ int DCERPCParserTest14(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       bind, bind_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4841,7 +4814,7 @@ int DCERPCParserTest14(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -4849,7 +4822,6 @@ int DCERPCParserTest14(void) {
     }
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -4887,9 +4859,8 @@ int DCERPCParserTest15(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOCLIENT,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOCLIENT,
                       bind_ack, bind_ack_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -4897,7 +4868,7 @@ int DCERPCParserTest15(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -4905,7 +4876,6 @@ int DCERPCParserTest15(void) {
     }
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -5343,9 +5313,8 @@ int DCERPCParserTest16(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       bind1, bind1_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5353,14 +5322,14 @@ int DCERPCParserTest16(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOCLIENT,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOCLIENT,
                       bind_ack1, bind_ack1_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5389,7 +5358,7 @@ int DCERPCParserTest16(void) {
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       bind2, bind2_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5406,7 +5375,7 @@ int DCERPCParserTest16(void) {
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOCLIENT,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOCLIENT,
                       bind_ack2, bind_ack2_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5435,7 +5404,7 @@ int DCERPCParserTest16(void) {
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       bind3, bind3_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5452,7 +5421,7 @@ int DCERPCParserTest16(void) {
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOCLIENT,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOCLIENT,
                       bind_ack3, bind_ack3_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5482,7 +5451,6 @@ int DCERPCParserTest16(void) {
     }
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -5568,9 +5536,8 @@ int DCERPCParserTest17(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       bind, bind_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5578,14 +5545,14 @@ int DCERPCParserTest17(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOCLIENT,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOCLIENT,
                       bind_ack, bind_ack_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5614,7 +5581,7 @@ int DCERPCParserTest17(void) {
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       alter_context, alter_context_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5631,7 +5598,7 @@ int DCERPCParserTest17(void) {
         goto end;
     }
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOCLIENT,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOCLIENT,
                       alter_context_resp, alter_context_resp_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5661,7 +5628,6 @@ int DCERPCParserTest17(void) {
     }
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;
@@ -5698,9 +5664,8 @@ int DCERPCParserTest18(void) {
     f.protoctx = (void *)&ssn;
 
     StreamTcpInitConfig(TRUE);
-    FlowL7DataPtrInit(&f);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request1, request1_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5708,7 +5673,7 @@ int DCERPCParserTest18(void) {
         goto end;
     }
 
-    DCERPCState *dcerpc_state = f.aldata[AlpGetStateIdx(ALPROTO_DCERPC)];
+    DCERPCState *dcerpc_state = f.alstate;
     if (dcerpc_state == NULL) {
         printf("no dcerpc state: ");
         result = 0;
@@ -5719,7 +5684,7 @@ int DCERPCParserTest18(void) {
     result &= (dcerpc_state->dcerpc.dcerpcrequest.stub_data_buffer == NULL);
     result &= (dcerpc_state->dcerpc.pdu_fragged == 1);
 
-    r = AppLayerParse(&f, ALPROTO_DCERPC, STREAM_TOSERVER,
+    r = AppLayerParse(NULL, &f, ALPROTO_DCERPC, STREAM_TOSERVER,
                       request2, request2_len);
     if (r != 0) {
         printf("dcerpc header check returned %" PRId32 ", expected 0: ", r);
@@ -5734,7 +5699,6 @@ int DCERPCParserTest18(void) {
     result &= (dcerpc_state->dcerpc.dcerpcrequest.opnum == 2);
 
 end:
-    FlowL7DataPtrFree(&f);
     StreamTcpFreeConfig(TRUE);
     FLOW_DESTROY(&f);
     return result;

@@ -24,6 +24,11 @@
 #ifndef __FLOW_MANAGER_H__
 #define __FLOW_MANAGER_H__
 
+SCCondT flow_manager_cond;
+SCMutex flow_manager_mutex;
+
+#define FlowWakeupFlowManagerThread() SCCondSignal(&flow_manager_cond)
+
 void FlowManagerThreadSpawn(void);
 void FlowKillFlowManagerThread(void);
 

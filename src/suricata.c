@@ -48,6 +48,7 @@
 #include "util-pidfile.h"
 #include "util-ioctl.h"
 #include "util-device.h"
+#include "util-misc.h"
 
 #include "detect-parse.h"
 #include "detect-engine.h"
@@ -76,17 +77,16 @@
 #include "conf-yaml-loader.h"
 
 #include "alert-fastlog.h"
-#include "alert-unified-log.h"
-#include "alert-unified-alert.h"
 #include "alert-unified2-alert.h"
 #include "alert-debuglog.h"
 #include "alert-prelude.h"
 #include "alert-syslog.h"
 #include "alert-pcapinfo.h"
-#include "log-droplog.h"
 
+#include "log-droplog.h"
 #include "log-httplog.h"
 #include "log-pcap.h"
+#include "log-file.h"
 
 #include "stream-tcp.h"
 
@@ -146,6 +146,9 @@
 #include "util-threshold-config.h"
 #include "util-reference-config.h"
 #include "util-profiling.h"
+#include "util-magic.h"
+
+#include "util-coredump-config.h"
 
 #include "defrag.h"
 
@@ -354,11 +357,19 @@ static void SetBpfStringFromFile(char *filename) {
     char *bpf_comment_tmp = NULL;
     char *bpf_comment_start =  NULL;
     uint32_t bpf_len = 0;
+#ifdef OS_WIN32
+    struct _stat st;
+#else
     struct stat st;
+#endif /* OS_WIN32 */
     FILE *fp = NULL;
     size_t nm = 0;
 
+#ifdef OS_WIN32
+    if(_stat(filename, &st) != 0) {
+#else
     if(stat(filename, &st) != 0) {
+#endif /* OS_WIN32 */
         SCLogError(SC_ERR_FOPEN, "Failed to stat file %s", filename);
         exit(EXIT_FAILURE);
     }
@@ -435,7 +446,8 @@ void usage(const char *progname)
 #ifdef IPFW
     printf("\t-d <divert port>             : run in inline ipfw divert mode\n");
 #endif /* IPFW */
-    printf("\t-s <path>                    : path to signature file (optional)\n");
+    printf("\t-s <path>                    : path to signature file loaded in addition to suricata.yaml settings (optional)\n");
+    printf("\t-S <path>                    : path to signature file loaded exclusively (optional)\n");
     printf("\t-l <dir>                     : default log directory\n");
 #ifndef OS_WIN32
     printf("\t-D                           : run as daemon\n");
@@ -603,6 +615,7 @@ int main(int argc, char **argv)
     char tile_dev[128];
 #endif
     char *sig_file = NULL;
+    int sig_file_exclusive = FALSE;
     char *conf_filename = NULL;
     char *pid_filename = NULL;
 #ifdef UNITTESTS
@@ -614,16 +627,22 @@ int main(int argc, char **argv)
     int list_runmodes = 0;
     const char *runmode_custom_mode = NULL;
     int daemon = 0;
+#ifndef OS_WIN32
     char *user_name = NULL;
     char *group_name = NULL;
     uint8_t do_setuid = FALSE;
     uint8_t do_setgid = FALSE;
     uint32_t userid = 0;
     uint32_t groupid = 0;
+#endif /* OS_WIN32 */
     int build_info = 0;
 
     char *log_dir;
+#ifdef OS_WIN32
+    struct _stat buf;
+#else
     struct stat buf;
+#endif /* OS_WIN32 */
 
     sc_set_caps = FALSE;
 
@@ -711,7 +730,7 @@ int main(int argc, char **argv)
     /* getopt_long stores the option index here. */
     int option_index = 0;
 
-    char short_opts[] = "c:DhI:i:l:q:d:r:us:U:VF:";
+    char short_opts[] = "c:DhI:i:l:q:d:r:us:S:U:VF:";
 
     while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
         switch (opt) {
@@ -1029,15 +1048,16 @@ int main(int argc, char **argv)
             if (run_mode == RUNMODE_UNKNOWN) {
                 run_mode = RUNMODE_IPFW;
                 SET_ENGINE_MODE_IPS(engine_mode);
+                if (IPFWRegisterQueue(optarg) == -1)
+                    exit(EXIT_FAILURE);
+            } else if (run_mode == RUNMODE_IPFW) {
+                if (IPFWRegisterQueue(optarg) == -1)
+                    exit(EXIT_FAILURE);
             } else {
                 SCLogError(SC_ERR_MULTIPLE_RUN_MODE, "more than one run mode "
                                                      "has been specified");
                 usage(argv[0]);
                 exit(EXIT_SUCCESS);
-            }
-            if (ConfSet("ipfw.ipfw_divert_port", optarg, 0) != 1) {
-                fprintf(stderr, "ERROR: Failed to set ipfw_divert_port\n");
-                exit(EXIT_FAILURE);
             }
 #else
             SCLogError(SC_ERR_IPFW_NOSUPPORT,"IPFW not enabled. Make sure to pass --enable-ipfw to configure when building.");
@@ -1059,7 +1079,19 @@ int main(int argc, char **argv)
             }
             break;
         case 's':
+            if (sig_file != NULL) {
+                SCLogError(SC_ERR_CMD_LINE, "can't have multiple -s options or mix -s and -S.");
+                exit(EXIT_FAILURE);
+            }
             sig_file = optarg;
+            break;
+        case 'S':
+            if (sig_file != NULL) {
+                SCLogError(SC_ERR_CMD_LINE, "can't have multiple -S options or mix -s and -S.");
+                exit(EXIT_FAILURE);
+            }
+            sig_file = optarg;
+            sig_file_exclusive = TRUE;
             break;
         case 'u':
 #ifdef UNITTESTS
@@ -1140,9 +1172,21 @@ int main(int argc, char **argv)
 
     /* Check for the existance of the default logging directory which we pick
      * from suricata.yaml.  If not found, shut the engine down */
-    if (ConfGet("default-log-dir", &log_dir) != 1)
+    if (ConfGet("default-log-dir", &log_dir) != 1) {
+#ifdef OS_WIN32
+        log_dir = _getcwd(NULL, 0);
+        if (log_dir == NULL) {
+            log_dir = DEFAULT_LOG_DIR;
+        }
+#else
         log_dir = DEFAULT_LOG_DIR;
+#endif /* OS_WIN32 */
+    }
+#ifdef OS_WIN32
+    if (_stat(log_dir, &buf) != 0) {
+#else
     if (stat(log_dir, &buf) != 0) {
+#endif /* OS_WIN32 */
         SCLogError(SC_ERR_LOGDIR_CONFIG, "The logging directory \"%s\" "
                     "supplied by %s (default-log-dir) doesn't exist. "
                     "Shutting down the engine", log_dir, conf_filename);
@@ -1157,7 +1201,8 @@ int main(int argc, char **argv)
 
     /* Pull the default packet size from the config, if not found fall
      * back on a sane default. */
-    if (ConfGetInt("default-packet-size", &default_packet_size) != 1) {
+    char *temp_default_packet_size;
+    if ((ConfGet("default-packet-size", &temp_default_packet_size)) != 1) {
         switch (run_mode) {
             case RUNMODE_PCAP_DEV:
             case RUNMODE_AFP_DEV:
@@ -1170,8 +1215,16 @@ int main(int argc, char **argv)
             default:
                 default_packet_size = DEFAULT_PACKET_SIZE;
         }
+    } else {
+        if (ParseSizeStringU32(temp_default_packet_size, &default_packet_size) < 0) {
+            SCLogError(SC_ERR_SIZE_PARSE, "Error parsing max-pending-packets "
+                       "from conf file - %s.  Killing engine",
+                       temp_default_packet_size);
+            exit(EXIT_FAILURE);
+        }
     }
-    SCLogDebug("Default packet size set to %"PRIiMAX, default_packet_size);
+
+    SCLogDebug("Default packet size set to %"PRIu32, default_packet_size);
 
 #ifdef NFQ
     if (run_mode == RUNMODE_NFQ)
@@ -1267,8 +1320,6 @@ int main(int argc, char **argv)
     TmModuleAlertFastLogIPv6Register();
     TmModuleAlertSyslogIPv4Register();
     TmModuleAlertSyslogIPv6Register();
-    TmModuleAlertUnifiedLogRegister();
-    TmModuleAlertUnifiedAlertRegister();
     TmModuleUnified2AlertRegister();
     TmModuleAlertSyslogRegister();
     TmModuleAlertPcapInfoRegister();
@@ -1278,6 +1329,7 @@ int main(int argc, char **argv)
     TmModuleLogHttpLogIPv4Register();
     TmModuleLogHttpLogIPv6Register();
     TmModulePcapLogRegister();
+    TmModuleLogFileLogRegister();
 #ifdef __SC_CUDA_SUPPORT__
     TmModuleCudaMpmB2gRegister();
     TmModuleCudaPacketBatcherRegister();
@@ -1287,6 +1339,8 @@ int main(int argc, char **argv)
     TmModuleReceiveErfDagRegister();
     TmModuleDecodeErfDagRegister();
     TmModuleDebugList();
+
+    AppLayerHtpNeedFileInspection();
 
     /** \todo we need an api for these */
     AppLayerDetectProtoThreadInit();
@@ -1305,6 +1359,7 @@ int main(int argc, char **argv)
         }
 
         AppLayerHtpEnableRequestBodyCallback();
+        AppLayerHtpNeedFileInspection();
         AppLayerHtpRegisterExtraCallbacks();
 
         UtInitialize();
@@ -1336,6 +1391,7 @@ int main(int argc, char **argv)
         DecodeICMPV4RegisterTests();
         DecodeICMPV6RegisterTests();
         DecodeIPV4RegisterTests();
+        DecodeIPV6RegisterTests();
         DecodeTCPRegisterTests();
         DecodeUDPV4RegisterTests();
         DecodeGRERegisterTests();
@@ -1379,6 +1435,8 @@ int main(int argc, char **argv)
         DetectEngineRegisterTests();
         SCLogRegisterTests();
         SMTPParserRegisterTests();
+        MagicRegisterTests();
+        UtilMiscRegisterTests();
         if (list_unittests) {
             UtListTests(regex_arg);
         }
@@ -1409,6 +1467,11 @@ int main(int argc, char **argv)
 
     if (daemon == 1) {
         Daemonize();
+        if (pid_filename == NULL) {
+            if (ConfGet("pid-file", &pid_filename) == 1) {
+                SCLogInfo("Use pid file %s from config file.", pid_filename);
+           }
+        }
         if (pid_filename != NULL) {
             if (SCPidfileCreate(pid_filename) != 0) {
                 pid_filename = NULL;
@@ -1506,7 +1569,15 @@ int main(int argc, char **argv)
 
     ActionInitConfig();
 
-    if (SigLoadSignatures(de_ctx, sig_file) < 0) {
+#ifndef __tile__
+    /*
+     * removed temporarily on Tilera
+     */
+    if (MagicInit() != 0)
+        exit(EXIT_FAILURE);
+#endif
+
+    if (SigLoadSignatures(de_ctx, sig_file, sig_file_exclusive) < 0) {
         if (sig_file == NULL) {
             SCLogError(SC_ERR_OPENING_FILE, "Signature file has not been provided");
         } else {
@@ -1532,6 +1603,8 @@ int main(int argc, char **argv)
     SCThresholdConfInitContext(de_ctx,NULL);
     SCAsn1LoadConfig();
 
+    CoredumpLoadConfig();
+
     struct timeval start_time;
     memset(&start_time, 0, sizeof(start_time));
     gettimeofday(&start_time, NULL);
@@ -1549,7 +1622,7 @@ int main(int argc, char **argv)
                 exit(EXIT_FAILURE);
             }
         } else {
-            int ret = LiveBuildIfaceList("pcap");
+            int ret = LiveBuildDeviceList("pcap");
             if (ret == 0) {
                 fprintf(stderr, "ERROR: No interface found in config for pcap\n");
                 exit(EXIT_FAILURE);
@@ -1579,7 +1652,7 @@ int main(int argc, char **argv)
             }
         } else {
             /* not an error condition if we have a 1.0 config */
-            LiveBuildIfaceList("pfring");
+            LiveBuildDeviceList("pfring");
         }
 #endif /* HAVE_PFRING */
     } else if (run_mode == RUNMODE_AFP_DEV) {
@@ -1590,7 +1663,7 @@ int main(int argc, char **argv)
                 exit(EXIT_FAILURE);
             }
         } else {
-            int ret = LiveBuildIfaceList("af-packet");
+            int ret = LiveBuildDeviceList("af-packet");
             if (ret == 0) {
                 fprintf(stderr, "ERROR: No interface found in config for af-packet\n");
                 exit(EXIT_FAILURE);
@@ -1805,6 +1878,7 @@ printf("DEBUG: setting affinity for main\n");
     SCProtoNameDeInit();
     DefragDestroy();
     TmqhPacketpoolDestroy();
+    MagicDeinit();
 
 #ifdef PROFILING
     if (profiling_rules_enabled)

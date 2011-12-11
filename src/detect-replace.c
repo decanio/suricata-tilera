@@ -366,7 +366,7 @@ int DetectReplaceLongPatternMatchTestUDPWrp(char *sig, uint32_t sid, char *sig_r
     if (ret != 1) {
         return ret;
     } else {
-        SCLogDebug("replace: test1 phase1 ok: %d vs %d",sizeof(raw_eth_pkt),psize);
+        SCLogDebug("replace: test1 phase1 ok: %" PRIuMAX" vs %d",(uintmax_t)sizeof(raw_eth_pkt),psize);
         ret = DetectReplaceLongPatternMatchTest(p, psize, sig_rep, sid_rep, NULL, NULL);
         return ret;
     }
@@ -599,7 +599,7 @@ int DetectReplaceParseTest02(void)
     de_ctx->sig_list = SigInit(de_ctx,
                                "alert http any any -> any any "
                                "(msg:\"test\"; content:\"doh\"; replace:\"bon\"; sid:238012;)");
-    if (de_ctx->sig_list != NULL) {
+    if (de_ctx->sig_list == NULL) {
         result = 0;
         goto end;
     }
@@ -786,11 +786,11 @@ void DetectReplaceRegisterTests(void)
     UtRegisterTest("DetectReplaceMatchTest15", DetectReplaceMatchTest15, 1);
 /* parsing */
     UtRegisterTest("DetectReplaceParseTest01", DetectReplaceParseTest01, 1);
-    UtRegisterTest("DetectReplaceParseTest02", DetectReplaceParseTest02, 0);
-    UtRegisterTest("DetectReplaceParseTest03", DetectReplaceParseTest03, 0);
+    UtRegisterTest("DetectReplaceParseTest02", DetectReplaceParseTest02, 1);
+    UtRegisterTest("DetectReplaceParseTest03", DetectReplaceParseTest03, 1);
     UtRegisterTest("DetectReplaceParseTest04", DetectReplaceParseTest04, 1);
     UtRegisterTest("DetectReplaceParseTest05", DetectReplaceParseTest05, 1);
     UtRegisterTest("DetectReplaceParseTest06", DetectReplaceParseTest06, 1);
-    UtRegisterTest("DetectReplaceParseTest07", DetectReplaceParseTest07, 0);
+    UtRegisterTest("DetectReplaceParseTest07", DetectReplaceParseTest07, 1);
 #endif /* UNITTESTS */
 }

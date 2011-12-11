@@ -32,6 +32,7 @@
 #include "threadvars.h"
 
 #include "source-nfq.h"
+#include "source-ipfw.h"
 
 #include "source-pcap.h"
 #include "action-globals.h"
@@ -229,17 +230,20 @@ typedef struct PacketAlert_ {
     uint8_t action; /* Internal num, used for sorting */
     uint8_t flags;
 
-    /** Pointer to smsg this signature matched on, or
+    /** Pointer to stream message this signature matched on, or
      *  NULL if the sig didn't match on a smsg */
     void *alert_msg;
 
     struct Signature_ *s;
 } PacketAlert;
 
-/* After processing an alert by the thresholding module, if at
- * last it gets triggered, we might want to stick the drop action to
- * the flow on IPS mode */
+/** After processing an alert by the thresholding module, if at
+ *  last it gets triggered, we might want to stick the drop action to
+ *  the flow on IPS mode */
 #define PACKET_ALERT_FLAG_DROP_FLOW 0x01
+/** Signature matched (partly) in the state. Used in unified logger to
+ *  know if it needs to log the stream or the packet. */
+#define PACKET_ALERT_FLAG_STATE_MATCH 0x02
 
 #define PACKET_ALERT_MAX 15
 
@@ -361,6 +365,10 @@ typedef struct Packet_
 #ifdef NFQ
         NFQPacketVars nfq_v;
 #endif /* NFQ */
+#ifdef IPFW
+        IPFWPacketVars ipfw_v;
+#endif /* IPFW */
+
 
         /** libpcap vars: shared by Pcap Live mode and Pcap File mode */
         PcapPacketVars pcap_v;
@@ -496,7 +504,7 @@ typedef struct Packet_
 #define DEFAULT_PACKET_SIZE (1500 + ETHERNET_HEADER_LEN)
 /* storage: maximum ip packet size + link header */
 #define MAX_PAYLOAD_SIZE (IPV6_HEADER_LEN + 65536 + 28)
-intmax_t default_packet_size;
+uint32_t default_packet_size;
 #define SIZE_OF_PACKET (default_packet_size + sizeof(Packet))
 
 typedef struct PacketQueue_ {
@@ -526,6 +534,8 @@ typedef struct AlpProtoDetectDirectionThread_ {
 typedef struct AlpProtoDetectThreadCtx_ {
     AlpProtoDetectDirectionThread toserver;
     AlpProtoDetectDirectionThread toclient;
+
+    void *alproto_local_storage[ALPROTO_MAX];
 
 #ifdef PROFILING
     uint64_t ticks_start;
