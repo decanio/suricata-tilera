@@ -1034,6 +1034,7 @@ AC_CHECK_HEADER(pcap.h,,[AC_ERROR(pcap.h not found ...)])
 
     if test "$with_libmagic_libraries" != "no"; then
         LDFLAGS="${LDFLAGS}  -L${with_libmagic_libraries}"
+        LIBS="-lmagic ${LIBS}"
     fi
 
     ##MAGIC=""
