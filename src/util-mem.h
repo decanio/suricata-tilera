@@ -329,10 +329,12 @@ extern tmc_mspace mpm_mspace;
     tmc_alloc_t attr = TMC_ALLOC_INIT; \
     tmc_alloc_set_huge(&attr); \
     tmc_alloc_set_home(&attr, TMC_ALLOC_HOME_HASH); \
-    printf("SCMallocInit %ld\n", global_capacity); \
-    global_mspace = tmc_mspace_create_special(global_capacity, \
-                                              TMC_MSPACE_LOCKED|TMC_MSPACE_NOGROW, &attr); \
-    printf("SCMallocInit mspace %p\n", global_mspace); \
+    /*printf("SCMallocInit %ld\n", global_capacity);*/ \
+    global_mspace = \
+        tmc_mspace_create_special(global_capacity, \
+                                  TMC_MSPACE_LOCKED|TMC_MSPACE_NOGROW, \
+                                  &attr); \
+    /*printf("SCMallocInit mspace %p\n", global_mspace);*/ \
     if (global_mspace == NULL) { \
         SCLogError(SC_ERR_MEM_ALLOC, \
                    "Failed to create global mspace"); \
