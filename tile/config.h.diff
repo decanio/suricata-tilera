@@ -1,0 +1,8 @@
+257c257
+< #define malloc rpl_malloc
+---
+> /* #define malloc rpl_malloc */
+263c263
+< #define realloc rpl_realloc
+---
+> /* #define realloc rpl_realloc */
