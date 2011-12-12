@@ -333,12 +333,22 @@ extern tmc_mspace mpm_mspace;
     global_mspace = tmc_mspace_create_special(global_capacity, \
                                               TMC_MSPACE_LOCKED|TMC_MSPACE_NOGROW, &attr); \
     printf("SCMallocInit mspace %p\n", global_mspace); \
+    if (global_mspace == NULL) { \
+        SCLogError(SC_ERR_MEM_ALLOC, \
+                   "Failed to create global mspace"); \
+        exit(EXIT_FAILURE); \
+    } \
     tmc_alloc_t mpm_attr = TMC_ALLOC_INIT; \
     tmc_alloc_set_huge(&mpm_attr); \
     tmc_alloc_set_home(&mpm_attr, TMC_ALLOC_HOME_HASH); \
     /*tmc_alloc_set_caching(&mpm_attr, MAP_CACHE_NO_L2);*/ \
-    mpm_mspace = tmc_mspace_create_special(32*1024*1024, \
+    mpm_mspace = tmc_mspace_create_special(32ULL*1024ULL*1024ULL, \
                                            0, &mpm_attr); \
+    if (mpm_mspace == NULL) { \
+        SCLogError(SC_ERR_MEM_ALLOC, \
+                   "Failed to create mpm mspace"); \
+        exit(EXIT_FAILURE); \
+    } \
     /* override the pcre memory allocator to use tmc functions */ \
     pcre_malloc = tile_pcre_malloc; \
     pcre_free = tile_pcre_free; \
