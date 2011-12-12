@@ -1,7 +1,7 @@
 393c393
-< CFLAGS = -g -O2 -Wextra -Wall -fno-strict-aliasing -fno-tree-pre -Wno-unused-parameter -std=gnu99  -I /usr/include -DLIBPCAP_VERSION_MAJOR=1 -DHAVE_PCAP_SET_BUFF -DREVISION="f0d981a"
+< CFLAGS = -g -O2 -Wextra -Wall -fno-strict-aliasing -fno-tree-pre -Wno-unused-parameter -std=gnu99  -I /usr/include -DLIBPCAP_VERSION_MAJOR=1 -DHAVE_PCAP_SET_BUFF -DREVISION="9290c02"
 ---
-> CFLAGS = -g -O2 -Wextra -Wall -fno-strict-aliasing -fno-tree-pre -Wno-unused-parameter -std=gnu99 -DLIBPCAP_VERSION_MAJOR=1 -DHAVE_PCAP_SET_BUFF -DREVISION="f0d981a"
+> CFLAGS = -g -O2 -Wextra -Wall -fno-strict-aliasing -fno-tree-pre -Wno-unused-parameter -std=gnu99  -DLIBPCAP_VERSION_MAJOR=1 -DHAVE_PCAP_SET_BUFF -DREVISION="9290c02"
 416c416
 < LDFLAGS =   -L/home/decanio/work/TileGX/github/yaml/src/.libs  -L/home/decanio/work/TileGX/github/libmagic/src/.libs
 ---

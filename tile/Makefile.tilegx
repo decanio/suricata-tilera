@@ -24,34 +24,32 @@ endif
 # Go ahead and modify these:
 BASE_DIR=/home/decanio
 THREADMETER_DIR=$(BASE_DIR)/work/TileGX
-YAML_DIR=$(BASE_DIR)/work/TileGX/yamlgx-0.1.3
+YAML_DIR=$(BASE_DIR)/work/TileGX/github/yaml
+LIBMAGIC_DIR=$(BASE_DIR)/work/TileGX/github/libmagic
 PCAPFILE=$(BASE_DIR)/work/napatech/suricata1.pcap
 
 # This is ugly but gets around missing libpcap in MDE4.0alpha9
 TILERA_ROOT_ALPHA11=$(TILERA_ROOT)/../../TileraMDE-4.0.alpha11.134874/tilegx
 
-CC = $(TILERA_ROOT)/bin/tile-gcc
-OPT = -Os
-CFLAGS = -std=gnu99 -Wall -Werror -g $(OPT)
-
-OPT = -Os
-CFLAGS = -std=gnu99 -Wall -Werror -g $(OPT)
-LIBS = -lgxio -ltmc -lpthread -static
-
-app.o: app.c
-	LANG=C $(CC) $(CFLAGS) -c -o $@ $<
-
-app: app.o
-	LANG=C $(CC) $(LDFLAGS) -o $@ $< $(LIBS)
-
-all: run_sim
-
-clean:
-	rm -f *.o app
-
-
 .PHONY: all clean
 
+#
+# Rebuild everything from after autoconf.sh
+#
+build_static:
+	echo Running configure
+	LIBS="-lgxio -ltmc" ./configure --host=tile --disable-gccmarch-native \
+	    --without-libpcap \
+	    --with-libyaml-includes=$(YAML_DIR)/include \
+	    --with-libyaml-libraries=$(YAML_DIR)/src/.libs \
+	    --with-libmagic-includes=$(LIBMAGIC_DIR)/src \
+	    --with-libmagic-libraries=$(LIBMAGIC_DIR)/src/.libs
+	echo Patching results
+	patch config.h tile/config.h.diff
+	patch src/Makefile tile/Makefile.static.diff
+	echo building Suricata
+	make clean
+	make
 
 TILE_MONITOR = $(TILERA_ROOT)/bin/tile-monitor
 
@@ -282,17 +280,15 @@ TILE_MONITOR_WILDCAT_PROFILE_STATIC_ARGS = \
   --profile-shutdown \
   --quit
 
-#SIZE = 4x4
-#SIZE = gx36
 FUNCTIONAL=--functional
 PROFILE=--sim-args -+- --xml-profile profile.xml --profile-disable-at-startup -+-
 
 ARGS := mpipe0:mac=0:input=$(PCAPFILE):output=output.pcap:bps=10G:stall
-##--ARGS := $(ARGS):trace_mask=0xffff
 
+#SIM_ARGS := --sim-args -+- --ram-mb-per-controller 8 --extra-shim-args "$(ARGS)" -+-
 SIM_ARGS := --sim-args -+- --extra-shim-args "$(ARGS)" -+-
 
-SIM_DEPS := input.pcap
+SIM_DEPS := $(PCAP_FILE)
 
 run_sim: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) --image-file $(IMAGE_FILE) \
