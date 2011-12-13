@@ -84,7 +84,7 @@ typedef struct MpipeDevice_ {
 static TAILQ_HEAD(, MpipeDevice_) mpipe_devices =
     TAILQ_HEAD_INITIALIZER(mpipe_devices);
 
-static pthread_barrier_t barrier;
+static tmc_sync_barrier_t barrier;
 
 /**
  * \brief Structure to hold thread specifc variables.
@@ -94,7 +94,7 @@ typedef struct MpipeThreadVars_
     /* data link type for the thread */
     int datalink;
 
-    /* ocunters */
+    /* counters */
     uint32_t pkts;
     uint64_t bytes;
     uint32_t errs;
@@ -126,7 +126,6 @@ static gxio_mpipe_context_t* context = &context_body;
 //static gxio_mpipe_iqueue_t* iqueue = &iqueue_body;
 static gxio_mpipe_iqueue_t** iqueues;
 
-#if 1
 static unsigned long long tile_gtod_fast_boot = 0;
 static unsigned long tile_gtod_fast_mhz;
 
@@ -143,7 +142,6 @@ static int tilera_fast_gettimeofday(struct timeval *tv) {
     }
     return 0;
 }
-#endif
 
 /**
  * \brief Registration Function for ReceiveMpipe.
@@ -175,21 +173,11 @@ void TmModuleDecodeMpipeRegister (void) {
     tmm_modules[TMM_DECODEMPIPE].cap_flags = 0;
 }
 
-/*
-static __attribute__((always_inline)) void
-cycle_pause(unsigned int delay)
-{
-  const unsigned int start = get_cycle_count_low();
-  while (get_cycle_count_low() - start < delay)
-    ;
-}
-*/
-
 void MpipeFreePacket(Packet *p) {
-#ifdef MPIPE_DEBUG
-    SCLogInfo("MpipeFreePacket stack %d", p->idesc.stack_idx);
-#endif
-    gxio_mpipe_push_buffer(context, p->idesc.stack_idx, (void *)(intptr_t)p->idesc.va);
+
+    gxio_mpipe_push_buffer(context,
+                           p->idesc.stack_idx,
+                           (void *)(intptr_t)p->idesc.va);
 
 //#define __TILEGX_FEEDBACK_RUN__
 #ifdef __TILEGX_FEEDBACK_RUN__
@@ -225,15 +213,14 @@ void MpipeFreePacket(Packet *p) {
  * \param h pointer to gxio packet header
  * \param pkt pointer to current packet
  */
-static inline void MpipeProcessPacket(u_char *user, gxio_mpipe_idesc_t *idesc, Packet *p) {
+static inline void MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *idesc, Packet *p, struct timeval *tv) {
     int caplen = idesc->l2_size;
     u_char *pkt = (void *)(intptr_t)idesc->va;
-    MpipeThreadVars *ptv = (MpipeThreadVars *)user;
 
     ptv->bytes += caplen;
     ptv->pkts++;
 
-    tilera_fast_gettimeofday(&p->ts);
+    p->ts = *tv;
     //TimeGet(&p->ts);
     /*
     p->ts.tv_sec = h->ts.tv_sec;
@@ -245,16 +232,36 @@ static inline void MpipeProcessPacket(u_char *user, gxio_mpipe_idesc_t *idesc, P
     SET_PKT_LEN(p, caplen);
     p->pkt = pkt;
 
-#ifdef MPIPE_DEBUG
-    SCLogInfo("p->pktlen: %" PRIu32 " (pkt %02x, p->pkt %02x)", p->pktlen, *pkt, *p->pkt);
-#endif
+    /* copy only the fields we use later */
+    p->idesc.cs = idesc->cs;
+    p->idesc.va = idesc->va;
+    p->idesc.stack_idx = idesc->stack_idx;
+}
+
+static inline Packet *PacketAlloc(int rank)
+{
+    Packet *p = NULL;
+    uint16_t packet_q_len = 0;
+
+    /* make sure we have at least one packet in the packet pool, to prevent
+     * us from alloc'ing packets at line rate */
+    do {
+        packet_q_len = PacketPoolSize(rank);
+        if (packet_q_len == 0) {
+            PacketPoolWait(rank);
+        }
+    } while (packet_q_len == 0);
+
+    p = PacketGetFromQueueOrAlloc(rank);
+
+    return p;
 }
 
 /**
  * \brief Receives packets from an interface via gxio mpipe.
  */
 TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
-    uint16_t packet_q_len = 0;
+    struct timeval timeval;
     MpipeThreadVars *ptv = (MpipeThreadVars *)data;
     TmSlot *s = (TmSlot *)slot;
     ptv->slot = s->slot_next;
@@ -265,8 +272,6 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
 #else
     int rank = (cpu-1)/TILES_PER_MPIPE_PIPELINE;
 #endif
-    int result;
-
 
     SCEnter();
 
@@ -274,47 +279,47 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
 
     gxio_mpipe_iqueue_t* iqueue = iqueues[rank];
 
+    tilera_fast_gettimeofday(&timeval);
+
     for (;;) {
-        if (suricata_ctl_flags & SURICATA_STOP ||
-                suricata_ctl_flags & SURICATA_KILL) {
+        if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
             SCReturnInt(TM_ECODE_FAILED);
         }
 
-        /* make sure we have at least one packet in the packet pool, to prevent
-         * us from alloc'ing packets at line rate */
-        do {
-            packet_q_len = PacketPoolSize(rank);
-            if (packet_q_len == 0) {
-                PacketPoolWait(rank);
-            }
-        } while (packet_q_len == 0);
-
-        p = PacketGetFromQueueOrAlloc(rank);
-        if (p == NULL) {
-            SCReturnInt(TM_ECODE_FAILED);
+        while (p == NULL) {
+            p = PacketAlloc(rank);
         }
-
-#ifdef MPIPE_DEBUG
-        SCLogInfo("ReceiveMpipe!!!");
-#endif
 
         int r = 0;
         while (r == 0) {
-            result = gxio_mpipe_iqueue_try_get(iqueue, &p->idesc);
-            if (result == 0) {
-#ifdef MPIPE_DEBUG
-                char buf[128];
-                sprintf(buf, "Got a packet size: %d", p->idesc.l2_size);
-                SCLogInfo(buf);
-#endif
-                if (!p->idesc.be) {
-                    MpipeProcessPacket((u_char *)ptv,  &p->idesc, p);
-                    TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
-                    r = 1;
+            gxio_mpipe_idesc_t *idesc;
+
+            int n = gxio_mpipe_iqueue_try_peek(iqueue, &idesc);
+            if (likely(n > 0)) {
+                int i;
+
+		n = min(n, 32);
+
+                /* Prefetch the idescs (64 bytes each). */
+                for (i = 0; i < n; i++) {
+                    __insn_prefetch(&idesc[i]);
                 }
-            } else if (suricata_ctl_flags & SURICATA_STOP ||
-                    suricata_ctl_flags & SURICATA_KILL) {
-                SCReturnInt(TM_ECODE_FAILED);
+                for (i = 0; i < n; i++, idesc++) {
+                    if (!idesc->be) {
+                        MpipeProcessPacket(ptv,  idesc, p, &timeval);
+                        TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+                        do {
+                            p = PacketAlloc(rank);
+                        } while (p == NULL);
+                        r = 1;
+                    }
+                    gxio_mpipe_iqueue_consume(iqueue, idesc);
+                }
+            } else {
+                tilera_fast_gettimeofday(&timeval);
+                if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
+                    SCReturnInt(TM_ECODE_FAILED);
+                }
             }
         }
         SCPerfSyncCountersIfSignalled(tv, 0);
@@ -326,8 +331,6 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
 TmEcode MpipeRegisterPipeStage(void *td) {
     SCEnter()
 
-    //pthread_barrier_wait(&barrier);
-
     SCReturnInt(TM_ECODE_OK);
 }
 
@@ -338,9 +341,6 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     int rank = (TileMpipeUnmapTile(cpu)-1)/TILES_PER_MPIPE_PIPELINE;
 #else
     int rank = (cpu-1)/TILES_PER_MPIPE_PIPELINE;
-#endif
-#ifdef MPIPE_DEBUG
-    SCLogInfo("ReceiveMpipeThreadInit\n");
 #endif
     unsigned int num_buffers;
     unsigned int total_buffers = max_pending_packets;
@@ -589,14 +589,8 @@ SCLogInfo("Initializing stackidx %d i %d size %d buffers %d",
         result = gxio_mpipe_rules_commit(&rules);
         VERIFY(result, "gxio_mpipe_rules_commit()");
     }
-    /*
-     * There is some initialization race condition that I haven't found
-     * yet.  This delay seems to prevent taking packets in until everything
-     * else has initialized avoiding a crash.
-     */
-    cycle_pause(2000*1000*1000); /* delay 2 secs */
 
-    pthread_barrier_wait(&barrier);
+    tmc_sync_barrier_wait(&barrier);
 
     SCLogInfo("ReceiveMpipe-%d initialization complete!!!", rank);
     *data = (void *)ptv;
@@ -606,7 +600,7 @@ SCLogInfo("Initializing stackidx %d i %d size %d buffers %d",
 TmEcode ReceiveMpipeInit(void) {
     SCEnter();
 
-    pthread_barrier_init(&barrier, NULL, MpipeNumPipes/* * TILES_PER_MPIPE_PIPELINE*/);
+    tmc_sync_barrier_init(&barrier, MpipeNumPipes);
 
     SCReturnInt(TM_ECODE_OK);
 }
@@ -681,15 +675,9 @@ TmEcode DecodeMpipe(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pack
     /* call the decoder */
     switch(p->datalink) {
     case LINKTYPE_ETHERNET:
-#ifdef DEBUG_MPIPE
-        SCLogInfo("DecodeMpipe Decode Ethernet p %p", p);
-#endif
         DecodeEthernet(tv, dtv, p, p->pkt, p->pktlen, pq);
         break;
     default:
-#ifdef DEBUG_MPIPE
-        SCLogError(SC_ERR_DATALINK_UNIMPLEMENTED, "Error: datalink type %" PRId32 " not yet supported in module DecodeNetio", p->datalink);
-#endif
         break;
     }
  
