@@ -240,21 +240,7 @@ static inline void MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *
 
 static inline Packet *PacketAlloc(int rank)
 {
-    Packet *p = NULL;
-    uint16_t packet_q_len = 0;
-
-    /* make sure we have at least one packet in the packet pool, to prevent
-     * us from alloc'ing packets at line rate */
-    do {
-        packet_q_len = PacketPoolSize(rank);
-        if (packet_q_len == 0) {
-            PacketPoolWait(rank);
-        }
-    } while (packet_q_len == 0);
-
-    p = PacketGetFromQueueOrAlloc(rank);
-
-    return p;
+    return PacketGetFromQueueOrAlloc(rank);
 }
 
 /**
