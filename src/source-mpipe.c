@@ -85,6 +85,7 @@ static TAILQ_HEAD(, MpipeDevice_) mpipe_devices =
     TAILQ_HEAD_INITIALIZER(mpipe_devices);
 
 static tmc_sync_barrier_t barrier;
+static uint16_t first_stack;
 
 /**
  * \brief Structure to hold thread specifc variables.
@@ -103,6 +104,16 @@ typedef struct MpipeThreadVars_
     TmSlot *slot;
 
     Packet *in_p;
+
+    /** stats/counters */
+    uint16_t counter_no_buffers_0;
+    uint16_t counter_no_buffers_1;
+    uint16_t counter_no_buffers_2;
+    uint16_t counter_no_buffers_3;
+    uint16_t counter_no_buffers_4;
+    uint16_t counter_no_buffers_5;
+    uint16_t counter_no_buffers_6;
+    uint16_t counter_no_buffers_7;
 
 } MpipeThreadVars;
 
@@ -243,6 +254,40 @@ static inline Packet *PacketAlloc(int rank)
     return PacketGetFromQueueOrAlloc(rank);
 }
 
+static uint16_t xlate_stack(MpipeThreadVars *ptv, int stack_idx) {
+    uint16_t counter;
+
+    switch(stack_idx - first_stack) {
+    case 0:
+        counter = ptv->counter_no_buffers_0;
+        break;
+    case 1:
+        counter = ptv->counter_no_buffers_1;
+        break;
+    case 2:
+        counter = ptv->counter_no_buffers_2;
+        break;
+    case 3:
+        counter = ptv->counter_no_buffers_3;
+        break;
+    case 4:
+        counter = ptv->counter_no_buffers_4;
+        break;
+    case 5:
+        counter = ptv->counter_no_buffers_5;
+        break;
+    case 6:
+        counter = ptv->counter_no_buffers_6;
+        break;
+    case 7:
+        counter = ptv->counter_no_buffers_7;
+        break;
+    default:
+        counter = ptv->counter_no_buffers_7;
+        break;
+    }
+    return counter;
+}
 /**
  * \brief Receives packets from an interface via gxio mpipe.
  */
@@ -291,13 +336,16 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
                     __insn_prefetch(&idesc[i]);
                 }
                 for (i = 0; i < n; i++, idesc++) {
-                    if (!idesc->be) {
+                    if (likely(!idesc->be)) {
                         MpipeProcessPacket(ptv,  idesc, p, &timeval);
                         TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
                         do {
                             p = PacketAlloc(rank);
                         } while (p == NULL);
                         r = 1;
+                    } else {
+//printf("nobuf: %d\n", idesc->stack_idx);
+                        SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
                     }
                     gxio_mpipe_iqueue_consume(iqueue, idesc);
                 }
@@ -318,6 +366,37 @@ TmEcode MpipeRegisterPipeStage(void *td) {
     SCEnter()
 
     SCReturnInt(TM_ECODE_OK);
+}
+
+static void MpipeRegisterPerfCounters(MpipeThreadVars *ptv, ThreadVars *tv) {
+    /* register counters */
+    ptv->counter_no_buffers_0 = SCPerfTVRegisterCounter("mpipe.no_buf0", tv,
+                                                        SC_PERF_TYPE_UINT64,
+                                                        "NULL");
+    ptv->counter_no_buffers_1 = SCPerfTVRegisterCounter("mpipe.no_buf1", tv,
+                                                        SC_PERF_TYPE_UINT64,
+                                                        "NULL");
+    ptv->counter_no_buffers_2 = SCPerfTVRegisterCounter("mpipe.no_buf2", tv,
+                                                        SC_PERF_TYPE_UINT64,
+                                                        "NULL");
+    ptv->counter_no_buffers_3 = SCPerfTVRegisterCounter("mpipe.no_buf3", tv,
+                                                        SC_PERF_TYPE_UINT64,
+                                                        "NULL");
+    ptv->counter_no_buffers_4 = SCPerfTVRegisterCounter("mpipe.no_buf4", tv,
+                                                        SC_PERF_TYPE_UINT64,
+                                                        "NULL");
+    ptv->counter_no_buffers_5 = SCPerfTVRegisterCounter("mpipe.no_buf5", tv,
+                                                        SC_PERF_TYPE_UINT64,
+                                                        "NULL");
+    ptv->counter_no_buffers_6 = SCPerfTVRegisterCounter("mpipe.no_buf6", tv,
+                                                        SC_PERF_TYPE_UINT64,
+                                                        "NULL");
+    ptv->counter_no_buffers_7 = SCPerfTVRegisterCounter("mpipe.no_buf7", tv,
+                                                        SC_PERF_TYPE_UINT64,
+                                                        "NULL");
+
+   tv->sc_perf_pca = SCPerfGetAllCountersArray(tv, &tv->sc_perf_pctx);
+   SCPerfAddToClubbedTMTable(tv->name, &tv->sc_perf_pctx);
 }
 
 TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
@@ -353,11 +432,11 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             16384
         };
     const unsigned int buffer_counts[] = {
-            125440+125440/*+(16*1024*1024/128)*/,
+            125440,
+            64000,
             10000,
             10000,
-            10000,
-            30000,
+            60000,
             0,
             1000,
             0
@@ -476,6 +555,7 @@ SCLogInfo("DEBUG: %u non-zero sized stacks", stack_count);
         result = gxio_mpipe_alloc_buffer_stacks(context, stack_count, 0, 0);
         VERIFY(result, "gxio_mpipe_alloc_buffer_stacks()");
         int stack = result;
+        first_stack = (uint16_t)stack;
 SCLogInfo("DEBUG: initial stack at %d", stack);
 
         unsigned int i = 0;
@@ -575,6 +655,8 @@ SCLogInfo("Initializing stackidx %d i %d size %d buffers %d",
         result = gxio_mpipe_rules_commit(&rules);
         VERIFY(result, "gxio_mpipe_rules_commit()");
     }
+
+    MpipeRegisterPerfCounters(ptv, tv);
 
     tmc_sync_barrier_wait(&barrier);
 
