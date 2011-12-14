@@ -4,19 +4,131 @@
 	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=utf-8">
 	<TITLE></TITLE>
 	<META NAME="GENERATOR" CONTENT="LibreOffice 3.4  (Unix)">
-	<META NAME="CREATED" CONTENT="0;0">
-	<META NAME="CHANGED" CONTENT="0;0">
+	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
+	<META NAME="CREATED" CONTENT="20111213;20301700">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
+	<META NAME="CHANGED" CONTENT="20111213;20313000">
 	<STYLE TYPE="text/css">
 	<!--
-		@page { margin: 0.79in }
-		P { margin-bottom: 0.08in }
-		PRE.western { font-family: "Liberation Serif", serif }
-		PRE.cjk { font-family: "WenQuanYi Micro Hei", monospace }
-		A:link { so-language: zxx }
+		CODE.cjk { font-family: "WenQuanYi Micro Hei", monospace }
 	-->
 	</STYLE>
 </HEAD>
 <BODY LANG="en-US" DIR="LTR">
-<PRE CLASS="western"><FONT SIZE=5 STYLE="font-size: 20pt"><B>Future website for Suricata on Tilera</B></FONT></PRE>
+<H1>Suricata for Tilera</H1>
+<DIV ID="wiki-content" DIR="LTR">
+	<P STYLE="margin-bottom: 0in"><BR>
+	</P>
+	<DIV ID="wiki-body" DIR="LTR">
+		<P STYLE="margin-bottom: 0in"><BR>
+		</P>
+		<DIV ID="template" DIR="LTR">
+			<P><STRONG>Overview</STRONG></P>
+			<P>This repository contains port of Suricata to Tilera's multi
+			core processors. The intent of this repository is to collect work
+			in progress on the Suricata port to Tilera and make it available
+			to the community. Ultimately the modifications to Suricata to
+			support Tilera are expected to be folded back into the Suricata
+			source base maintained by OISF.</P>
+			<P>This supports Suricata on Tile64, TilePRO and TileGX
+			processors. Although the main focus has been Suricata on the
+			TileGX-36 processor.</P>
+			<P>The code has been run on both Tilempower and Tilempower-GX
+			platforms. The code should execute on Tilera's Tile-PCI cards as
+			well.</P>
+			<P>The initial effort at supporting Suricata on Tilera is to
+			support operation as an Intrusion Detection System (IDS). Follow
+			on work to support inline IPS operation will be come later. IPS
+			operation relies on iptables. At this point the behavior of
+			iptables on Tilera's Linux isn't well understood.</P>
+			<P>Suricata on Tilera should support all of the accompanying tools
+			found alongside Suricata (ex. Barnyard). although exhaustive
+			testing of each has not been accomplished.</P>
+			<P><STRONG>Prerequisites for Suricata on Tilera</STRONG></P>
+			<P>Suricata for Tilera is provided in source code form. 
+			</P>
+			<P>For Tile64 and TilePro based systems you'll need:</P>
+			<UL>
+				<LI><P STYLE="margin-bottom: 0in">Tilera MDE 3.0. or later from
+				Tilera 
+				</P>
+				<LI><P>A suitable Tilera based platform from Tilera or one of
+				their hardware partners. 
+				</P>
+			</UL>
+			<P>For TileGX based systems you'll need:</P>
+			<UL>
+				<LI><P STYLE="margin-bottom: 0in">Tilera MDE 4.0beta1 or later
+				from Tilera 
+				</P>
+				<LI><P>A suitable Tilera based TileGX platform from Tilera. 
+				</P>
+			</UL>
+			<P><STRONG>Acquiring Suricata for Tilera</STRONG></P>
+			<P>This repository contains the source code for Suricata. Suricata
+			requires this libyaml and libmagic which aren't delivered by the
+			Tilera Multicore Development Envionment (MDE). Copies of these
+			libraries have been made available here on github with
+			instructions on building them. These copies of libyaml and
+			libmagic have been tested with suricata on Tilera and are known to
+			work. You may however use alternate versions of these libraries if
+			you desire.</P>
+			<P>For assistance with acquiring Tilera hardware and development
+			tools visit
+			<A HREF="http://www.tilera.com/about_tilera/contact/contact_form">http://www.tilera.com/about_tilera/contact/contact_form</A>
+			.</P>
+			<P>Retrieve the source code for Suricata, libyaml and libmagic as
+			follows:</P>
+			<P><CODE CLASS="western">git clone
+			git@github.com:decanio/suricata.git</CODE></P>
+			<P><CODE CLASS="western">git clone git@github.com:decanio/yaml.git</CODE></P>
+			<P><CODE CLASS="western">git clone
+			git@github.com:decanio/libmagic.git</CODE></P>
+			<P><STRONG>Building Suricata for Tilera</STRONG></P>
+			<P>Both the libyaml and libmagic libraries must be build prior to
+			building Suricata for Tilera.</P>
+			<P>Build libyaml as follows:</P>
+			<P><CODE CLASS="western">cd yaml</CODE></P>
+			<P><CODE CLASS="western">./configure --host=tile</CODE></P>
+			<P><CODE CLASS="western">make</CODE></P>
+			<P>Build libmagic as follows:</P>
+			<P><CODE CLASS="western">cd libmagic</CODE></P>
+			<P><CODE CLASS="western">./configure --host=tile</CODE></P>
+			<P><CODE CLASS="western">make</CODE></P>
+			<P><STRONG>Building Suricata for TileGX</STRONG></P>
+			<P>The file doc/INSTALL.TILERA contains written instructions on
+			building Suricata for both the TilePro and TileGX architectures.</P>
+			<P>A Makefile tile/Makefile.tilegx has been provided that
+			automates building suricata with the build target &quot;build_static&quot;.
+			This performs most of the operations required to build suricata
+			for Tilera.</P>
+			<P>Suricata for TileGX can be built as follows:</P>
+			<P><CODE CLASS="western">cd suricata</CODE></P>
+			<P><CODE CLASS="western">./autogen.sh</CODE></P>
+			<P><CODE CLASS="western">make -f tile/Makefile.tilegx build_static</CODE></P>
+			<P><STRONG>Preconfigured Tilera based Suricata Systems</STRONG></P>
+			<P>If you would like a system with suricata for Tilera already
+			installed please contact <A HREF="mailto:decanio.tom@gmail.com">decanio.tom@gmail.com</A>
+			for assistance.</P>
+			<P><STRONG>Running Suricata on TileGX</STRONG></P>
+			<P>Suricata runs on Tilera based platforms much as it runs on
+			typical Intel based platforms.</P>
+			<P>Copy the suricata binary, built above, and your suricata
+			configuration files to your Tilera platform.</P>
+			<P>Execute suricata with a command such as the following:</P>
+			<P><CODE CLASS="western">suricata -c
+			/opt/suricata/etc/suricata.yaml -I xgbe3</CODE></P>
+			<P>The Tilera version of suricata uses the -I <EM>&lt;dev&gt;</EM>
+			option in place of the usual -i <EM>&lt;dev&gt;</EM> option. On
+			the Tilera platform <EM>&lt;dev&gt;</EM> is the mpipe interface
+			name of the ethernet interface you would like suricata to monitor.
+			The 10 gigabit interface names are typically xgbe1, xgbe2, xgbe3
+			and xgbe4. The 1 gigabit interface names are typically gbe1, gbe2,
+			gbe3 and gbe4.</P>
+		</DIV>
+	</DIV>
+</DIV>
+<P><BR><BR>
+</P>
 </BODY>
 </HTML>
