@@ -344,7 +344,6 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
                         } while (p == NULL);
                         r = 1;
                     } else {
-//printf("nobuf: %d\n", idesc->stack_idx);
                         SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
                     }
                     gxio_mpipe_iqueue_consume(iqueue, idesc);
@@ -431,6 +430,10 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             10368,
             16384
         };
+    /* sort of tuned these for expected traffic patterns.
+     * should make these configurable now that we have insight into
+     * no buffer conditions.
+     */
     const unsigned int buffer_counts[] = {
             125440,
             64000,
@@ -492,9 +495,11 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         VERIFY(result, "gxio_mpipe_alloc_notif_rings()");
         int ring = result;
 
+/*
 SCLogInfo("DEBUG: sizeof(gxio_mpipe_idesc_t) %ld\n", sizeof(gxio_mpipe_idesc_t));
 SCLogInfo("DEBUG: getpagesize() %d\n", getpagesize());
 SCLogInfo("DEBUG: idesc/page %ld\n", getpagesize()/sizeof(gxio_mpipe_idesc_t));
+*/
         /* Init the NotifRings. */
         size_t notif_ring_entries = 512/*128*/;
         size_t notif_ring_size = notif_ring_entries * sizeof(gxio_mpipe_idesc_t);
@@ -562,26 +567,24 @@ SCLogInfo("DEBUG: initial stack at %d", stack);
         for (unsigned int stackidx = stack; stackidx < stack + stack_count; stackidx++, i++) {
             for (;buffer_counts[i] == 0; i++) ;
 
-        /* Allocate one huge page to hold our buffer stack, notif ring, and
-         * packets.  This should be more than enough space. */
-        size_t page_size = (1 << 24);
-        tmc_alloc_t alloc = TMC_ALLOC_INIT;
-        tmc_alloc_set_huge(&alloc);
-        void* page = tmc_alloc_map(&alloc, page_size);
-        assert(page);
-        void* mem = page;
-
+            /* Allocate one huge page to hold our buffer stack, notif ring, and
+             * packets.  This should be more than enough space. */
+            size_t page_size = (1 << 24);
+            tmc_alloc_t alloc = TMC_ALLOC_INIT;
+            tmc_alloc_set_huge(&alloc);
+            void* page = tmc_alloc_map(&alloc, page_size);
+            assert(page);
+            void* mem = page;
 
             total_buffers = buffer_counts[i];
             unsigned buffer_size = buffer_sizes[i];
 
-SCLogInfo("Initializing stackidx %d i %d size %d buffers %d",
-           stackidx, i, buffer_size, total_buffers);
+           SCLogInfo("Initializing stackidx %d i %d size %d buffers %d",
+                     stackidx, i, buffer_size, total_buffers);
 
-            // Initialize the buffer stack.
+            /* Initialize the buffer stack.*/
             ALIGN(mem, 0x10000);
             size_t stack_bytes = gxio_mpipe_calc_buffer_stack_bytes(total_buffers);
-            //gxio_mpipe_buffer_size_enum_t buf_size = GXIO_MPIPE_BUFFER_SIZE_1664;
             gxio_mpipe_buffer_size_enum_t buf_size = gxio_buffer_sizes[i];
             result = gxio_mpipe_init_buffer_stack(context, stackidx, buf_size,
                                                   mem, stack_bytes, 0);
@@ -676,14 +679,14 @@ TmEcode ReceiveMpipeInit(void) {
 TmEcode ReceiveMpipeGo(void) {
     SCEnter();
     SCLogInfo("Mpipe enabling input and profiling\n");
-    // Turn on all the links on mpipe0.
+    /* Turn on all the links on mpipe0. */
     sim_enable_mpipe_links(0, -1);
 
 #ifdef __TILEGX_SIMULATION__
-    // Clear any old profiler data
+    /* Clear any old profiler data */
     sim_profiler_clear();
 
-    // Enable the profiler
+    /* Enable the profiler */
     sim_profiler_enable();
 #endif
     SCReturnInt(TM_ECODE_OK);
