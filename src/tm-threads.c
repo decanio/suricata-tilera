@@ -74,7 +74,11 @@ void *TmThreadsThreadWrap(void *td);
 ThreadVars *tv_root[TVT_MAX] = { NULL };
 
 /* lock to protect tv_root */
+#ifdef __tile__
+SCMutex tv_root_lock = TMC_SPIN_QUEUED_MUTEX_INIT;
+#else
 SCMutex tv_root_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 /* Action On Failure(AOF).  Determines how the engine should behave when a
  * thread encounters a failure.  Defaults to restart the failed thread */
@@ -212,21 +216,13 @@ void *TmThreadsSlot1NoIn(void *td)
 
         /* handle post queue */
         if (s->slot_post_pq.top != NULL) {
-#ifdef __tile__
-            tmc_spin_queued_mutex_lock(&s->slot_post_pq.mutex_q);
-#else
             SCMutexLock(&s->slot_post_pq.mutex_q);
-#endif
             while (s->slot_post_pq.top != NULL) {
                 Packet *extra_p = PacketDequeue(&s->slot_post_pq);
                 if (extra_p != NULL)
                     tv->tmqh_out(tv, extra_p);
             }
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&s->slot_post_pq.mutex_q);
-#else
             SCMutexUnlock(&s->slot_post_pq.mutex_q);
-#endif
         }
 
         if (TmThreadsCheckFlag(tv, THV_KILL)) {
@@ -427,17 +423,9 @@ void *TmThreadsSlot1(void *td)
         }
     }
     memset(&s->slot_pre_pq, 0, sizeof(PacketQueue));
-#ifdef __tile__
-    tmc_spin_queued_mutex_init(&s->slot_pre_pq.mutex_q);
-#else
     SCMutexInit(&s->slot_pre_pq.mutex_q, NULL);
-#endif
     memset(&s->slot_post_pq, 0, sizeof(PacketQueue));
-#ifdef __tile__
-    tmc_spin_queued_mutex_init(&s->slot_post_pq.mutex_q);
-#else
     SCMutexInit(&s->slot_post_pq.mutex_q, NULL);
-#endif
 
     TmThreadsSetFlag(tv, THV_INIT_DONE);
 #ifdef __tilegx__
@@ -476,11 +464,7 @@ void *TmThreadsSlot1(void *td)
             tv->tmqh_out(tv, p);
         }
         if (s->slot_post_pq.top != NULL) {
-#ifdef __tile__
-            tmc_spin_queued_mutex_lock(&s->slot_post_pq.mutex_q);
-#else
             SCMutexLock(&s->slot_post_pq.mutex_q);
-#endif
             while (s->slot_post_pq.top != NULL) {
                 /* handle new packets from this func */
                 Packet *extra_p = PacketDequeue(&s->slot_post_pq);
@@ -488,11 +472,7 @@ void *TmThreadsSlot1(void *td)
                     tv->tmqh_out(tv, extra_p);
                 }
             }
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&s->slot_post_pq.mutex_q);
-#else
             SCMutexUnlock(&s->slot_post_pq.mutex_q);
-#endif
         }
 
         if (TmThreadsCheckFlag(tv, THV_KILL)) {
@@ -642,17 +622,9 @@ void *TmThreadsSlotPktAcqLoop(void *td) {
             }
         }
         memset(&slot->slot_pre_pq, 0, sizeof(PacketQueue));
-#ifdef __tile__
-        tmc_spin_queued_mutex_init(&slot->slot_pre_pq.mutex_q);
-#else
         SCMutexInit(&slot->slot_pre_pq.mutex_q, NULL);
-#endif
         memset(&slot->slot_post_pq, 0, sizeof(PacketQueue));
-#ifdef __tile__
-        tmc_spin_queued_mutex_init(&slot->slot_post_pq.mutex_q);
-#else
         SCMutexInit(&slot->slot_post_pq.mutex_q, NULL);
-#endif
     }
 
     TmThreadsSetFlag(tv, THV_INIT_DONE);
@@ -730,17 +702,9 @@ void *TmThreadsSlotVar(void *td)
             }
         }
         memset(&s->slot_pre_pq, 0, sizeof(PacketQueue));
-#ifdef __tile__
-        tmc_spin_queued_mutex_init(&s->slot_pre_pq.mutex_q);
-#else
         SCMutexInit(&s->slot_pre_pq.mutex_q, NULL);
-#endif
         memset(&s->slot_post_pq, 0, sizeof(PacketQueue));
-#ifdef __tile__
-        tmc_spin_queued_mutex_init(&s->slot_post_pq.mutex_q);
-#else
         SCMutexInit(&s->slot_post_pq.mutex_q, NULL);
-#endif
     }
 
     TmThreadsSetFlag(tv, THV_INIT_DONE);
@@ -780,11 +744,7 @@ void *TmThreadsSlotVar(void *td)
         TmSlot *slot;
         for (slot = s; slot != NULL; slot = slot->slot_next) {
             if (slot->slot_post_pq.top != NULL) {
-#ifdef __tile__
-                tmc_spin_queued_mutex_lock(&slot->slot_post_pq.mutex_q);
-#else
                 SCMutexLock(&slot->slot_post_pq.mutex_q);
-#endif
                 while (slot->slot_post_pq.top != NULL) {
                     Packet *extra_p = PacketDequeue(&slot->slot_post_pq);
                     if (extra_p == NULL)
@@ -802,11 +762,7 @@ void *TmThreadsSlotVar(void *td)
                     /* output the packet */
                     tv->tmqh_out(tv, extra_p);
                 } /* while */
-#ifdef __tile__
-                tmc_spin_queued_mutex_unlock(&slot->slot_post_pq.mutex_q);
-#else
                 SCMutexUnlock(&slot->slot_post_pq.mutex_q);
-#endif
             } /* if */
         } /* for */
 
@@ -1233,11 +1189,7 @@ ThreadVars *TmThreadCreate(char *name, char *inq_name, char *inqh_name,
     memset(tv, 0, sizeof(ThreadVars));
 
     SC_ATOMIC_INIT(tv->flags);
-#ifdef __tile__
-    tmc_spin_queued_mutex_init(&tv->sc_perf_pctx.m);
-#else
     SCMutexInit(&tv->sc_perf_pctx.m, NULL);
-#endif
 
     tv->name = name;
     /* default state for every newly created thread */
@@ -1552,9 +1504,9 @@ void TmThreadKillThread(ThreadVars *tv)
             if (tv->inq->q_type == 0)
 #ifdef __tile__
             {
-                tmc_spin_queued_mutex_lock(&trans_q[tv->inq->id].mutex_q);
+                SCMutexLock(&trans_q[tv->inq->id].mutex_q);
                 trans_q[tv->inq->id].cond_q = 1;
-                tmc_spin_queued_mutex_unlock(&trans_q[tv->inq->id].mutex_q);
+                SCMutexUnlock(&trans_q[tv->inq->id].mutex_q);
 
             }
 #else
@@ -1563,9 +1515,9 @@ void TmThreadKillThread(ThreadVars *tv)
             else
 #ifdef __tile__
             {
-                tmc_spin_queued_mutex_lock(&data_queues[tv->inq->id].mutex_q);
+                SCMutexLock(&data_queues[tv->inq->id].mutex_q);
                 data_queues[tv->inq->id].cond_q = 1;
-                tmc_spin_queued_mutex_unlock(&data_queues[tv->inq->id].mutex_q);
+                SCMutexUnlock(&data_queues[tv->inq->id].mutex_q);
             }
 #else
                 SCCondSignal(&data_queues[tv->inq->id].cond_q);
@@ -1589,9 +1541,9 @@ void TmThreadKillThread(ThreadVars *tv)
                 if (tv->inq->q_type == 0)
 #ifdef __tile__
                 {
-                    tmc_spin_queued_mutex_lock(&trans_q[tv->inq->id].mutex_q);
+                    SCMutexLock(&trans_q[tv->inq->id].mutex_q);
                     trans_q[tv->inq->id].cond_q = 1;
-                    tmc_spin_queued_mutex_unlock(&trans_q[tv->inq->id].mutex_q);
+                    SCMutexUnlock(&trans_q[tv->inq->id].mutex_q);
                 }
 #else
                     SCCondSignal(&trans_q[tv->inq->id].cond_q);
@@ -1599,9 +1551,9 @@ void TmThreadKillThread(ThreadVars *tv)
                 else
 #ifdef __tile__
                 {
-                    tmc_spin_queued_mutex_lock(&data_queues[tv->inq->id].mutex_q);
+                    SCMutexLock(&data_queues[tv->inq->id].mutex_q);
                     data_queues[tv->inq->id].cond_q = 1;
-                    tmc_spin_queued_mutex_unlock(&data_queues[tv->inq->id].mutex_q);
+                    SCMutexUnlock(&data_queues[tv->inq->id].mutex_q);
                 }
 #else
                     SCCondSignal(&data_queues[tv->inq->id].cond_q);
@@ -1795,7 +1747,7 @@ void TmThreadInitMC(ThreadVars *tv)
         exit(EXIT_FAILURE);
     }
 
-    if (SCMutexInit(tv->m, NULL) != 0) {
+    if (SCPtMutexInit(tv->m, NULL) != 0) {
         printf("Error initializing the tv->m mutex\n");
         exit(0);
     }
@@ -1806,7 +1758,7 @@ void TmThreadInitMC(ThreadVars *tv)
         exit(0);
     }
 
-    if (SCCondInit(tv->cond, NULL) != 0) {
+    if (SCPtCondInit(tv->cond, NULL) != 0) {
         SCLogError(SC_ERR_FATAL, "Error initializing the tv->cond condition "
                    "variable");
         exit(0);

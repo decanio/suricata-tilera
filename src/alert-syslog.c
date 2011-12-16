@@ -260,11 +260,7 @@ TmEcode AlertSyslogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
     if (p->alerts.cnt == 0)
         return TM_ECODE_OK;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&ast->file_ctx->fp_mutex);
-#else
     SCMutexLock(&ast->file_ctx->fp_mutex);
-#endif
 
     ast->file_ctx->alerts += p->alerts.cnt;
 
@@ -299,11 +295,7 @@ TmEcode AlertSyslogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
                     pa->s->prio, IPV4_GET_IPPROTO(p), srcip, p->sp, dstip, p->dp);
         }
     }
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&ast->file_ctx->fp_mutex);
-#else
     SCMutexUnlock(&ast->file_ctx->fp_mutex);
-#endif
 
     return TM_ECODE_OK;
 }
@@ -329,11 +321,7 @@ TmEcode AlertSyslogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
     if (p->alerts.cnt == 0)
         return TM_ECODE_OK;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&ast->file_ctx->fp_mutex);
-#else
     SCMutexLock(&ast->file_ctx->fp_mutex);
-#endif
 
     ast->file_ctx->alerts += p->alerts.cnt;
 
@@ -371,11 +359,7 @@ TmEcode AlertSyslogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
         }
 
     }
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&ast->file_ctx->fp_mutex);
-#else
     SCMutexUnlock(&ast->file_ctx->fp_mutex);
-#endif
 
     return TM_ECODE_OK;
 }
@@ -401,11 +385,7 @@ TmEcode AlertSyslogDecoderEvent(ThreadVars *tv, Packet *p, void *data,
     if (p->alerts.cnt == 0)
         return TM_ECODE_OK;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&ast->file_ctx->fp_mutex);
-#else
     SCMutexLock(&ast->file_ctx->fp_mutex);
-#endif
 
     ast->file_ctx->alerts += p->alerts.cnt;
     char temp_buf_hdr[512];
@@ -445,11 +425,7 @@ TmEcode AlertSyslogDecoderEvent(ThreadVars *tv, Packet *p, void *data,
 
         syslog(alert_syslog_level, "%s", alert);
     }
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&ast->file_ctx->fp_mutex);
-#else
     SCMutexUnlock(&ast->file_ctx->fp_mutex);
-#endif
 
     return TM_ECODE_OK;
 }

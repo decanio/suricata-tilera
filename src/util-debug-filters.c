@@ -54,8 +54,13 @@ SCLogFGFilterFile *sc_log_fg_filters[SC_LOG_FILTER_MAX] = { NULL, NULL };
 /**
  * \brief Mutex for accessing the fine-grained fiters sc_log_fg_filters
  */
+#ifdef __tile__
+static SCMutex sc_log_fg_filters_m[SC_LOG_FILTER_MAX] = { TMC_SPIN_QUEUED_MUTEX_INIT,
+                                                          TMC_SPIN_QUEUED_MUTEX_INIT };
+#else
 static SCMutex sc_log_fg_filters_m[SC_LOG_FILTER_MAX] = { PTHREAD_MUTEX_INITIALIZER,
                                                                   PTHREAD_MUTEX_INITIALIZER };
+#endif
 
 /**
  * \brief Holds the function-dependent filters
@@ -65,7 +70,11 @@ static SCLogFDFilter *sc_log_fd_filters = NULL;
 /**
  * \brief Mutex for accessing the function-dependent filters sc_log_fd_filters
  */
+#ifdef __tile__
+static SCMutex sc_log_fd_filters_m = TMC_SPIN_QUEUED_MUTEX_INIT;
+#else
 static SCMutex sc_log_fd_filters_m = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 /**
  * \brief Holds the thread_list required by function-dependent filters
@@ -75,7 +84,11 @@ static SCLogFDFilterThreadList *sc_log_fd_filters_tl = NULL;
 /**
  * \brief Mutex for accessing the FD thread_list sc_log_fd_filters_tl
  */
+#ifdef __tile__
+static SCMutex sc_log_fd_filters_tl_m = TMC_SPIN_QUEUED_MUTEX_INIT;
+#else
 static SCMutex sc_log_fd_filters_tl_m = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 /**
  * \brief Helper function used internally to add a FG filter

@@ -131,11 +131,7 @@ int DetectSshSoftwareVersionMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx
     }
 
     int ret = 0;
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
     if (flags & STREAM_TOCLIENT && ssh_state->flags & SSH_FLAG_SERVER_VERSION_PARSED) {
         SCLogDebug("looking for ssh server softwareversion %s length %"PRIu16" on %s", ssh->software_ver, ssh->len, ssh_state->server_software_version);
         ret = (strncmp((char *) ssh_state->server_software_version, (char *) ssh->software_ver, ssh->len) == 0)? 1 : 0;
@@ -143,11 +139,7 @@ int DetectSshSoftwareVersionMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx
         SCLogDebug("looking for ssh client softwareversion %s length %"PRIu16" on %s", ssh->software_ver, ssh->len, ssh_state->client_software_version);
         ret = (strncmp((char *) ssh_state->client_software_version, (char *) ssh->software_ver, ssh->len) == 0)? 1 : 0;
     }
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     SCReturnInt(ret);
 }
 

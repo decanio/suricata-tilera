@@ -136,11 +136,7 @@ int DetectTagFlowAdd(Packet *p, DetectTagDataEntry *tde) {
     if (p->flow == NULL)
         return 1;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&p->flow->m);
-#else
     SCMutexLock(&p->flow->m);
-#endif
 
     if (p->flow->tag_list == NULL) {
         p->flow->tag_list = SCMalloc(sizeof(DetectTagDataEntryList));
@@ -184,19 +180,11 @@ int DetectTagFlowAdd(Packet *p, DetectTagDataEntry *tde) {
         SCLogDebug("Max tags for sessions reached (%"PRIu16")", num_tags);
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&p->flow->m);
-#else
     SCMutexUnlock(&p->flow->m);
-#endif
     return updated;
 
 error:
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&p->flow->m);
-#else
     SCMutexUnlock(&p->flow->m);
-#endif
     return 1;
 }
 

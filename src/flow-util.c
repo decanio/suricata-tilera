@@ -206,11 +206,7 @@ void FlowAllocPoolInit(void)
         ++p;
     }
     p->next = NULL;
-#ifdef __tile__
-    tmc_spin_queued_mutex_init(&flow_alloc_mutex);
-#else
     SCMutexInit(&flow_alloc_mutex, NULL);
-#endif
  
 #endif
     SCReturn;

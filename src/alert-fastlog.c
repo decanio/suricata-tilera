@@ -130,11 +130,7 @@ TmEcode AlertFastLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
 
     CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&aft->file_ctx->fp_mutex);
-#else
     SCMutexLock(&aft->file_ctx->fp_mutex);
-#endif
 
     aft->file_ctx->alerts += p->alerts.cnt;
 
@@ -170,11 +166,7 @@ TmEcode AlertFastLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
         }
         fflush(aft->file_ctx->fp);
     }
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
-#else
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
-#endif
 
     return TM_ECODE_OK;
 }
@@ -192,11 +184,7 @@ TmEcode AlertFastLogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
 
     CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&aft->file_ctx->fp_mutex);
-#else
     SCMutexLock(&aft->file_ctx->fp_mutex);
-#endif
 
     aft->file_ctx->alerts += p->alerts.cnt;
 
@@ -235,11 +223,7 @@ TmEcode AlertFastLogIPv6(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
 
         fflush(aft->file_ctx->fp);
     }
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
-#else
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
-#endif
 
     return TM_ECODE_OK;
 }
@@ -257,11 +241,7 @@ TmEcode AlertFastLogDecoderEvent(ThreadVars *tv, Packet *p, void *data, PacketQu
 
     CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&aft->file_ctx->fp_mutex);
-#else
     SCMutexLock(&aft->file_ctx->fp_mutex);
-#endif
 
     aft->file_ctx->alerts += p->alerts.cnt;
 
@@ -291,11 +271,7 @@ TmEcode AlertFastLogDecoderEvent(ThreadVars *tv, Packet *p, void *data, PacketQu
 
         fflush(aft->file_ctx->fp);
     }
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
-#else
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
-#endif
 
     return TM_ECODE_OK;
 }

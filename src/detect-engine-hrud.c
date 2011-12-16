@@ -354,11 +354,7 @@ int DetectEngineRunHttpRawUriMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
     }
 
     /* locking the flow, we will inspect the htp state */
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     if (htp_state->connp == NULL || htp_state->connp->conn == NULL) {
         SCLogDebug("HTP state has no conn(p)");
@@ -384,11 +380,7 @@ int DetectEngineRunHttpRawUriMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
     }
 
 end:
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     SCReturnInt(cnt);
 }
 
@@ -421,11 +413,7 @@ int DetectEngineInspectHttpRawUri(DetectEngineCtx *de_ctx,
     }
 
     /* locking the flow, we will inspect the htp state */
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     if (htp_state->connp == NULL || htp_state->connp->conn == NULL) {
         SCLogDebug("HTP state has no conn(p)");
@@ -468,11 +456,7 @@ int DetectEngineInspectHttpRawUri(DetectEngineCtx *de_ctx,
     }
 
 end:
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     SCReturnInt(r);
 }
 

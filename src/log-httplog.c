@@ -188,11 +188,7 @@ static TmEcode LogHttpLogIPWrapper(ThreadVars *tv, Packet *p, void *data, Packet
     }
 
     /* check if we have HTTP state or not */
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&p->flow->m);
-#else
     SCMutexLock(&p->flow->m);
-#endif
     uint16_t proto = AppLayerGetProtoFromPacket(p);
     if (proto != ALPROTO_HTTP)
         goto end;
@@ -256,11 +252,7 @@ static TmEcode LogHttpLogIPWrapper(ThreadVars *tv, Packet *p, void *data, Packet
         dp = p->sp;
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&hlog->file_ctx->fp_mutex);
-#else
     SCMutexLock(&hlog->file_ctx->fp_mutex);
-#endif
     for (idx = logged; idx < loggable; idx++)
     {
         tx = list_get(htp_state->connp->conn->transactions, idx);
@@ -318,18 +310,10 @@ static TmEcode LogHttpLogIPWrapper(ThreadVars *tv, Packet *p, void *data, Packet
         AppLayerTransactionUpdateLoggedId(p->flow);
     }
     fflush(hlog->file_ctx->fp);
-#ifdef __tile__
-   tmc_spin_queued_mutex_unlock(&hlog->file_ctx->fp_mutex);
-#else
     SCMutexUnlock(&hlog->file_ctx->fp_mutex);
-#endif
 
 end:
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&p->flow->m);
-#else
     SCMutexUnlock(&p->flow->m);
-#endif
     SCReturnInt(TM_ECODE_OK);
 
 }

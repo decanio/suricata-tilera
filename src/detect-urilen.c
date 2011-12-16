@@ -119,11 +119,7 @@ int DetectUrilenMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx, Flow *f,
         SCReturnInt(ret);
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
     htp_tx_t *tx = NULL;
 
     idx = AppLayerTransactionGetInspectId(f);
@@ -159,11 +155,7 @@ int DetectUrilenMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx, Flow *f,
         }
     }
 end:
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     SCReturnInt(ret);
 }
 

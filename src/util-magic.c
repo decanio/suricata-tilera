@@ -35,11 +35,7 @@
 #include <magic.h>
 
 static magic_t g_magic_ctx = NULL;
-#ifdef __tile__
-static tmc_spin_queued_mutex_t g_magic_lock;
-#else
 static SCMutex g_magic_lock;
-#endif
 
 /**
  *  \brief Initialize the "magic" context.
@@ -52,16 +48,8 @@ int MagicInit(void) {
     char *filename = NULL;
     FILE *fd = NULL;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_init(&g_magic_lock);
-#else
     SCMutexInit(&g_magic_lock, NULL);
-#endif
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&g_magic_lock);
-#else
     SCMutexLock(&g_magic_lock);
-#endif
 
     g_magic_ctx = magic_open(0);
     if (g_magic_ctx == NULL) {
@@ -85,11 +73,7 @@ int MagicInit(void) {
         goto error;
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&g_magic_lock);
-#else
     SCMutexUnlock(&g_magic_lock);
-#endif
     SCReturnInt(0);
 
 error:
@@ -98,11 +82,7 @@ error:
         g_magic_ctx = NULL;
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&g_magic_lock);
-#else
     SCMutexUnlock(&g_magic_lock);
-#endif
     SCReturnInt(-1);
 }
 
@@ -118,11 +98,7 @@ char *MagicLookup(uint8_t *buf, uint32_t buflen) {
     const char *result = NULL;
     char *magic = NULL;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&g_magic_lock);
-#else
     SCMutexLock(&g_magic_lock);
-#endif
 
     if (buf != NULL && buflen > 0) {
         result = magic_buffer(g_magic_ctx, (void *)buf, (size_t)buflen);
@@ -131,11 +107,7 @@ char *MagicLookup(uint8_t *buf, uint32_t buflen) {
         }
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&g_magic_lock);
-#else
     SCMutexUnlock(&g_magic_lock);
-#endif
     SCReturnPtr(magic, "const char");
 }
 

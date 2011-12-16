@@ -48,7 +48,7 @@ FlowQueue *FlowQueueInit (FlowQueue *q) {
     if (q != NULL) {
         memset(q, 0, sizeof(FlowQueue));
 #ifdef __tile__
-        tmc_spin_queued_mutex_init(&q->mutex_q);
+        SCMutexInit(&q->mutex_q, NULL);
         q->cond_q = 0;
 #else
         SCMutexInit(&q->mutex_q, NULL);
@@ -64,8 +64,7 @@ FlowQueue *FlowQueueInit (FlowQueue *q) {
  *  \param q the flow queue to destroy
  */
 void FlowQueueDestroy (FlowQueue *q) {
-#ifdef __tile__
-#else
+#ifndef __tile__
     SCMutexDestroy(&q->mutex_q);
     SCCondDestroy(&q->cond_q);
 #endif
@@ -82,11 +81,7 @@ void FlowEnqueue (FlowQueue *q, Flow *f) {
     BUG_ON(q == NULL || f == NULL);
 #endif
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&q->mutex_q);
-#else
     SCMutexLock(&q->mutex_q);
-#endif
     /* more flows in queue */
     if (q->top != NULL) {
         f->lnext = q->top;
@@ -102,11 +97,7 @@ void FlowEnqueue (FlowQueue *q, Flow *f) {
     if (q->len > q->dbg_maxlen)
         q->dbg_maxlen = q->len;
 #endif /* DBG_PERF */
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
     SCMutexUnlock(&q->mutex_q);
-#endif
 }
 
 /**
@@ -117,19 +108,11 @@ void FlowEnqueue (FlowQueue *q, Flow *f) {
  *  \retval f flow or NULL if empty list.
  */
 Flow *FlowDequeue (FlowQueue *q) {
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&q->mutex_q);
-#else
     SCMutexLock(&q->mutex_q);
-#endif
 
     Flow *f = q->bot;
     if (f == NULL) {
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
         SCMutexUnlock(&q->mutex_q);
-#endif
         return NULL;
     }
 
@@ -152,11 +135,7 @@ Flow *FlowDequeue (FlowQueue *q) {
     f->lnext = NULL;
     f->lprev = NULL;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
     SCMutexUnlock(&q->mutex_q);
-#endif
     return f;
 }
 
@@ -175,11 +154,7 @@ void FlowRequeue(Flow *f, FlowQueue *srcq, FlowQueue *dstq)
     BUG_ON(srcq == NULL || dstq == NULL || srcq == dstq);
 #endif /* DEBUG */
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&srcq->mutex_q);
-#else
     SCMutexLock(&srcq->mutex_q);
-#endif
 
     /* remove from old queue */
     if (srcq->top == f)
@@ -200,17 +175,9 @@ void FlowRequeue(Flow *f, FlowQueue *srcq, FlowQueue *dstq)
     f->lnext = NULL;
     f->lprev = NULL;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&srcq->mutex_q);
-#else
     SCMutexUnlock(&srcq->mutex_q);
-#endif
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&dstq->mutex_q);
-#else
     SCMutexLock(&dstq->mutex_q);
-#endif
 
     /* add to new queue (append) */
     f->lprev = dstq->bot;
@@ -227,11 +194,7 @@ void FlowRequeue(Flow *f, FlowQueue *srcq, FlowQueue *dstq)
         dstq->dbg_maxlen = dstq->len;
 #endif /* DBG_PERF */
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&dstq->mutex_q);
-#else
     SCMutexUnlock(&dstq->mutex_q);
-#endif
 }
 
 /**
@@ -246,11 +209,7 @@ void FlowRequeueMoveToBot(Flow *f, FlowQueue *q)
     BUG_ON(q == NULL || f == NULL);
 #endif /* DEBUG */
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&q->mutex_q);
-#else
     SCMutexLock(&q->mutex_q);
-#endif
 
     /* remove from the queue */
     if (q->top == f)
@@ -275,11 +234,7 @@ void FlowRequeueMoveToBot(Flow *f, FlowQueue *q)
     if (q->top == NULL)
         q->top = f;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
     SCMutexUnlock(&q->mutex_q);
-#endif
 }
 
 /**
@@ -315,11 +270,7 @@ void FlowRequeueMoveToSpare(Flow *f, FlowQueue *q)
     f->lprev = NULL;
 
     /* now put it in spare */
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&flow_spare_q.mutex_q);
-#else
     SCMutexLock(&flow_spare_q.mutex_q);
-#endif
 
     /* add to new queue (append) */
     f->lprev = flow_spare_q.bot;
@@ -336,10 +287,6 @@ void FlowRequeueMoveToSpare(Flow *f, FlowQueue *q)
         flow_spare_q.dbg_maxlen = flow_spare_q.len;
 #endif /* DBG_PERF */
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&flow_spare_q.mutex_q);
-#else
     SCMutexUnlock(&flow_spare_q.mutex_q);
-#endif
 }
 

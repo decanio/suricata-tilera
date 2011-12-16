@@ -193,11 +193,7 @@ TmEcode AlertDebugLogger(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
 
     CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&aft->file_ctx->fp_mutex);
-#else
     SCMutexLock(&aft->file_ctx->fp_mutex);
-#endif
 
     fprintf(aft->file_ctx->fp, "+================\n");
     fprintf(aft->file_ctx->fp, "TIME:              %s\n", timebuf);
@@ -232,11 +228,7 @@ TmEcode AlertDebugLogger(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
         p->flowflags & FLOW_PKT_TOCLIENT ? "TRUE" : "FALSE");
 
     if (p->flow != NULL) {
-#ifdef __tile__
-        tmc_spin_queued_mutex_lock(&p->flow->m);
-#else
         SCMutexLock(&p->flow->m);
-#endif
         CreateTimeString(&p->flow->startts, timebuf, sizeof(timebuf));
         fprintf(aft->file_ctx->fp, "FLOW Start TS:     %s\n",timebuf);
 #ifdef DEBUG
@@ -258,11 +250,7 @@ TmEcode AlertDebugLogger(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
                 (p->flow->alproto != ALPROTO_UNKNOWN) ? "TRUE" : "FALSE", p->flow->alproto);
         AlertDebugLogFlowVars(aft, p);
         AlertDebugLogFlowBits(aft, p);
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&p->flow->m);
-#else
         SCMutexUnlock(&p->flow->m);
-#endif
     }
 
     AlertDebugLogPktVars(aft, p);
@@ -305,11 +293,7 @@ TmEcode AlertDebugLogger(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
             uint8_t flag;
             if ((! PKT_IS_TCP(p)) || p->flow == NULL ||
                     p->flow->protoctx == NULL) {
-#ifdef __tile__
-                tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
-#else
                 SCMutexUnlock(&aft->file_ctx->fp_mutex);
-#endif
                 return TM_ECODE_OK;
             }
             /* IDS mode reverse the data */
@@ -323,11 +307,7 @@ TmEcode AlertDebugLogger(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
                                  AlertDebugPrintStreamSegmentCallback,
                                  (void *)aft);
             if (ret < 0) {
-#ifdef __tile__
-                tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
-#else
                 SCMutexUnlock(&aft->file_ctx->fp_mutex);
-#endif
                 return TM_ECODE_FAILED;
             }
         }
@@ -336,11 +316,7 @@ TmEcode AlertDebugLogger(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
     aft->file_ctx->alerts += p->alerts.cnt;
 
     fflush(aft->file_ctx->fp);
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
-#else
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
-#endif
 
     return TM_ECODE_OK;
 }
@@ -356,11 +332,7 @@ TmEcode AlertDebugLogDecoderEvent(ThreadVars *tv, Packet *p, void *data, PacketQ
 
     CreateTimeString(&p->ts, timebuf, sizeof(timebuf));
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&aft->file_ctx->fp_mutex);
-#else
     SCMutexLock(&aft->file_ctx->fp_mutex);
-#endif
 
     fprintf(aft->file_ctx->fp, "+================\n");
     fprintf(aft->file_ctx->fp, "TIME:              %s\n", timebuf);
@@ -390,11 +362,7 @@ TmEcode AlertDebugLogDecoderEvent(ThreadVars *tv, Packet *p, void *data, PacketQ
     PrintRawDataFp(aft->file_ctx->fp, GET_PKT_DATA(p), GET_PKT_LEN(p));
 
     fflush(aft->file_ctx->fp);
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&aft->file_ctx->fp_mutex);
-#else
     SCMutexUnlock(&aft->file_ctx->fp_mutex);
-#endif
 
     return TM_ECODE_OK;
 }

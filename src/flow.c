@@ -191,11 +191,7 @@ static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
     int cnt = 0;
     int try_cnt_temp = 0;
 
-#ifdef __tile__
-    int mr = tmc_spin_queued_mutex_trylock(&q->mutex_q);
-#else
     int mr = SCMutexTrylock(&q->mutex_q);
-#endif
     if (mr != 0) {
         SCLogDebug("trylock failed");
         if (mr == EBUSY)
@@ -214,21 +210,13 @@ static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
     /* label */
     while (f != NULL) {
         if (try_cnt != 0 && try_cnt_temp == try_cnt) {
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
             SCMutexUnlock(&q->mutex_q);
-#endif
             return cnt;
         }
         try_cnt_temp++;
 
         if (f == NULL) {
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
             SCMutexUnlock(&q->mutex_q);
-#endif
             SCLogDebug("top is null");
 
 #ifdef FLOW_PRUNE_DEBUG
@@ -237,11 +225,7 @@ static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
             return cnt;
         }
 
-#ifdef __tile__
-        if (tmc_spin_queued_mutex_trylock(&f->m) != 0) {
-#else
         if (SCMutexTrylock(&f->m) != 0) {
-#endif
             SCLogDebug("cant lock 1");
 
 #ifdef FLOW_PRUNE_DEBUG
@@ -251,16 +235,8 @@ static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
             continue;
         }
 
-#ifdef __tile__
-        if (tmc_spin_queued_mutex_trylock(&f->fb->s) != 0) {
-#else
         if (SCSpinTrylock(&f->fb->s) != 0) {
-#endif
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&f->m);
-#else
             SCMutexUnlock(&f->m);
-#endif
             SCLogDebug("cant lock 2");
 
 #ifdef FLOW_PRUNE_DEBUG
@@ -321,15 +297,9 @@ static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
 
         /* do the timeout check */
         if ((int32_t)(f->lastts_sec + timeout) >= ts->tv_sec) {
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&f->fb->s);
-            tmc_spin_queued_mutex_unlock(&f->m);
-            tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
             SCSpinUnlock(&f->fb->s);
             SCMutexUnlock(&f->m);
             SCMutexUnlock(&q->mutex_q);
-#endif
             SCLogDebug("timeout check failed");
 
 #ifdef FLOW_PRUNE_DEBUG
@@ -349,29 +319,16 @@ static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
 #endif
             Flow *prev_f = f;
             f = f->lnext;
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&prev_f->fb->s);
-            tmc_spin_queued_mutex_unlock(&prev_f->m);
-#else
             SCSpinUnlock(&prev_f->fb->s);
             SCMutexUnlock(&prev_f->m);
-#endif
             continue;
         }
 
         if (FlowForceReassemblyForFlowV2(f) == 1) {
             Flow *prev_f = f;
             f = f->lnext;
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&prev_f->fb->s);
-#else
             SCSpinUnlock(&prev_f->fb->s);
-#endif
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&prev_f->m);
-#else
             SCMutexUnlock(&prev_f->m);
-#endif
             continue;
         }
 #ifdef DEBUG
@@ -389,11 +346,7 @@ static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
         f->hnext = NULL;
         f->hprev = NULL;
 
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&f->fb->s);
-#else
         SCSpinUnlock(&f->fb->s);
-#endif
         f->fb = NULL;
 
         FlowClearMemory (f, f->protomap);
@@ -401,11 +354,7 @@ static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
 
         /* no one is referring to this flow, use_cnt 0, removed from hash
          * so we can unlock it and move it back to the spare queue. */
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&f->m);
-#else
         SCMutexUnlock(&f->m);
-#endif
 
         /* move to spare list */
         FlowRequeueMoveToSpare(f, q);
@@ -414,11 +363,7 @@ static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
         cnt++;
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
     SCMutexUnlock(&q->mutex_q);
-#endif
     return cnt;
 }
 
@@ -508,11 +453,7 @@ static uint32_t FlowKillFlowQueueCnt(FlowQueue *q, int try_cnt, uint8_t mode)
 int FlowKill (FlowQueue *q)
 {
     SCEnter();
-#ifdef __tile__
-    int mr = tmc_spin_queued_mutex_trylock(&q->mutex_q);
-#else
     int mr = SCMutexTrylock(&q->mutex_q);
-#endif
 
     if (mr != 0) {
         SCLogDebug("trylock failed");
@@ -527,36 +468,20 @@ int FlowKill (FlowQueue *q)
 
     /* This means that the queue is empty */
     if (f == NULL) {
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
         SCMutexUnlock(&q->mutex_q);
-#endif
         SCLogDebug("top is null");
         return 0;
     }
 
     do {
-#ifdef __tile__
-        if (tmc_spin_queued_mutex_trylock(&f->m) != 0) {
-#else
         if (SCMutexTrylock(&f->m) != 0) {
-#endif
             f = f->lnext;
             /* Skip to the next */
             continue;
         }
 
-#ifdef __tile__
-        if (tmc_spin_queued_mutex_trylock(&f->fb->s) != 0) {
-#else
         if (SCSpinTrylock(&f->fb->s) != 0) {
-#endif
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&f->m);
-#else
             SCMutexUnlock(&f->m);
-#endif
             f = f->lnext;
             continue;
         }
@@ -564,16 +489,8 @@ int FlowKill (FlowQueue *q)
         /** never prune a flow that is used by a packet or stream msg
          *  we are currently processing in one of the threads */
         if (SC_ATOMIC_GET(f->use_cnt) > 0) {
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&f->fb->s);
-#else
             SCSpinUnlock(&f->fb->s);
-#endif
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&f->m);
-#else
             SCMutexUnlock(&f->m);
-#endif
             f = f->lnext;
             continue;
         }
@@ -589,43 +506,27 @@ int FlowKill (FlowQueue *q)
         f->hnext = NULL;
         f->hprev = NULL;
 
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&f->fb->s);
-#else
         SCSpinUnlock(&f->fb->s);
-#endif
         f->fb = NULL;
 
         FlowClearMemory (f, f->protomap);
 
         /* no one is referring to this flow, use_cnt 0, removed from hash
          * so we can unlock it and move it back to the spare queue. */
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&f->m);
-#else
         SCMutexUnlock(&f->m);
-#endif
 
         /* move to spare list */
         FlowRequeueMoveToSpare(f, q);
 
         /* so.. we did it */
         /* unlock queue */
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
         SCMutexUnlock(&q->mutex_q);
-#endif
         return 1;
     } while (f != NULL);
 
     /* If we reach this point, then we didn't prune any */
     /* unlock list */
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
     SCMutexUnlock(&q->mutex_q);
-#endif
 
     return 0;
 }
@@ -702,19 +603,11 @@ int FlowUpdateSpareFlows(void)
     SCEnter();
     uint32_t toalloc = 0, tofree = 0, len;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&flow_spare_q.mutex_q);
-#else
     SCMutexLock(&flow_spare_q.mutex_q);
-#endif
 
     len = flow_spare_q.len;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&flow_spare_q.mutex_q);
-#else
     SCMutexUnlock(&flow_spare_q.mutex_q);
-#endif
 
     if (len < flow_config.prealloc) {
         toalloc = flow_config.prealloc - len;
@@ -751,18 +644,10 @@ int FlowUpdateSpareFlows(void)
   */
 void FlowSetIPOnlyFlag(Flow *f, char direction)
 {
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
     direction ? (f->flags |= FLOW_TOSERVER_IPONLY_SET) :
         (f->flags |= FLOW_TOCLIENT_IPONLY_SET);
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     return;
 }
 
@@ -917,11 +802,7 @@ void FlowHandlePacket (ThreadVars *tv, Packet *p)
         DecodeSetNoPayloadInspectionFlag(p);
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
 
     /* set the flow in the packet */
     p->flow = f;
@@ -1019,11 +900,7 @@ void FlowInitConfig(char quiet)
 
     memset(flow_hash, 0, flow_config.hash_size * sizeof(FlowBucket));
     for (i = 0; i < flow_config.hash_size; i++) {
-#ifdef __tile__
-        tmc_spin_queued_mutex_init(&flow_hash[i].s);
-#else
         SCSpinInit(&flow_hash[i].s, 0);
-#endif
     }
     SC_ATOMIC_ADD(flow_memuse, (flow_config.hash_size * sizeof(FlowBucket)));
 
@@ -1144,11 +1021,7 @@ void FlowShutdown(void)
     if (flow_hash != NULL) {
         /* clean up flow mutexes */
         for (u = 0; u < flow_config.hash_size; u++) {
-#ifdef __tile__
-	    ;
-#else
             SCSpinDestroy(&flow_hash[u].s);
-#endif
         }
         SCFree(flow_hash);
         flow_hash = NULL;

@@ -271,11 +271,7 @@ typedef struct Flow_
     /* ts of flow init and last update */
     int32_t lastts_sec;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_t m;
-#else
     SCMutex m;
-#endif
 
     /** protocol specific data pointer, e.g. for TcpSession */
     void *protoctx;
@@ -309,11 +305,7 @@ typedef struct Flow_
     /* pointer to the var list */
     GenericVar *flowvar;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_t de_state_m; /**< mutex lock for the de_state object */
-#else
     SCMutex de_state_m;          /**< mutex lock for the de_state object */
-#endif
 
     /* list flow ptrs
      * NOTE!!! These are NOT protected by the
@@ -394,17 +386,9 @@ static inline void FlowLockSetNoPacketInspectionFlag(Flow *f) {
     SCEnter();
 
     SCLogDebug("flow %p", f);
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
     f->flags |= FLOW_NOPACKET_INSPECTION;
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
 
     SCReturn;
 }
@@ -430,17 +414,9 @@ static inline void FlowLockSetNoPayloadInspectionFlag(Flow *f) {
     SCEnter();
 
     SCLogDebug("flow %p", f);
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
     f->flags |= FLOW_NOPAYLOAD_INSPECTION;
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
 
     SCReturn;
 }

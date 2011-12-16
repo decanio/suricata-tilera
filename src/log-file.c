@@ -195,11 +195,7 @@ static TmEcode LogFileLogWrap(ThreadVars *tv, Packet *p, void *data, PacketQueue
 
     int file_close = (p->flags & PKT_PSEUDO_STREAM_END) ? 1 : 0;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&p->flow->m);
-#else
     SCMutexLock(&p->flow->m);
-#endif
 
     FileContainer *ffc = AppLayerGetFilesFromFlow(p->flow, flags);
     SCLogDebug("ffc %p", ffc);
@@ -296,11 +292,7 @@ static TmEcode LogFileLogWrap(ThreadVars *tv, Packet *p, void *data, PacketQueue
         FilePrune(ffc);
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&p->flow->m);
-#else
     SCMutexUnlock(&p->flow->m);
-#endif
     SCReturnInt(TM_ECODE_OK);
 }
 

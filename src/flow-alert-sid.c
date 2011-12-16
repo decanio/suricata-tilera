@@ -109,49 +109,29 @@ static void FlowAlertSidRemove(Flow *f, uint32_t sid) {
 }
 
 void FlowAlertSidSet(Flow *f, uint32_t sid) {
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     FlowAlertSid *fb = FlowAlertSidGet(f, sid);
     if (fb == NULL) {
         FlowAlertSidAdd(f, sid);
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
 }
 
 void FlowAlertSidUnset(Flow *f, uint32_t sid) {
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     FlowAlertSid *fb = FlowAlertSidGet(f, sid);
     if (fb != NULL) {
         FlowAlertSidRemove(f, sid);
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
 }
 
 void FlowAlertSidToggle(Flow *f, uint32_t sid) {
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     FlowAlertSid *fb = FlowAlertSidGet(f, sid);
     if (fb != NULL) {
@@ -160,52 +140,32 @@ void FlowAlertSidToggle(Flow *f, uint32_t sid) {
         FlowAlertSidAdd(f, sid);
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
 }
 
 int FlowAlertSidIsset(Flow *f, uint32_t sid) {
     int r = 0;
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     FlowAlertSid *fb = FlowAlertSidGet(f, sid);
     if (fb != NULL) {
         r = 1;
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     return r;
 }
 
 int FlowAlertSidIsnotset(Flow *f, uint32_t sid) {
     int r = 0;
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     FlowAlertSid *fb = FlowAlertSidGet(f, sid);
     if (fb == NULL) {
         r = 1;
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     return r;
 }
 

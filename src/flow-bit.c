@@ -101,49 +101,29 @@ static void FlowBitRemove(Flow *f, uint16_t idx) {
 }
 
 void FlowBitSet(Flow *f, uint16_t idx) {
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     FlowBit *fb = FlowBitGet(f, idx);
     if (fb == NULL) {
         FlowBitAdd(f, idx);
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
 }
 
 void FlowBitUnset(Flow *f, uint16_t idx) {
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     FlowBit *fb = FlowBitGet(f, idx);
     if (fb != NULL) {
         FlowBitRemove(f, idx);
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
 }
 
 void FlowBitToggle(Flow *f, uint16_t idx) {
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     FlowBit *fb = FlowBitGet(f, idx);
     if (fb != NULL) {
@@ -152,52 +132,32 @@ void FlowBitToggle(Flow *f, uint16_t idx) {
         FlowBitAdd(f, idx);
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
 }
 
 int FlowBitIsset(Flow *f, uint16_t idx) {
     int r = 0;
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     FlowBit *fb = FlowBitGet(f, idx);
     if (fb != NULL) {
         r = 1;
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     return r;
 }
 
 int FlowBitIsnotset(Flow *f, uint16_t idx) {
     int r = 0;
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     FlowBit *fb = FlowBitGet(f, idx);
     if (fb == NULL) {
         r = 1;
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     return r;
 }
 

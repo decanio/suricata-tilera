@@ -316,11 +316,7 @@ int DetectEngineRunHttpRawHeaderMpm(DetectEngineThreadCtx *det_ctx, Flow *f, Htp
 
     /* we need to lock because the buffers are not actually true buffers
      * but are ones that point to a buffer given by libhtp */
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     if (htp_state == NULL) {
         SCLogDebug("no HTTP state");
@@ -353,11 +349,7 @@ int DetectEngineRunHttpRawHeaderMpm(DetectEngineThreadCtx *det_ctx, Flow *f, Htp
     }
 
  end:
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     return cnt;
 }
 
@@ -385,11 +377,7 @@ int DetectEngineInspectHttpRawHeader(DetectEngineCtx *de_ctx,
     htp_tx_t *tx = NULL;
     int idx;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     htp_state = (HtpState *)alstate;
     if (htp_state == NULL) {
@@ -426,11 +414,7 @@ int DetectEngineInspectHttpRawHeader(DetectEngineCtx *de_ctx,
     }
 
 end:
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     SCReturnInt(r);
 }
 

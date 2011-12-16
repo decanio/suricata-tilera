@@ -422,17 +422,9 @@ int DetectEngineRunHttpHeaderMpm(DetectEngineThreadCtx *det_ctx, Flow *f, HtpSta
     uint32_t cnt = 0;
 
     if (det_ctx->hhd_buffers_list_len == 0) {
-#ifdef __tile__
-        tmc_spin_queued_mutex_lock(&f->m);
-#else
         SCMutexLock(&f->m);
-#endif
         DetectEngineBufferHttpHeaders(det_ctx, f, htp_state);
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&f->m);
-#else
         SCMutexUnlock(&f->m);
-#endif
     }
 
     for (i = 0; i < det_ctx->hhd_buffers_list_len; i++) {
@@ -467,17 +459,9 @@ int DetectEngineInspectHttpHeader(DetectEngineCtx *de_ctx,
     int i = 0;
 
     if (det_ctx->hhd_buffers_list_len == 0) {
-#ifdef __tile__
-        tmc_spin_queued_mutex_lock(&f->m);
-#else
         SCMutexLock(&f->m);
-#endif
         DetectEngineBufferHttpHeaders(det_ctx, f, alstate);
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&f->m);
-#else
         SCMutexUnlock(&f->m);
-#endif
     }
 
     for (i = 0; i < det_ctx->hhd_buffers_list_len; i++) {

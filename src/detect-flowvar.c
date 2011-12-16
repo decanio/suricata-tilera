@@ -88,11 +88,7 @@ int DetectFlowvarMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx, Packet *p
     DetectFlowvarData *fd = (DetectFlowvarData *)m->ctx;
 
     /* we need a lock */
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&p->flow->m);
-#else
     SCMutexLock(&p->flow->m);
-#endif
 
     FlowVar *fv = FlowVarGet(p->flow, fd->idx);
     if (fv != NULL) {
@@ -102,11 +98,7 @@ int DetectFlowvarMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx, Packet *p
         if (ptr != NULL)
             ret = 1;
     }
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&p->flow->m);
-#else
     SCMutexUnlock(&p->flow->m);
-#endif
 
     return ret;
 }

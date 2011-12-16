@@ -298,17 +298,9 @@ int DeStateUpdateInspectTransactionId(Flow *f, char direction) {
 
     int r = 0;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
     r = AppLayerTransactionUpdateInspectId(f, direction);
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
 
     SCReturnInt(r);
 }
@@ -432,11 +424,7 @@ int DeStateFlowHasState(Flow *f, uint8_t flags, uint16_t alversion) {
     SCEnter();
 
     int r = 0;
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->de_state_m);
-#else
     SCMutexLock(&f->de_state_m);
-#endif
 
     if (f->de_state == NULL || f->de_state->cnt == 0) {
         r = 0;
@@ -445,11 +433,7 @@ int DeStateFlowHasState(Flow *f, uint8_t flags, uint16_t alversion) {
     else
         r = 1;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->de_state_m);
-#else
     SCMutexUnlock(&f->de_state_m);
-#endif
     SCReturnInt(r);
 }
 
@@ -696,11 +680,7 @@ int DeStateDetectStartDetection(ThreadVars *tv, DetectEngineCtx *de_ctx,
     SCLogDebug("detection done, store results: sm %p, inspect_flags %04X, "
             "match_flags %04X", sm, inspect_flags, match_flags);
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->de_state_m);
-#else
     SCMutexLock(&f->de_state_m);
-#endif
     /* match or no match, we store the state anyway
      * "sm" here is either NULL (complete match) or
      * the last SigMatch that didn't match */
@@ -720,11 +700,7 @@ int DeStateDetectStartDetection(ThreadVars *tv, DetectEngineCtx *de_ctx,
             f->de_state->flags |= DE_STATE_FILE_STORE_DISABLED;
         }
     }
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->de_state_m);
-#else
     SCMutexUnlock(&f->de_state_m);
-#endif
 
     SCReturnInt(r);
 }
@@ -749,11 +725,7 @@ int DeStateDetectContinueDetection(ThreadVars *tv, DetectEngineCtx *de_ctx, Dete
         return 0;
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->de_state_m);
-#else
     SCMutexLock(&f->de_state_m);
-#endif
 
     if (f->de_state == NULL || f->de_state->cnt == 0)
         goto end;
@@ -1119,11 +1091,7 @@ end:
     else
         f->de_state->flags &= ~DE_STATE_FILE_TS_NEW;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->de_state_m);
-#else
     SCMutexUnlock(&f->de_state_m);
-#endif
     SCReturnInt(0);
 }
 
@@ -1137,19 +1105,11 @@ int DeStateRestartDetection(ThreadVars *tv, DetectEngineCtx *de_ctx, DetectEngin
 
     /* first clear the existing state as it belongs
      * to the previous transaction */
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->de_state_m);
-#else
     SCMutexLock(&f->de_state_m);
-#endif
     if (f->de_state != NULL) {
         DetectEngineStateReset(f->de_state);
     }
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->de_state_m);
-#else
     SCMutexUnlock(&f->de_state_m);
-#endif
 
     SCReturnInt(0);
 }
@@ -1159,22 +1119,14 @@ void DeStateResetFileInspection(Flow *f, uint8_t direction) {
         SCReturn;
     }
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->de_state_m);
-#else
     SCMutexLock(&f->de_state_m);
-#endif
     if (f->de_state != NULL) {
         if (direction & STREAM_TOCLIENT)
             f->de_state->flags |= DE_STATE_FILE_TC_NEW;
         else
             f->de_state->flags |= DE_STATE_FILE_TS_NEW;
     }
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->de_state_m);
-#else
     SCMutexUnlock(&f->de_state_m);
-#endif
 }
 
 #ifdef UNITTESTS

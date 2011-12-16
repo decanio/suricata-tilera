@@ -462,9 +462,9 @@ static void *SCPerfMgmtThread(void *arg)
         cond_time.tv_sec = time(NULL) + sc_counter_tts;
         cond_time.tv_nsec = 0;
 
-        SCMutexLock(tv_local->m);
-        SCCondTimedwait(tv_local->cond, tv_local->m, &cond_time);
-        SCMutexUnlock(tv_local->m);
+        SCPtMutexLock(tv_local->m);
+        SCPtCondTimedwait(tv_local->cond, tv_local->m, &cond_time);
+        SCPtMutexUnlock(tv_local->m);
 
         SCPerfOutputCounters();
 
@@ -516,9 +516,9 @@ static void *SCPerfWakeupThread(void *arg)
         cond_time.tv_sec = time(NULL) + SC_PERF_WUT_TTS;
         cond_time.tv_nsec = 0;
 
-        SCMutexLock(tv_local->m);
-        SCCondTimedwait(tv_local->cond, tv_local->m, &cond_time);
-        SCMutexUnlock(tv_local->m);
+        SCPtMutexLock(tv_local->m);
+        SCPtCondTimedwait(tv_local->cond, tv_local->m, &cond_time);
+        SCPtMutexUnlock(tv_local->m);
 
         tv = tv_root[TVT_PPT];
         while (tv != NULL) {

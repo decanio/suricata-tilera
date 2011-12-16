@@ -1298,11 +1298,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
         FlowIncrUsecnt(p->flow);
 
-#ifdef __tile__
-        tmc_spin_queued_mutex_lock(&p->flow->m);
-#else
         SCMutexLock(&p->flow->m);
-#endif
         {
             /* set the iponly stuff */
             if (p->flow->flags & FLOW_TOCLIENT_IPONLY_SET)
@@ -1349,11 +1345,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                 SCLogDebug("packet doesn't have established flag set (proto %d)", p->proto);
             }
         }
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&p->flow->m);
-#else
         SCMutexUnlock(&p->flow->m);
-#endif
 
         if (p->flowflags & FLOW_PKT_TOSERVER) {
             flags |= STREAM_TOSERVER;
@@ -1468,17 +1460,9 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
          * and if so, if we actually have any in the flow. If not, the sig
          * can't match and we skip it. */
         if (p->flags & PKT_HAS_FLOW && s->flags & SIG_FLAG_REQUIRE_FLOWVAR) {
-#ifdef __tile__
-            tmc_spin_queued_mutex_lock(&p->flow->m);
-#else
             SCMutexLock(&p->flow->m);
-#endif
             int m  = p->flow->flowvar ? 1 : 0;
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&p->flow->m);
-#else
             SCMutexUnlock(&p->flow->m);
-#endif
 
             /* no flowvars? skip this sig */
             if (m == 0) {
@@ -1756,17 +1740,9 @@ end:
         SCLogDebug("de_state_status %d", de_state_status);
 
         if (de_state_status == 2) {
-#ifdef __tile__
-            tmc_spin_queued_mutex_lock(&p->flow->de_state_m);
-#else
             SCMutexLock(&p->flow->de_state_m);
-#endif
             DetectEngineStateReset(p->flow->de_state);
-#ifdef __tile__
-            tmc_spin_queued_mutex_unlock(&p->flow->de_state_m);
-#else
             SCMutexUnlock(&p->flow->de_state_m);
-#endif
         }
         PACKET_PROFILING_DETECT_END(p, PROF_DETECT_STATEFUL);
     }
@@ -1797,11 +1773,7 @@ end:
             StreamPatternCleanup(th_v, det_ctx, smsg);
         }
 
-#ifdef __tile__
-        tmc_spin_queued_mutex_lock(&p->flow->m);
-#else
         SCMutexLock(&p->flow->m);
-#endif
         if (!(sms_runflags & SMS_USE_FLOW_SGH)) {
             if (p->flowflags & FLOW_PKT_TOSERVER && !(p->flow->flags & FLOW_SGH_TOSERVER)) {
                 /* first time we see this toserver sgh, store it */
@@ -1845,11 +1817,7 @@ end:
             StreamMsgReturnListToPool(smsg);
         }
 
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&p->flow->m);
-#else
         SCMutexUnlock(&p->flow->m);
-#endif
 
         FlowDecrUsecnt(p->flow);
     }

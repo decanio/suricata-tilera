@@ -203,11 +203,7 @@ int DetectFileInspectHttp(ThreadVars *tv, DetectEngineThreadCtx *det_ctx, Flow *
     FileContainer *ffc;
 
     /* locking the flow, we will inspect the htp state */
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     htp_state = (HtpState *)alstate;
     if (htp_state == NULL) {
@@ -256,10 +252,6 @@ int DetectFileInspectHttp(ThreadVars *tv, DetectEngineThreadCtx *det_ctx, Flow *
     }
 
 end:
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     SCReturnInt(r);
 }

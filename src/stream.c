@@ -31,11 +31,7 @@
 #include "util-debug.h"
 #include "stream-tcp.h"
 
-#ifdef  __tile__
-static tmc_spin_queued_mutex_t stream_pool_memuse_mutex;
-#else
 static SCMutex stream_pool_memuse_mutex;
-#endif
 static uint64_t stream_pool_memuse = 0;
 static uint64_t stream_pool_memcnt = 0;
 
@@ -57,18 +53,10 @@ void *StreamMsgAlloc(void *null) {
 
     memset(s, 0, sizeof(StreamMsg));
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&stream_pool_memuse_mutex);
-#else
     SCMutexLock(&stream_pool_memuse_mutex);
-#endif
     stream_pool_memuse += sizeof(StreamMsg);
     stream_pool_memcnt ++;
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&stream_pool_memuse_mutex);
-#else
     SCMutexUnlock(&stream_pool_memuse_mutex);
-#endif
     return s;
 }
 
@@ -133,34 +121,18 @@ static StreamMsg *StreamMsgDequeue (StreamMsgQueue *q) {
 /* Used by stream reassembler to get msgs */
 StreamMsg *StreamMsgGetFromPool(void)
 {
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&stream_msg_pool_mutex);
-#else
     SCMutexLock(&stream_msg_pool_mutex);
-#endif
     StreamMsg *s = (StreamMsg *)PoolGet(stream_msg_pool);
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&stream_msg_pool_mutex);
-#else
     SCMutexUnlock(&stream_msg_pool_mutex);
-#endif
     return s;
 }
 
 /* Used by l7inspection to return msgs to pool */
 void StreamMsgReturnToPool(StreamMsg *s) {
     SCLogDebug("s %p", s);
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&stream_msg_pool_mutex);
-#else
     SCMutexLock(&stream_msg_pool_mutex);
-#endif
     PoolReturn(stream_msg_pool, (void *)s);
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&stream_msg_pool_mutex);
-#else
     SCMutexUnlock(&stream_msg_pool_mutex);
-#endif
 }
 
 /* Used by l7inspection to get msgs with data */
@@ -183,11 +155,7 @@ void StreamMsgPutInQueue(StreamMsgQueue *q, StreamMsg *s)
 }
 
 void StreamMsgQueuesInit(void) {
-#ifdef __tile__
-    tmc_spin_queued_mutex_init(&stream_pool_memuse_mutex);
-#else
     SCMutexInit(&stream_pool_memuse_mutex, NULL);
-#endif
 
     stream_msg_pool = PoolInit(0,250,StreamMsgAlloc,NULL,StreamMsgFree);
     if (stream_msg_pool == NULL)
@@ -196,9 +164,7 @@ void StreamMsgQueuesInit(void) {
 
 void StreamMsgQueuesDeinit(char quiet) {
     PoolFree(stream_msg_pool);
-#ifndef __tile__
     SCMutexDestroy(&stream_pool_memuse_mutex);
-#endif
 
     if (quiet == FALSE)
         SCLogDebug("stream_pool_memuse %"PRIu64", stream_pool_memcnt %"PRIu64"", stream_pool_memuse, stream_pool_memcnt);

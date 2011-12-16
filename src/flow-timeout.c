@@ -286,11 +286,7 @@ int FlowForceReassemblyForFlowV2(Flow *f)
     }
 
     /* move this unlock after the strream reassemble call */
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->fb->s);
-#else
     SCSpinUnlock(&f->fb->s);
-#endif
 
     Packet *p1 = NULL, *p2 = NULL, *p3 = NULL;
 
@@ -383,26 +379,18 @@ int FlowForceReassemblyForFlowV2(Flow *f)
 
     f->flags |= FLOW_TIMEOUT_REASSEMBLY_DONE;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&stream_pseudo_pkt_decode_tm_slot->slot_post_pq.mutex_q);
-#else
     SCMutexLock(&stream_pseudo_pkt_decode_tm_slot->slot_post_pq.mutex_q);
-#endif
     PacketEnqueue(&stream_pseudo_pkt_decode_tm_slot->slot_post_pq, p1);
     if (p2 != NULL)
         PacketEnqueue(&stream_pseudo_pkt_decode_tm_slot->slot_post_pq, p2);
     if (p3 != NULL)
         PacketEnqueue(&stream_pseudo_pkt_decode_tm_slot->slot_post_pq, p3);
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&stream_pseudo_pkt_decode_tm_slot->slot_post_pq.mutex_q);
-#else
     SCMutexUnlock(&stream_pseudo_pkt_decode_tm_slot->slot_post_pq.mutex_q);
-#endif
     if (stream_pseudo_pkt_decode_TV->inq != NULL) {
 #ifdef __tile__
-        tmc_spin_queued_mutex_lock(&trans_q[stream_pseudo_pkt_decode_TV->inq->id].mutex_q);
+        SCMutexLock(&trans_q[stream_pseudo_pkt_decode_TV->inq->id].mutex_q);
         trans_q[stream_pseudo_pkt_decode_TV->inq->id].cond_q = 1;
-        tmc_spin_queued_mutex_unlock(&trans_q[stream_pseudo_pkt_decode_TV->inq->id].mutex_q);
+        SCMutexUnlock(&trans_q[stream_pseudo_pkt_decode_TV->inq->id].mutex_q);
 #else
         SCCondSignal(&trans_q[stream_pseudo_pkt_decode_TV->inq->id].cond_q);
 #endif

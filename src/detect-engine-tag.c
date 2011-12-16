@@ -369,11 +369,7 @@ void TagHandlePacket(DetectEngineCtx *de_ctx,
 
     /* First update and get session tags */
     if (p->flow != NULL) {
-#ifdef __tile__
-        tmc_spin_queued_mutex_lock(&p->flow->m);
-#else
         SCMutexLock(&p->flow->m);
-#endif
         if (p->flow->tag_list != NULL) {
             iter = p->flow->tag_list->header_entry;
             prev = NULL;
@@ -477,11 +473,7 @@ void TagHandlePacket(DetectEngineCtx *de_ctx,
 
             iter = NULL;
         }
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&p->flow->m);
-#else
         SCMutexUnlock(&p->flow->m);
-#endif
     }
 
     /* Then search the src and dst hosts at the ctx */

@@ -132,17 +132,9 @@ static void AlpResultElmtPoolFree(void *e)
 
 static AppLayerParserResultElmt *AlpGetResultElmt(void)
 {
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&al_result_pool_mutex);
-#else
     SCMutexLock(&al_result_pool_mutex);
-#endif
     AppLayerParserResultElmt *e = (AppLayerParserResultElmt *)PoolGet(al_result_pool);
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&al_result_pool_mutex);
-#else
     SCMutexUnlock(&al_result_pool_mutex);
-#endif
 
     if (e == NULL) {
         return NULL;
@@ -162,17 +154,9 @@ static void AlpReturnResultElmt(AppLayerParserResultElmt *e)
     e->data_len = 0;
     e->next = NULL;
 
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&al_result_pool_mutex);
-#else
     SCMutexLock(&al_result_pool_mutex);
-#endif
     PoolReturn(al_result_pool, (void *)e);
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&al_result_pool_mutex);
-#else
     SCMutexUnlock(&al_result_pool_mutex);
-#endif
 }
 
 static void AlpAppendResultElmt(AppLayerParserResult *r, AppLayerParserResultElmt *e)

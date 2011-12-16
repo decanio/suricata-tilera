@@ -444,11 +444,7 @@ int DetectEngineInspectPacketUris(DetectEngineCtx *de_ctx,
     }
 
     /* locking the flow, we will inspect the htp state */
-#ifdef __tile__
-    tmc_spin_queued_mutex_lock(&f->m);
-#else
     SCMutexLock(&f->m);
-#endif
 
     if (htp_state->connp == NULL || htp_state->connp->conn == NULL) {
         SCLogDebug("HTP state has no conn(p)");
@@ -497,11 +493,7 @@ int DetectEngineInspectPacketUris(DetectEngineCtx *de_ctx,
         r = 0;
 
 end:
-#ifdef __tile__
-    tmc_spin_queued_mutex_unlock(&f->m);
-#else
     SCMutexUnlock(&f->m);
-#endif
     SCReturnInt(r);
 }
 

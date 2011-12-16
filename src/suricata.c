@@ -284,10 +284,10 @@ void GlobalInits()
     int r = 0;
     for(blah=0;blah<256;blah++) {
 #ifdef __tile__
-        tmc_spin_queued_mutex_init(&trans_q[blah].mutex_q);
+        SCMutexInit(&trans_q[blah].mutex_q, NULL);
         trans_q[blah].cond_q = 0;
 
-        tmc_spin_queued_mutex_init(&data_queues[blah].mutex_q);
+        SCMutexInit(&data_queues[blah].mutex_q, NULL);
         data_queues[blah].cond_q = 0;
 #else
         r |= SCMutexInit(&trans_q[blah].mutex_q, NULL);
