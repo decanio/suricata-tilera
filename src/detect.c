@@ -115,18 +115,21 @@
 #include "detect-urilen.h"
 #include "detect-detection-filter.h"
 #include "detect-http-client-body.h"
+#include "detect-http-server-body.h"
 #include "detect-http-header.h"
 #include "detect-http-raw-header.h"
 #include "detect-http-uri.h"
 #include "detect-http-raw-uri.h"
 #include "detect-http-stat-msg.h"
 #include "detect-engine-hcbd.h"
+#include "detect-engine-hsbd.h"
 #include "detect-engine-hhd.h"
 #include "detect-engine-hrhd.h"
 #include "detect-engine-hmd.h"
 #include "detect-engine-hcd.h"
 #include "detect-engine-hrud.h"
 #include "detect-byte-extract.h"
+#include "detect-file-data.h"
 #include "detect-replace.h"
 #include "detect-tos.h"
 
@@ -682,14 +685,11 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
  *  \brief See if we can prefilter a signature on inexpensive checks
  *
  *  Order of SignatureHeader access:
- *  1. mask
- *  2. flags
- *  3. alproto
- *  4. mpm_pattern_id_div8
+ *  1. flags
+ *  2. alproto
+ *  3. mpm_pattern_id_div8
  *  4. mpm_pattern_id_mod8
- *  5. mpm_stream_pattern_id_div8
- *  5. mpm_stream_pattern_id_mod8
- *  6. num
+ *  5. num
  *
  *  \retval 0 can't match, don't inspect
  *  \retval 1 might match, further inspection required
@@ -711,93 +711,25 @@ static inline int SigMatchSignaturesBuildMatchArrayAddSignature(DetectEngineThre
     }
 
     /* check for a pattern match of the one pattern in this sig. */
-    if (s->flags & SIG_FLAG_MPM_PACKET) {
+    if (s->flags & (SIG_FLAG_MPM_PACKET|SIG_FLAG_MPM_STREAM|SIG_FLAG_MPM_HTTP))
+    {
         /* filter out sigs that want pattern matches, but
          * have no matches */
         if (!(det_ctx->pmq.pattern_id_bitarray[(s->mpm_pattern_id_div_8)] & s->mpm_pattern_id_mod_8)) {
-            //if (!(det_ctx->pmq.pattern_id_bitarray[(s->mpm_pattern_id / 8)] & (1<<(s->mpm_pattern_id % 8)))) {
-            //SCLogDebug("mpm sig without matches (pat id %"PRIu32" check in content).", s->mpm_pattern_id);
-
-            if (!(s->flags & SIG_FLAG_MPM_PACKET_NEG)) {
-                return 0;
-            } else {
-                SCLogDebug("but thats okay, we are looking for neg-content");
-            }
-        }
-    }
-    if (s->flags & SIG_FLAG_MPM_STREAM) {
-        /* filter out sigs that want pattern matches, but
-         * have no matches */
-        if (!(det_ctx->pmq.pattern_id_bitarray[(s->mpm_stream_pattern_id_div_8)] & s->mpm_stream_pattern_id_mod_8)) {
-            //SCLogDebug("mpm stream sig without matches (pat id %"PRIu32" check in content).", s->mpm_stream_pattern_id);
-
-            if (!(s->flags & SIG_FLAG_MPM_STREAM_NEG)) {
-                return 0;
-            } else {
-                SCLogDebug("but thats okay, we are looking for neg-content");
-            }
-        }
-    }
-
-    if (s->full_sig->flags & SIG_FLAG_MPM_URICONTENT) {
-        if (!(det_ctx->pmq.pattern_id_bitarray[(s->mpm_http_pattern_id / 8)] &
-                    (1 << (s->mpm_http_pattern_id % 8)))) {
-            if (!(s->full_sig->flags & SIG_FLAG_MPM_URICONTENT_NEG)) {
-                return 0;
-            }
-        }
-    }
-
-    if (s->flags & SIG_FLAG_MPM_HCBDCONTENT) {
-        if (!(det_ctx->pmq.pattern_id_bitarray[(s->mpm_http_pattern_id / 8)] &
-                    (1 << (s->mpm_http_pattern_id % 8)))) {
-            if (!(s->flags & SIG_FLAG_MPM_HCBDCONTENT_NEG)) {
-                return 0;
-            }
-        }
-    }
-
-    if (s->flags & SIG_FLAG_MPM_HHDCONTENT) {
-        if (!(det_ctx->pmq.pattern_id_bitarray[(s->mpm_http_pattern_id / 8)] &
-                    (1 << (s->mpm_http_pattern_id % 8)))) {
-            if (!(s->flags & SIG_FLAG_MPM_HHDCONTENT_NEG)) {
-                return 0;
-            }
-        }
-    }
-
-    if (s->flags & SIG_FLAG_MPM_HRHDCONTENT) {
-        if (!(det_ctx->pmq.pattern_id_bitarray[(s->mpm_http_pattern_id / 8)] &
-                    (1 << (s->mpm_http_pattern_id % 8)))) {
-            if (!(s->flags & SIG_FLAG_MPM_HRHDCONTENT_NEG)) {
-                return 0;
-            }
-        }
-    }
-
-    if (s->flags & SIG_FLAG_MPM_HMDCONTENT) {
-        if (!(det_ctx->pmq.pattern_id_bitarray[(s->mpm_http_pattern_id / 8)] &
-                    (1 << (s->mpm_http_pattern_id % 8)))) {
-            if (!(s->flags & SIG_FLAG_MPM_HMDCONTENT_NEG)) {
-                return 0;
-            }
-        }
-    }
-
-    if (s->flags & SIG_FLAG_MPM_HCDCONTENT) {
-        if (!(det_ctx->pmq.pattern_id_bitarray[(s->mpm_http_pattern_id / 8)] &
-                    (1 << (s->mpm_http_pattern_id % 8)))) {
-            if (!(s->flags & SIG_FLAG_MPM_HCDCONTENT_NEG)) {
-                return 0;
-            }
-        }
-    }
-
-    if (s->flags & SIG_FLAG_MPM_HRUDCONTENT) {
-        if (!(det_ctx->pmq.pattern_id_bitarray[(s->mpm_http_pattern_id / 8)] &
-                    (1 << (s->mpm_http_pattern_id % 8)))) {
-            if (!(s->flags & SIG_FLAG_MPM_HRUDCONTENT_NEG)) {
-                return 0;
+            if (s->flags & SIG_FLAG_MPM_PACKET) {
+                if (!(s->flags & SIG_FLAG_MPM_PACKET_NEG)) {
+                    return 0;
+                }
+            } else if (s->flags & SIG_FLAG_MPM_STREAM) {
+                /* filter out sigs that want pattern matches, but
+                 * have no matches */
+                if (!(s->flags & SIG_FLAG_MPM_STREAM_NEG)) {
+                    return 0;
+                }
+            } else if (s->flags & SIG_FLAG_MPM_HTTP) {
+                if (!(s->flags & SIG_FLAG_MPM_HTTP_NEG)) {
+                    return 0;
+                }
             }
         }
     }
@@ -1224,6 +1156,11 @@ static inline void DetectMpmPrefilter(DetectEngineCtx *de_ctx,
                 DetectEngineRunHttpClientBodyMpm(de_ctx, det_ctx, p->flow, alstate);
                 PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HCBD);
             }
+            if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSBD) {
+                PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HSBD);
+                DetectEngineRunHttpServerBodyMpm(de_ctx, det_ctx, p->flow, alstate);
+                PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HSBD);
+            }
             if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HHD) {
                 PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HHD);
                 DetectEngineRunHttpHeaderMpm(det_ctx, p->flow, alstate);
@@ -1283,6 +1220,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
     p->alerts.cnt = 0;
     det_ctx->pkts++;
+    det_ctx->filestore_cnt = 0;
 
     /* No need to perform any detection on this packet, if the the given flag is set.*/
     if (p->flags & PKT_NOPACKET_INSPECTION) {
@@ -1534,7 +1472,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                     if (det_ctx->smsg_pmq[pmq_idx].pattern_id_bitarray != NULL) {
                         /* filter out sigs that want pattern matches, but
                          * have no matches */
-                        if (!(det_ctx->smsg_pmq[pmq_idx].pattern_id_bitarray[(s->mpm_stream_pattern_id_div_8)] & s->mpm_stream_pattern_id_mod_8) &&
+                        if (!(det_ctx->smsg_pmq[pmq_idx].pattern_id_bitarray[(s->mpm_pattern_id_div_8)] & s->mpm_pattern_id_mod_8) &&
                                 (s->flags & SIG_FLAG_MPM_STREAM) && !(s->flags & SIG_FLAG_MPM_STREAM_NEG)) {
                             SCLogDebug("no match in this smsg");
                             continue;
@@ -1648,6 +1586,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
             DetectReplaceExecute(p, det_ctx->replist);
             det_ctx->replist = NULL;
+            DetectFilestorePostMatch(th_v, det_ctx,p);
             if (!(s->flags & SIG_FLAG_NOALERT)) {
                 PacketAlertAppend(det_ctx, s, p, alert_flags, NULL);
             }
@@ -1669,6 +1608,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
                                 DetectReplaceExecute(p, det_ctx->replist);
                                 det_ctx->replist = NULL;
+                                DetectFilestorePostMatch(th_v, det_ctx,p);
                                 if (!(s->flags & SIG_FLAG_NOALERT)) {
                                     /* only add once */
                                     if (rmatch == 0) {
@@ -1709,6 +1649,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                             fmatch = 1;
                             DetectReplaceExecute(p, det_ctx->replist);
                             det_ctx->replist = NULL;
+                            DetectFilestorePostMatch(th_v, det_ctx,p);
 
                             if (!(s->flags & SIG_FLAG_NOALERT)) {
                                 PacketAlertAppend(det_ctx, s, p, alert_flags, alert_msg);
@@ -1763,6 +1704,7 @@ end:
     PacketPatternCleanup(th_v, det_ctx);
 
     DetectEngineCleanHCBDBuffers(det_ctx);
+    DetectEngineCleanHSBDBuffers(det_ctx);
     DetectEngineCleanHHDBuffers(det_ctx);
 
     /* store the found sgh (or NULL) in the flow to save us from looking it
@@ -1937,7 +1879,7 @@ int SignatureIsFilestoring(Signature *s) {
     if (s == NULL)
         return 0;
 
-    if (s->init_flags & SIG_FLAG_FILESTORE)
+    if (s->flags & SIG_FLAG_FILESTORE)
         return 1;
 
     return 0;
@@ -1978,6 +1920,9 @@ int SignatureIsIPOnly(DetectEngineCtx *de_ctx, Signature *s) {
         return 0;
 
     if (s->sm_lists[DETECT_SM_LIST_HCBDMATCH] != NULL)
+        return 0;
+
+    if (s->sm_lists[DETECT_SM_LIST_HSBDMATCH] != NULL)
         return 0;
 
     if (s->sm_lists[DETECT_SM_LIST_HHDMATCH] != NULL)
@@ -2068,6 +2013,7 @@ static int SignatureIsDEOnly(DetectEngineCtx *de_ctx, Signature *s) {
         s->sm_lists[DETECT_SM_LIST_UMATCH]    != NULL ||
         s->sm_lists[DETECT_SM_LIST_AMATCH]    != NULL ||
         s->sm_lists[DETECT_SM_LIST_HCBDMATCH] != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HSBDMATCH] != NULL ||
         s->sm_lists[DETECT_SM_LIST_HHDMATCH]  != NULL ||
         s->sm_lists[DETECT_SM_LIST_HRHDMATCH] != NULL ||
         s->sm_lists[DETECT_SM_LIST_HMDMATCH]  != NULL ||
@@ -2179,6 +2125,11 @@ static int SignatureCreateMask(Signature *s) {
     }
 
     if (s->sm_lists[DETECT_SM_LIST_HCBDMATCH] != NULL) {
+        s->mask |= SIG_MASK_REQUIRE_HTTP_STATE;
+        SCLogDebug("sig requires http app state");
+    }
+
+    if (s->sm_lists[DETECT_SM_LIST_HSBDMATCH] != NULL) {
         s->mask |= SIG_MASK_REQUIRE_HTTP_STATE;
         SCLogDebug("sig requires http app state");
     }
@@ -2315,7 +2266,7 @@ static int SignatureCreateMask(Signature *s) {
         SCLogDebug("sig requires flow");
     }
 
-    if (s->init_flags & SIG_FLAG_FLOW) {
+    if (s->init_flags & SIG_FLAG_INIT_FLOW) {
         s->mask |= SIG_MASK_REQUIRE_FLOW;
         SCLogDebug("sig requires flow");
     }
@@ -2419,12 +2370,12 @@ int SigAddressPrepareStage1(DetectEngineCtx *de_ctx) {
 
         /* see if any sig is inspecting the packet payload */
         } else if (SignatureIsInspectingPayload(de_ctx, tmp_s) == 1) {
-            tmp_s->init_flags |= SIG_FLAG_PAYLOAD;
+            tmp_s->init_flags |= SIG_FLAG_INIT_PAYLOAD;
             cnt_payload++;
 
             SCLogDebug("Signature %"PRIu32" is considered \"Payload inspecting\"", tmp_s->id);
         } else if (SignatureIsDEOnly(de_ctx, tmp_s) == 1) {
-            tmp_s->init_flags |= SIG_FLAG_DEONLY;
+            tmp_s->init_flags |= SIG_FLAG_INIT_DEONLY;
             SCLogDebug("Signature %"PRIu32" is considered \"Decoder Event only\"", tmp_s->id);
             cnt_deonly++;
         }
@@ -2571,7 +2522,7 @@ error:
 static int DetectEngineLookupFlowAddSig(DetectEngineCtx *de_ctx, Signature *s, int family) {
     uint8_t flags = 0;
 
-    if (s->init_flags & SIG_FLAG_FLOW) {
+    if (s->init_flags & SIG_FLAG_INIT_FLOW) {
         SigMatch *sm = s->sm_lists[DETECT_SM_LIST_MATCH];
         for ( ; sm != NULL; sm = sm->next) {
             if (sm->type != DETECT_FLOW)
@@ -3006,7 +2957,7 @@ int SigAddressPrepareStage2(DetectEngineCtx *de_ctx) {
         SCLogDebug("tmp_s->id %"PRIu32, tmp_s->id);
         if (tmp_s->flags & SIG_FLAG_IPONLY) {
             IPOnlyAddSignature(de_ctx, &de_ctx->io_ctx, tmp_s);
-        } else if (tmp_s->init_flags & SIG_FLAG_DEONLY) {
+        } else if (tmp_s->init_flags & SIG_FLAG_INIT_DEONLY) {
             DetectEngineAddDecoderEventSig(de_ctx, tmp_s);
         } else {
             DetectEngineLookupFlowAddSig(de_ctx, tmp_s, AF_INET);
@@ -4364,6 +4315,7 @@ void SigTableSetup(void) {
     DetectHttpHeaderRegister();
     DetectHttpRawHeaderRegister();
     DetectHttpClientBodyRegister();
+    DetectHttpServerBodyRegister();
     DetectHttpUriRegister();
     DetectHttpRawUriRegister();
     DetectAsn1Register();
@@ -4373,6 +4325,7 @@ void SigTableSetup(void) {
     DetectHttpStatCodeRegister();
     DetectSslVersionRegister();
     DetectByteExtractRegister();
+    DetectFiledataRegister();
     DetectFilenameRegister();
     DetectFileextRegister();
     DetectFilestoreRegister();
@@ -8452,7 +8405,7 @@ int SigTest40NoPayloadInspection02(void) {
     SigGroupBuild(de_ctx);
     DetectEngineThreadCtxInit(&th_v, (void *)de_ctx, (void *)&det_ctx);
 
-    if (!(de_ctx->sig_list->init_flags & SIG_FLAG_PAYLOAD))
+    if (!(de_ctx->sig_list->init_flags & SIG_FLAG_INIT_PAYLOAD))
         result = 0;
 
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p);

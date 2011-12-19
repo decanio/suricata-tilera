@@ -88,6 +88,8 @@ enum {
     DETECT_SM_LIST_TMATCH,
     /* list for http_client_body keyword and the ones relative to it */
     DETECT_SM_LIST_HCBDMATCH,
+    /* list for http_server_body keyword and the ones relative to it */
+    DETECT_SM_LIST_HSBDMATCH,
     /* list for http_header keyword and the ones relative to it */
     DETECT_SM_LIST_HHDMATCH,
     /* list for http_raw_header keyword and the ones relative to it */
@@ -218,59 +220,39 @@ typedef struct DetectPort_ {
 } DetectPort;
 
 /* Signature flags */
-#define SIG_FLAG_RECURSIVE      (1)  /**< recursive capturing enabled */
-#define SIG_FLAG_SRC_ANY        (1<<1) /**< source is any */
-#define SIG_FLAG_DST_ANY        (1<<2)  /**< destination is any */
-#define SIG_FLAG_SP_ANY         (1<<3) /**< source port is any */
+#define SIG_FLAG_RECURSIVE              (1)     /**< recursive capturing enabled */
 
-#define SIG_FLAG_DP_ANY         (1<<4)    /**< destination port is any */
-#define SIG_FLAG_NOALERT        (1<<5)  /**< no alert flag is set */
+#define SIG_FLAG_SRC_ANY                (1<<1)  /**< source is any */
+#define SIG_FLAG_DST_ANY                (1<<2)  /**< destination is any */
+#define SIG_FLAG_SP_ANY                 (1<<3)  /**< source port is any */
+#define SIG_FLAG_DP_ANY                 (1<<4)  /**< destination port is any */
 
-#define SIG_FLAG_MPM            (1<<6)  /**< sig has mpm portion (content) */
-#define SIG_FLAG_MPM_URI        (1<<7) /**< sig has mpm portion (uricontent) */
-#define SIG_FLAG_DSIZE          (1<<8)  /**< signature has a dsize setting */
+#define SIG_FLAG_NOALERT                (1<<5)  /**< no alert flag is set */
+#define SIG_FLAG_DSIZE                  (1<<6)  /**< signature has a dsize setting */
+#define SIG_FLAG_APPLAYER               (1<<7)  /**< signature applies to app layer instead of packets */
+#define SIG_FLAG_IPONLY                 (1<<8) /**< ip only signature */
 
-#define SIG_FLAG_APPLAYER       (1<<9)   /**< signature applies to app layer instead of packets */
-#define SIG_FLAG_IPONLY         (1<<10) /**< ip only signature */
+#define SIG_FLAG_STATE_MATCH            (1<<9) /**< signature has matches that require stateful inspection */
+#define SIG_FLAG_REQUIRE_PACKET         (1<<10) /**< signature is requiring packet match */
 
-#define SIG_FLAG_STATE_MATCH                    (1<<11)  /**< signature has matches that require stateful inspection */
-#define SIG_FLAG_REQUIRE_PACKET  		(1<<12)  /**< signature is requiring packet match */
-#define SIG_FLAG_MPM_PACKET                     (1<<13)
-#define SIG_FLAG_MPM_PACKET_NEG                 (1<<14)
+#define SIG_FLAG_MPM_PACKET             (1<<11)
+#define SIG_FLAG_MPM_PACKET_NEG         (1<<12)
+#define SIG_FLAG_MPM_STREAM             (1<<13)
+#define SIG_FLAG_MPM_STREAM_NEG         (1<<14)
+#define SIG_FLAG_MPM_HTTP               (1<<15)
+#define SIG_FLAG_MPM_HTTP_NEG           (1<<16)
 
-#define SIG_FLAG_MPM_STREAM                     (1<<15)
-#define SIG_FLAG_MPM_STREAM_NEG                 (1<<16)
+#define SIG_FLAG_REQUIRE_FLOWVAR        (1<<17) /**< signature can only match if a flowbit, flowvar or flowint is available. */
 
-#define SIG_FLAG_MPM_URICONTENT                 (1<<17)
-#define SIG_FLAG_MPM_URICONTENT_NEG             (1<<18)
-
-#define SIG_FLAG_MPM_HHDCONTENT                 (1<<19)
-#define SIG_FLAG_MPM_HHDCONTENT_NEG             (1<<20)
-
-#define SIG_FLAG_MPM_HRHDCONTENT                (1<<21)
-#define SIG_FLAG_MPM_HRHDCONTENT_NEG            (1<<22)
-
-#define SIG_FLAG_MPM_HCBDCONTENT                (1<<23)
-#define SIG_FLAG_MPM_HCBDCONTENT_NEG            (1<<24)
-
-#define SIG_FLAG_MPM_HMDCONTENT                 (1<<25)
-#define SIG_FLAG_MPM_HMDCONTENT_NEG             (1<<26)
-
-#define SIG_FLAG_MPM_HCDCONTENT                 (1<<27)
-#define SIG_FLAG_MPM_HCDCONTENT_NEG             (1<<28)
-
-#define SIG_FLAG_MPM_HRUDCONTENT                (1<<29)
-#define SIG_FLAG_MPM_HRUDCONTENT_NEG            (1<<30)
-
-#define SIG_FLAG_REQUIRE_FLOWVAR                (1<<31) /**< signature can only match if a flowbit, flowvar or flowint is available. */
+#define SIG_FLAG_FILESTORE              (1<<18) /**< signature has filestore keyword */
 
 /* signature init flags */
-#define SIG_FLAG_DEONLY         1  /**< decode event only signature */
-#define SIG_FLAG_PACKET         (1<<1)  /**< signature has matches against a packet (as opposed to app layer) */
-#define SIG_FLAG_FLOW           (1<<2)  /**< signature has a flow setting */
-#define SIG_FLAG_BIDIREC        (1<<3)  /**< signature has bidirectional operator */
-#define SIG_FLAG_PAYLOAD        (1<<4)  /**< signature is inspecting the packet payload */
-#define SIG_FLAG_FILESTORE      (1<<5)  /**< signature has filestore keyword */
+#define SIG_FLAG_INIT_DEONLY         1  /**< decode event only signature */
+#define SIG_FLAG_INIT_PACKET         (1<<1)  /**< signature has matches against a packet (as opposed to app layer) */
+#define SIG_FLAG_INIT_FLOW           (1<<2)  /**< signature has a flow setting */
+#define SIG_FLAG_INIT_BIDIREC        (1<<3)  /**< signature has bidirectional operator */
+#define SIG_FLAG_INIT_PAYLOAD        (1<<4)  /**< signature is inspecting the packet payload */
+#define SIG_FLAG_INIT_FILE_DATA      (1<<5)  /**< file_data set */
 
 /* signature mask flags */
 #define SIG_MASK_REQUIRE_PAYLOAD            1
@@ -328,18 +310,19 @@ typedef struct SignatureHeader_ {
     union {
         struct {
             uint16_t alproto;
-            uint16_t mpm_stream_pattern_id_div_8;
-            uint8_t mpm_stream_pattern_id_mod_8;
             SigIntId num; /**< signature number, internal id */
         };
-        uint64_t hdr_copy2;
+        uint32_t hdr_copy2;
     };
     union {
         struct {
-            /** pattern in the mpm matcher */
-            PatIntId mpm_http_pattern_id;
+            SigIntId order_id;
+
+            /** inline -- action */
+            uint8_t action;
+            uint8_t file_flags;
         };
-        uint64_t hdr_copy3;
+        uint32_t hdr_copy3;
     };
 
     /** pointer to the full signature */
@@ -369,37 +352,20 @@ typedef struct Signature_ {
     union {
         struct {
             uint16_t alproto;
-            uint16_t mpm_stream_pattern_id_div_8;
-            uint8_t mpm_stream_pattern_id_mod_8;
             SigIntId num; /**< signature number, internal id */
         };
-        uint64_t hdr_copy2;
+        uint32_t hdr_copy2;
     };
     union {
         struct {
-            PatIntId mpm_http_pattern_id;
+            SigIntId order_id;
+
+            /** inline -- action */
+            uint8_t action;
+            uint8_t file_flags;
         };
-        uint64_t hdr_copy3;
+        uint32_t hdr_copy3;
     };
-
-    /* mpm flags */
-//    uint32_t mpm_flags;
-
-    //PatIntId mpm_pattern_id;
-    //PatIntId mpm_stream_pattern_id;
-
-/*
-    //PatIntId mpm_pattern_id;
-    //PatIntId mpm_stream_pattern_id;
-    uint16_t mpm_pattern_id_div_8;
-    uint8_t mpm_pattern_id_mod_8;
-    uint8_t pad0;
-    //PatIntId mpm_pattern_id;
-    //PatIntId mpm_stream_pattern_id;
-    uint16_t mpm_stream_pattern_id_div_8;
-    uint8_t mpm_stream_pattern_id_mod_8;
-    uint8_t pad1;
-*/
 
     /* the fast pattern added from this signature */
     SigMatch *mpm_sm;
@@ -428,14 +394,8 @@ typedef struct Signature_ {
     uint16_t mpm_content_maxlen;
     uint16_t mpm_uricontent_maxlen;
 
-
     /** number of sigmatches in the match and pmatch list */
     uint16_t sm_cnt;
-
-    SigIntId order_id;
-
-    /** inline -- action */
-    uint8_t action;
 
     uint32_t id;  /**< sid, set by the 'sid' rule keyword */
     uint32_t gid; /**< generator id */
@@ -443,9 +403,6 @@ typedef struct Signature_ {
 
     /** classification id **/
     uint8_t class;
-
-    /* signature match mask */
-    //SignatureMask mask;
 
     int prio;
 
@@ -469,8 +426,6 @@ typedef struct Signature_ {
     struct SigMatch_ *sm_lists[DETECT_SM_LIST_MAX];
     /* holds all sm lists' tails */
     struct SigMatch_ *sm_lists_tail[DETECT_SM_LIST_MAX];
-
-    uint8_t file_flags;
 
     /** address settings for this signature */
     DetectAddressHead src, dst;
@@ -668,6 +623,8 @@ typedef struct DetectEngineCtx_ {
 
     /* conf parameter that limits the length of the http request body inspected */
     int hcbd_buffer_limit;
+    /* conf parameter that limits the length of the http response body inspected */
+    int hsbd_buffer_limit;
 
     /* array containing all sgh's in use so we can loop
      * through it in Stage4. */
@@ -679,6 +636,7 @@ typedef struct DetectEngineCtx_ {
     int32_t sgh_mpm_context_stream;
     int32_t sgh_mpm_context_uri;
     int32_t sgh_mpm_context_hcbd;
+    int32_t sgh_mpm_context_hsbd;
     int32_t sgh_mpm_context_hhd;
     int32_t sgh_mpm_context_hrhd;
     int32_t sgh_mpm_context_hmd;
@@ -708,6 +666,8 @@ enum {
     ENGINE_SGH_MPM_FACTORY_CONTEXT_AUTO
 };
 
+#define DETECT_FILESTORE_MAX 15
+
 /**
   * Detection engine thread data.
   */
@@ -723,29 +683,20 @@ typedef struct DetectionEngineThreadCtx_ {
     /* used by pcre match function alone */
     uint32_t pcre_match_start_offset;
 
-    /* http_uri stuff for uricontent */
-    //char de_have_httpuri;
-    //char de_mpm_scanned_uri;
-
-    /* detectione engine context for hcbd mpm */
-    //char de_have_hcbd;
-    //char de_mpm_scanned_hcbd;
-
-    /* detectione engine context for hhd mpm */
-    //char de_have_hhd;
-    //char de_mpm_scanned_hhd;
-
-    /* detectione engine context for hrhd mpm */
-    //char de_have_hrhd;
-    //char de_mpm_scanned_hrhd;
-
     uint8_t **hcbd_buffers;
     uint32_t *hcbd_buffers_len;
     uint16_t hcbd_buffers_list_len;
 
+    /* counter for the filestore array below -- up here for cache reasons. */
+    uint16_t filestore_cnt;
+
+    uint16_t hhd_buffers_list_len;
+    uint16_t hsbd_buffers_list_len;
+    uint8_t **hsbd_buffers;
+    uint32_t *hsbd_buffers_len;
+
     uint8_t **hhd_buffers;
     uint32_t *hhd_buffers_len;
-    uint16_t hhd_buffers_list_len;
 
     /** id for alert counter */
     uint16_t counter_alerts;
@@ -815,6 +766,15 @@ typedef struct DetectionEngineThreadCtx_ {
     /* string to replace */
     DetectReplaceList *replist;
 
+    /* Array in which the filestore keyword stores file id and tx id. If the
+     * full signature matches, these are processed by a post-match filestore
+     * function to finalize the store. */
+    struct {
+        uint16_t file_id;
+        uint16_t tx_id;
+    } filestore[DETECT_FILESTORE_MAX];
+    SigMatch *filestore_sm;
+
     DetectEngineCtx *de_ctx;
 #ifdef __SC_CUDA_SUPPORT__
     /* each detection thread would have it's own queue where the cuda dispatcher
@@ -867,6 +827,8 @@ typedef struct SigTableElmt_ {
 #define SIG_GROUP_HEAD_MPM_HRUD         0x00200000
 #define SIG_GROUP_HEAD_REFERENCED       0x00400000 /**< sgh is being referenced by others, don't clear */
 #define SIG_GROUP_HEAD_HAVEFILEMAGIC    0x00800000
+#define SIG_GROUP_HAVEHSBDCONTENT       0x01000000
+#define SIG_GROUP_HEAD_MPM_HSBD         0x02000000
 
 typedef struct SigGroupHeadInitData_ {
     /* list of content containers
@@ -913,13 +875,13 @@ typedef struct SigGroupHead_ {
     MpmCtx *mpm_stream_ctx;
     MpmCtx *mpm_uri_ctx;
     MpmCtx *mpm_hcbd_ctx;
+    MpmCtx *mpm_hsbd_ctx;
     MpmCtx *mpm_hhd_ctx;
     MpmCtx *mpm_hrhd_ctx;
     MpmCtx *mpm_hmd_ctx;
     MpmCtx *mpm_hcd_ctx;
     MpmCtx *mpm_hrud_ctx;
 
-    uint16_t mpm_streamcontent_maxlen;
     uint16_t mpm_uricontent_maxlen;
 
     /** the number of signatures in this sgh that have the filestore keyword
@@ -1021,6 +983,7 @@ enum {
     DETECT_AL_HTTP_METHOD,
     DETECT_AL_URILEN,
     DETECT_AL_HTTP_CLIENT_BODY,
+    DETECT_AL_HTTP_SERVER_BODY,
     DETECT_AL_HTTP_HEADER,
     DETECT_AL_HTTP_RAW_HEADER,
     DETECT_AL_HTTP_URI,
@@ -1032,6 +995,7 @@ enum {
     DETECT_AL_SSL_VERSION,
     DETECT_AL_SSL_STATE,
     DETECT_BYTE_EXTRACT,
+    DETECT_FILE_DATA,
 
     DETECT_DCE_IFACE,
     DETECT_DCE_OPNUM,

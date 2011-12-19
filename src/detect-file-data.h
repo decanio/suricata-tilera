@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2010 Open Information Security Foundation
+/* Copyright (C) 2007-2011 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -15,21 +15,16 @@
  * 02110-1301, USA.
  */
 
-/** \file
+/**
+ * \file
  *
- * \author Anoop Saldanha <anoopsaldanha@gmail.com>
+ * \author Victor Julien <victor@inliniac.net>
  */
 
-#ifndef __DETECT_ENGINE_HHD_H__
-#define __DETECT_ENGINE_HHD_H__
+#ifndef __DETECT_FILEDATA_H__
+#define __DETECT_FILEDATA_H__
 
-#include "app-layer-htp.h"
+/* prototypes */
+void DetectFiledataRegister (void);
 
-int DetectEngineRunHttpHeaderMpm(DetectEngineThreadCtx *, Flow *, HtpState *);
-int DetectEngineInspectHttpHeader(DetectEngineCtx *, DetectEngineThreadCtx *,
-                                  Signature *, Flow *, uint8_t, void *);
-void DetectEngineCleanHHDBuffers(DetectEngineThreadCtx *);
-void DetectEngineHttpHeaderRegisterTests(void);
-
-#endif /* __DETECT_ENGINE_HHD_H__ */
-
+#endif /* __DETECT_FILEDATA_H__ */

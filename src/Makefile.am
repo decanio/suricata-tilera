@@ -79,6 +79,7 @@ detect-engine-payload.c detect-engine-payload.h \
 detect-engine-dcepayload.c detect-engine-dcepayload.h \
 detect-engine-uri.c detect-engine-uri.h \
 detect-engine-hcbd.c detect-engine-hcbd.h \
+detect-engine-hsbd.c detect-engine-hsbd.h \
 detect-engine-hhd.c detect-engine-hhd.h \
 detect-engine-hrhd.c detect-engine-hrhd.h \
 detect-engine-hmd.c detect-engine-hmd.h \
@@ -140,6 +141,7 @@ detect-http-header.c detect-http-header.h \
 detect-http-raw-header.c detect-http-raw-header.h \
 detect-http-uri.c detect-http-uri.h \
 detect-http-raw-uri.c detect-http-raw-uri.h \
+detect-file-data.c detect-file-data.h \
 detect-tls-version.c detect-tls-version.h \
 detect-ssh-proto-version.c detect-ssh-proto-version.h \
 detect-ssh-software-version.c detect-ssh-software-version.h \
@@ -151,6 +153,7 @@ detect-dce-stub-data.c detect-dce-stub-data.h \
 detect-urilen.c detect-urilen.h \
 detect-detection-filter.c detect-detection-filter.h \
 detect-http-client-body.c detect-http-client-body.h \
+detect-http-server-body.c detect-http-server-body.h \
 detect-http-stat-msg.c detect-http-stat-msg.h \
 detect-asn1.c detect-asn1.h \
 detect-filename.c detect-filename.h \

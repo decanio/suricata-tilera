@@ -561,7 +561,27 @@ int DetectBytejumpSetup(DetectEngineCtx *de_ctx, Signature *s, char *optstr)
         }
     }
 
-    if (s->alproto == ALPROTO_DCERPC &&
+    if (s->init_flags & SIG_FLAG_INIT_FILE_DATA) {
+        if (data->flags & DETECT_BYTEJUMP_RELATIVE) {
+            SigMatch *prev_sm = NULL;
+            prev_sm = SigMatchGetLastSMFromLists(s, 8,
+                    DETECT_AL_HTTP_SERVER_BODY, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
+                    DETECT_BYTETEST, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
+                    DETECT_BYTEJUMP, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
+                    DETECT_PCRE, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH]);
+            if (prev_sm == NULL) {
+                data->flags &= ~DETECT_BYTEJUMP_RELATIVE;
+            }
+
+            s->flags |= SIG_FLAG_APPLAYER;
+            AppLayerHtpEnableResponseBodyCallback();
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HSBDMATCH);
+        } else {
+            s->flags |= SIG_FLAG_APPLAYER;
+            AppLayerHtpEnableResponseBodyCallback();
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HSBDMATCH);
+        }
+    } else if (s->alproto == ALPROTO_DCERPC &&
         data->flags & DETECT_BYTEJUMP_RELATIVE) {
         SigMatch *pm = NULL;
         SigMatch *dm = NULL;
@@ -601,6 +621,10 @@ int DetectBytejumpSetup(DetectEngineCtx *de_ctx, Signature *s, char *optstr)
         bjd->offset = ((DetectByteExtractData *)bed_sm->ctx)->local_id;
         bjd->flags |= DETECT_BYTEJUMP_OFFSET_BE;
         SCFree(offset);
+    }
+
+    if (s->init_flags & SIG_FLAG_INIT_FILE_DATA) {
+        return 0;
     }
 
     if ( !(data->flags & DETECT_BYTEJUMP_RELATIVE)) {
@@ -1092,6 +1116,56 @@ int DetectBytejumpTestParse11(void)
 }
 
 /**
+ * \test Test file_data
+ */
+static int DetectBytejumpTestParse12(void)
+{
+    DetectEngineCtx *de_ctx = NULL;
+    int result = 0;
+    Signature *s = NULL;
+    DetectBytejumpData *bd = NULL;
+
+    de_ctx = DetectEngineCtxInit();
+    if (de_ctx == NULL)
+        goto end;
+
+    de_ctx->flags |= DE_QUIET;
+    de_ctx->sig_list = SigInit(de_ctx, "alert tcp any any -> any any "
+                               "(file_data; byte_jump:4,0,align,multiplier 2, "
+                               "post_offset -16,relative; sid:1;)");
+    if (de_ctx->sig_list == NULL) {
+        goto end;
+    }
+
+    s = de_ctx->sig_list;
+    if (s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH] == NULL) {
+        goto end;
+    }
+
+    if (s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH]->type != DETECT_BYTEJUMP) {
+        goto end;
+    }
+
+    bd = (DetectBytejumpData *)s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH]->ctx;
+    if ((bd->flags & DETECT_BYTEJUMP_DCE) &&
+        (bd->flags & DETECT_BYTEJUMP_RELATIVE) &&
+        (bd->flags & DETECT_BYTEJUMP_STRING) &&
+        (bd->flags & DETECT_BYTEJUMP_BIG) &&
+        (bd->flags & DETECT_BYTEJUMP_LITTLE) ) {
+        result = 0;
+        goto end;
+    }
+
+    result = 1;
+ end:
+    SigGroupCleanup(de_ctx);
+    SigCleanSignatures(de_ctx);
+    DetectEngineCtxFree(de_ctx);
+
+    return result;
+}
+
+/**
  * \test DetectByteJumpTestPacket01 is a test to check matches of
  * byte_jump and byte_jump relative works if the previous keyword is pcre
  * (bug 142)
@@ -1205,6 +1279,8 @@ void DetectBytejumpRegisterTests(void) {
     UtRegisterTest("DetectBytejumpTestParse09", DetectBytejumpTestParse09, 1);
     UtRegisterTest("DetectBytejumpTestParse10", DetectBytejumpTestParse10, 1);
     UtRegisterTest("DetectBytejumpTestParse11", DetectBytejumpTestParse11, 1);
+    UtRegisterTest("DetectBytejumpTestParse12", DetectBytejumpTestParse12, 1);
+
     UtRegisterTest("DetectByteJumpTestPacket01", DetectByteJumpTestPacket01, 1);
     UtRegisterTest("DetectByteJumpTestPacket02", DetectByteJumpTestPacket02, 1);
     UtRegisterTest("DetectByteJumpTestPacket03", DetectByteJumpTestPacket03, 1);

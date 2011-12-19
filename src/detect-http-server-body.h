@@ -15,21 +15,15 @@
  * 02110-1301, USA.
  */
 
-/** \file
+/**
+ * \file
  *
  * \author Anoop Saldanha <anoopsaldanha@gmail.com>
  */
 
-#ifndef __DETECT_ENGINE_HHD_H__
-#define __DETECT_ENGINE_HHD_H__
+#ifndef __DETECT_HTTP_SERVER_BODY_H__
+#define __DETECT_HTTP_SERVER_BODY_H__
 
-#include "app-layer-htp.h"
+void DetectHttpServerBodyRegister(void);
 
-int DetectEngineRunHttpHeaderMpm(DetectEngineThreadCtx *, Flow *, HtpState *);
-int DetectEngineInspectHttpHeader(DetectEngineCtx *, DetectEngineThreadCtx *,
-                                  Signature *, Flow *, uint8_t, void *);
-void DetectEngineCleanHHDBuffers(DetectEngineThreadCtx *);
-void DetectEngineHttpHeaderRegisterTests(void);
-
-#endif /* __DETECT_ENGINE_HHD_H__ */
-
+#endif /* __DETECT_HTTP_SERVER_BODY_H__ */

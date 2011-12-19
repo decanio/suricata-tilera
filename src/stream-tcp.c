@@ -906,7 +906,6 @@ static int StreamTcpPacketStateNone(ThreadVars *tv, Packet *p,
         case TH_RST|TH_ACK|TH_PUSH|TH_ECN:
         case TH_RST|TH_ACK|TH_PUSH|TH_ECN|TH_CWR:
             StreamTcpSetEvent(p, STREAM_RST_BUT_NO_SESSION);
-            BUG_ON(p->flow->protoctx != NULL);
             SCLogDebug("RST packet received, no session setup");
             break;
         case TH_FIN:
@@ -917,7 +916,6 @@ static int StreamTcpPacketStateNone(ThreadVars *tv, Packet *p,
         case TH_FIN|TH_ACK|TH_PUSH|TH_ECN:
         case TH_FIN|TH_ACK|TH_PUSH|TH_ECN|TH_CWR:
             StreamTcpSetEvent(p, STREAM_FIN_BUT_NO_SESSION);
-            BUG_ON(p->flow->protoctx != NULL);
             SCLogDebug("FIN packet received, no session setup");
             break;
         default:
@@ -4558,6 +4556,7 @@ void StreamTcpSetSessionNoReassemblyFlag (TcpSession *ssn, char direction)
         (nipv6h)->ip6_dst[1] = (ipv6h)->ip6_src[1]; \
         (nipv6h)->ip6_dst[2] = (ipv6h)->ip6_src[2]; \
         (nipv6h)->ip6_dst[3] = (ipv6h)->ip6_src[3]; \
+        IPV6_SET_RAW_NH(nipv6h, IPV6_GET_RAW_NH(ipv6h));    \
     } while (0)
 
 #define PSEUDO_PKT_SET_TCPHDR(ntcph,tcph) do { \
@@ -4655,10 +4654,10 @@ void StreamTcpPseudoPacketSetupHeader(Packet *np, Packet *p)
         PSEUDO_PKT_SET_TCPHDR(np->tcph, p->tcph);
 
         /* Setup the adress and port details */
-        SET_IPV6_SRC_ADDR(np, &np->src);
-        SET_IPV6_DST_ADDR(np, &np->dst);
-        SET_TCP_SRC_PORT(np, &np->sp);
-        SET_TCP_DST_PORT(np, &np->dp);
+        SET_IPV6_SRC_ADDR(p, &np->src);
+        SET_IPV6_DST_ADDR(p, &np->dst);
+        SET_TCP_SRC_PORT(p, &np->sp);
+        SET_TCP_DST_PORT(p, &np->dp);
     }
 
     /* we don't need a payload (if any) */

@@ -20,16 +20,20 @@
  * \author Anoop Saldanha <anoopsaldanha@gmail.com>
  */
 
-#ifndef __DETECT_ENGINE_HHD_H__
-#define __DETECT_ENGINE_HHD_H__
+#ifndef __DETECT_ENGINE_HSBD_H__
+#define __DETECT_ENGINE_HSBD_H__
+
+#define ENGINE_HSBD_BUFFER_LIMIT 20000
 
 #include "app-layer-htp.h"
 
-int DetectEngineRunHttpHeaderMpm(DetectEngineThreadCtx *, Flow *, HtpState *);
-int DetectEngineInspectHttpHeader(DetectEngineCtx *, DetectEngineThreadCtx *,
-                                  Signature *, Flow *, uint8_t, void *);
-void DetectEngineCleanHHDBuffers(DetectEngineThreadCtx *);
-void DetectEngineHttpHeaderRegisterTests(void);
+int DetectEngineRunHttpServerBodyMpm(DetectEngineCtx *,
+        DetectEngineThreadCtx *, Flow *f, HtpState *);
+int DetectEngineInspectHttpServerBody(DetectEngineCtx *,
+        DetectEngineThreadCtx *, Signature *, Flow *, uint8_t, void *);
 
-#endif /* __DETECT_ENGINE_HHD_H__ */
+void DetectEngineCleanHSBDBuffers(DetectEngineThreadCtx *);
+void DetectEngineHttpServerBodyRegisterTests(void);
+
+#endif /* __DETECT_ENGINE_HSBD_H__ */
 

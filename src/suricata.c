@@ -58,6 +58,7 @@
 #include "detect-engine-dcepayload.h"
 #include "detect-engine-uri.h"
 #include "detect-engine-hcbd.h"
+#include "detect-engine-hsbd.h"
 #include "detect-engine-hhd.h"
 #include "detect-engine-hrhd.h"
 #include "detect-engine-hmd.h"
@@ -1427,6 +1428,7 @@ int main(int argc, char **argv)
         DetectRingBufferRegisterTests();
         MemcmpRegisterTests();
         DetectEngineHttpClientBodyRegisterTests();
+        DetectEngineHttpServerBodyRegisterTests();
         DetectEngineHttpHeaderRegisterTests();
         DetectEngineHttpRawHeaderRegisterTests();
         DetectEngineHttpMethodRegisterTests();
@@ -1490,6 +1492,8 @@ int main(int argc, char **argv)
     /* registering signals we use */
     SignalHandlerSetup(SIGINT, SignalHandlerSigint);
     SignalHandlerSetup(SIGTERM, SignalHandlerSigterm);
+    SignalHandlerSetup(SIGPIPE, SIG_IGN);
+    SignalHandlerSetup(SIGSYS, SIG_IGN);
 
 #ifndef OS_WIN32
 	/* SIGHUP is not implemnetd on WIN32 */

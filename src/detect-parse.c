@@ -969,7 +969,7 @@ static int SigParseBasics(Signature *s, char *sigstr, char ***result, uint8_t ad
 
     /* Check if it is bidirectional */
     if (strcmp(arr[CONFIG_DIREC], "<>") == 0)
-        s->init_flags |= SIG_FLAG_BIDIREC;
+        s->init_flags |= SIG_FLAG_INIT_BIDIREC;
 
     /* Parse Address & Ports */
     if (SigParseAddress(s, arr[CONFIG_SRC], SIG_DIREC_SRC ^ addrs_direction) < 0)
@@ -1306,7 +1306,7 @@ static int SigValidate(Signature *s) {
     SCEnter();
 
     /* check for uricontent + from_server/to_client */
-    if (s->flags & SIG_FLAG_MPM_URI) {
+    if (s->sm_lists[DETECT_SM_LIST_UMATCH] != NULL) {
         SigMatch *sm;
         for (sm = s->sm_lists[DETECT_SM_LIST_MATCH]; sm != NULL; sm = sm->next) {
             if (sm->type == DETECT_FLOW) {
@@ -1356,6 +1356,7 @@ static int SigValidate(Signature *s) {
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_UMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HRUDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH],
+                DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HHDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HRHDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH],
@@ -1371,6 +1372,7 @@ static int SigValidate(Signature *s) {
         if (s->sm_lists_tail[DETECT_SM_LIST_UMATCH] ||
                 s->sm_lists_tail[DETECT_SM_LIST_HRUDMATCH] ||
                 s->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH] ||
+                s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH] ||
                 s->sm_lists_tail[DETECT_SM_LIST_HHDMATCH]  ||
                 s->sm_lists_tail[DETECT_SM_LIST_HRHDMATCH] ||
                 s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH]  ||
@@ -1418,31 +1420,11 @@ Signature *SigInit(DetectEngineCtx *de_ctx, char *sigstr) {
     sig->num = de_ctx->signum;
     de_ctx->signum++;
 
-    /* see if need to set the SIG_FLAG_MPM flag */
     SigMatch *sm;
-    for (sm = sig->sm_lists[DETECT_SM_LIST_PMATCH]; sm != NULL; sm = sm->next) {
-        if (sm->type == DETECT_CONTENT) {
-            DetectContentData *cd = (DetectContentData *)sm->ctx;
-            if (cd == NULL)
-                continue;
-
-            sig->flags |= SIG_FLAG_MPM;
-        }
-    }
-    for (sm = sig->sm_lists[DETECT_SM_LIST_UMATCH]; sm != NULL; sm = sm->next) {
-        if (sm->type == DETECT_URICONTENT) {
-            DetectContentData *ud = (DetectContentData *)sm->ctx;
-            if (ud == NULL)
-                continue;
-
-            sig->flags |= SIG_FLAG_MPM_URI;
-        }
-    }
-
     /* set mpm_content_len */
 
     /* determine the length of the longest pattern in the sig */
-    if (sig->flags & SIG_FLAG_MPM) {
+    if (sig->sm_lists[DETECT_SM_LIST_PMATCH] != NULL) {
         sig->mpm_content_maxlen = 0;
 
         for (sm = sig->sm_lists[DETECT_SM_LIST_PMATCH]; sm != NULL; sm = sm->next) {
@@ -1458,7 +1440,7 @@ Signature *SigInit(DetectEngineCtx *de_ctx, char *sigstr) {
             }
         }
     }
-    if (sig->flags & SIG_FLAG_MPM_URI) {
+    if (sig->sm_lists[DETECT_SM_LIST_UMATCH] != NULL) {
         sig->mpm_uricontent_maxlen = 0;
 
         for (sm = sig->sm_lists[DETECT_SM_LIST_UMATCH]; sm != NULL; sm = sm->next) {
@@ -1485,10 +1467,10 @@ Signature *SigInit(DetectEngineCtx *de_ctx, char *sigstr) {
                 if (sigmatch_table[sm->type].AppLayerMatch != NULL)
                     sig->flags |= SIG_FLAG_APPLAYER;
                 if (sigmatch_table[sm->type].Match != NULL)
-                    sig->init_flags |= SIG_FLAG_PACKET;
+                    sig->init_flags |= SIG_FLAG_INIT_PACKET;
             }
         } else {
-            sig->init_flags |= SIG_FLAG_PACKET;
+            sig->init_flags |= SIG_FLAG_INIT_PACKET;
         }
     }
 
@@ -1499,6 +1481,8 @@ Signature *SigInit(DetectEngineCtx *de_ctx, char *sigstr) {
     if (sig->sm_lists[DETECT_SM_LIST_AMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
     if (sig->sm_lists[DETECT_SM_LIST_HCBDMATCH])
+        sig->flags |= SIG_FLAG_STATE_MATCH;
+    if (sig->sm_lists[DETECT_SM_LIST_HSBDMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
     if (sig->sm_lists[DETECT_SM_LIST_HHDMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
@@ -1515,7 +1499,7 @@ Signature *SigInit(DetectEngineCtx *de_ctx, char *sigstr) {
 
     SCLogDebug("sig %"PRIu32" SIG_FLAG_APPLAYER: %s, SIG_FLAG_PACKET: %s",
         sig->id, sig->flags & SIG_FLAG_APPLAYER ? "set" : "not set",
-        sig->init_flags & SIG_FLAG_PACKET ? "set" : "not set");
+        sig->init_flags & SIG_FLAG_INIT_PACKET ? "set" : "not set");
 
     SigBuildAddressMatchArray(sig);
 
@@ -1571,31 +1555,11 @@ Signature *SigInitReal(DetectEngineCtx *de_ctx, char *sigstr) {
     sig->num = de_ctx->signum;
     de_ctx->signum++;
 
-    /* see if need to set the SIG_FLAG_MPM flag */
     SigMatch *sm;
-    for (sm = sig->sm_lists[DETECT_SM_LIST_PMATCH]; sm != NULL; sm = sm->next) {
-        if (sm->type == DETECT_CONTENT) {
-            DetectContentData *cd = (DetectContentData *)sm->ctx;
-            if (cd == NULL)
-                continue;
-
-            sig->flags |= SIG_FLAG_MPM;
-        }
-    }
-    for (sm = sig->sm_lists[DETECT_SM_LIST_UMATCH]; sm != NULL; sm = sm->next) {
-        if (sm->type == DETECT_URICONTENT) {
-            DetectContentData *ud = (DetectContentData *)sm->ctx;
-            if (ud == NULL)
-                continue;
-
-            sig->flags |= SIG_FLAG_MPM_URI;
-        }
-    }
-
     /* set mpm_content_len */
 
     /* determine the length of the longest pattern in the sig */
-    if (sig->flags & SIG_FLAG_MPM) {
+    if (sig->sm_lists[DETECT_SM_LIST_PMATCH] != NULL) {
         sig->mpm_content_maxlen = 0;
 
         for (sm = sig->sm_lists[DETECT_SM_LIST_PMATCH]; sm != NULL; sm = sm->next) {
@@ -1611,7 +1575,7 @@ Signature *SigInitReal(DetectEngineCtx *de_ctx, char *sigstr) {
             }
         }
     }
-    if (sig->flags & SIG_FLAG_MPM_URI) {
+    if (sig->sm_lists[DETECT_SM_LIST_UMATCH] != NULL) {
         sig->mpm_uricontent_maxlen = 0;
 
         for (sm = sig->sm_lists[DETECT_SM_LIST_UMATCH]; sm != NULL; sm = sm->next) {
@@ -1626,7 +1590,7 @@ Signature *SigInitReal(DetectEngineCtx *de_ctx, char *sigstr) {
             }
         }
     }
-    if (sig->init_flags & SIG_FLAG_BIDIREC) {
+    if (sig->init_flags & SIG_FLAG_INIT_BIDIREC) {
         /* Allocate a copy of this signature with the addresses siwtched
            This copy will be installed at sig->next */
         sig->next = SigAlloc();
@@ -1646,7 +1610,7 @@ Signature *SigInitReal(DetectEngineCtx *de_ctx, char *sigstr) {
         /* set mpm_content_len */
 
         /* determine the length of the longest pattern in the sig */
-        if (sig->next->flags & SIG_FLAG_MPM) {
+        if (sig->next->sm_lists[DETECT_SM_LIST_PMATCH] != NULL) {
             sig->next->mpm_content_maxlen = 0;
 
             SigMatch *sm;
@@ -1663,7 +1627,7 @@ Signature *SigInitReal(DetectEngineCtx *de_ctx, char *sigstr) {
                 }
             }
         }
-        if (sig->next->flags & SIG_FLAG_MPM_URI) {
+        if (sig->next->sm_lists[DETECT_SM_LIST_UMATCH] != NULL) {
             sig->next->mpm_uricontent_maxlen = 0;
 
             for (sm = sig->next->sm_lists[DETECT_SM_LIST_UMATCH]; sm != NULL; sm = sm->next) {
@@ -1691,10 +1655,10 @@ Signature *SigInitReal(DetectEngineCtx *de_ctx, char *sigstr) {
                 if (sigmatch_table[sm->type].AppLayerMatch != NULL)
                     sig->flags |= SIG_FLAG_APPLAYER;
                 if (sigmatch_table[sm->type].Match != NULL)
-                    sig->init_flags |= SIG_FLAG_PACKET;
+                    sig->init_flags |= SIG_FLAG_INIT_PACKET;
             }
         } else {
-            sig->init_flags |= SIG_FLAG_PACKET;
+            sig->init_flags |= SIG_FLAG_INIT_PACKET;
         }
     }
 
@@ -1705,6 +1669,8 @@ Signature *SigInitReal(DetectEngineCtx *de_ctx, char *sigstr) {
     if (sig->sm_lists[DETECT_SM_LIST_AMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
     if (sig->sm_lists[DETECT_SM_LIST_HCBDMATCH])
+        sig->flags |= SIG_FLAG_STATE_MATCH;
+    if (sig->sm_lists[DETECT_SM_LIST_HSBDMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
     if (sig->sm_lists[DETECT_SM_LIST_HHDMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
@@ -1721,7 +1687,7 @@ Signature *SigInitReal(DetectEngineCtx *de_ctx, char *sigstr) {
 
     SCLogDebug("sig %"PRIu32" SIG_FLAG_APPLAYER: %s, SIG_FLAG_PACKET: %s",
         sig->id, sig->flags & SIG_FLAG_APPLAYER ? "set" : "not set",
-        sig->init_flags & SIG_FLAG_PACKET ? "set" : "not set");
+        sig->init_flags & SIG_FLAG_INIT_PACKET ? "set" : "not set");
 
     /* validate signature, SigValidate will report the error reason */
     if (SigValidate(sig) == 0) {
@@ -1919,7 +1885,7 @@ static inline int DetectEngineSignatureIsDuplicate(DetectEngineCtx *de_ctx,
     if (sw_dup->s_prev == NULL) {
         SigDuplWrapper sw_temp;
         memset(&sw_temp, 0, sizeof(SigDuplWrapper));
-        if (sw_dup->s->init_flags & SIG_FLAG_BIDIREC) {
+        if (sw_dup->s->init_flags & SIG_FLAG_INIT_BIDIREC) {
             sw_temp.s = sw_dup->s->next->next;
             de_ctx->sig_list = sw_dup->s->next->next;
             SigFree(sw_dup->s->next);
@@ -1937,7 +1903,7 @@ static inline int DetectEngineSignatureIsDuplicate(DetectEngineCtx *de_ctx,
     } else {
         SigDuplWrapper sw_temp;
         memset(&sw_temp, 0, sizeof(SigDuplWrapper));
-        if (sw_dup->s->init_flags & SIG_FLAG_BIDIREC) {
+        if (sw_dup->s->init_flags & SIG_FLAG_INIT_BIDIREC) {
             sw_temp.s = sw_dup->s->next->next;
             sw_dup->s_prev->next = sw_dup->s->next->next;
             SigFree(sw_dup->s->next);
@@ -2007,7 +1973,7 @@ Signature *DetectEngineAppendSig(DetectEngineCtx *de_ctx, char *sigstr)
                 sigstr);
     }
 
-    if (sig->init_flags & SIG_FLAG_BIDIREC) {
+    if (sig->init_flags & SIG_FLAG_INIT_BIDIREC) {
         if (sig->next != NULL) {
             sig->next->next = de_ctx->sig_list;
         } else {
@@ -2523,6 +2489,31 @@ end:
     return result;
 }
 
+/**
+ * \test file_data with rawbytes
+ */
+static int SigParseTest12(void) {
+    int result = 0;
+
+    DetectEngineCtx *de_ctx = DetectEngineCtxInit();
+    if (de_ctx == NULL)
+        goto end;
+
+    Signature *s = NULL;
+
+    s = DetectEngineAppendSig(de_ctx, "alert tcp any any -> any any (file_data; content:\"abc\"; rawbytes; sid:1;)");
+    if (s != NULL) {
+        printf("sig 1 should have given an error: ");
+        goto end;
+    }
+
+    result = 1;
+end:
+    if (de_ctx != NULL)
+        DetectEngineCtxFree(de_ctx);
+    return result;
+}
+
 /** \test Direction operator validation (invalid) */
 int SigParseBidirecTest06 (void) {
     int result = 1;
@@ -2708,7 +2699,7 @@ int SigTestBidirec01 (void) {
         goto end;
     if (sig->next != NULL)
         goto end;
-    if (sig->init_flags & SIG_FLAG_BIDIREC)
+    if (sig->init_flags & SIG_FLAG_INIT_BIDIREC)
         goto end;
     if (de_ctx->signum != 1)
         goto end;
@@ -2741,7 +2732,7 @@ int SigTestBidirec02 (void) {
         goto end;
     if (de_ctx->sig_list != sig)
         goto end;
-    if (!(sig->init_flags & SIG_FLAG_BIDIREC))
+    if (!(sig->init_flags & SIG_FLAG_INIT_BIDIREC))
         goto end;
     if (sig->next == NULL)
         goto end;
@@ -2750,7 +2741,7 @@ int SigTestBidirec02 (void) {
     copy = sig->next;
     if (copy->next != NULL)
         goto end;
-    if (!(copy->init_flags & SIG_FLAG_BIDIREC))
+    if (!(copy->init_flags & SIG_FLAG_INIT_BIDIREC))
         goto end;
 
     result = 1;
@@ -2904,7 +2895,7 @@ int SigTestBidirec04 (void) {
     sig = DetectEngineAppendSig(de_ctx, "alert tcp 192.168.1.1 any <> any any (msg:\"SigTestBidirec03 sid 2 bidirectional\"; sid:2;)");
     if (sig == NULL)
         goto end;
-    if ( !(sig->init_flags & SIG_FLAG_BIDIREC))
+    if ( !(sig->init_flags & SIG_FLAG_INIT_BIDIREC))
         goto end;
     if (sig->next == NULL)
         goto end;
@@ -3225,8 +3216,8 @@ int SigParseTestMpm01 (void) {
         goto end;
     }
 
-    if (!(sig->flags & SIG_FLAG_MPM)) {
-        printf("sig doesn't have mpm flag set: ");
+    if (sig->sm_lists[DETECT_SM_LIST_PMATCH] == NULL) {
+        printf("sig doesn't have content list: ");
         goto end;
     }
 
@@ -3265,8 +3256,8 @@ int SigParseTestMpm02 (void) {
         goto end;
     }
 
-    if (!(sig->flags & SIG_FLAG_MPM)) {
-        printf("sig doesn't have mpm flag set: ");
+    if (sig->sm_lists[DETECT_SM_LIST_PMATCH] == NULL) {
+        printf("sig doesn't have content list: ");
         goto end;
     }
 
@@ -3396,6 +3387,7 @@ void SigParseRegisterTests(void) {
     UtRegisterTest("SigParseTest09", SigParseTest09, 1);
     UtRegisterTest("SigParseTest10", SigParseTest10, 1);
     UtRegisterTest("SigParseTest11", SigParseTest11, 1);
+    UtRegisterTest("SigParseTest12", SigParseTest12, 1);
 
     UtRegisterTest("SigParseBidirecTest06", SigParseBidirecTest06, 1);
     UtRegisterTest("SigParseBidirecTest07", SigParseBidirecTest07, 1);

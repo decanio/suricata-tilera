@@ -18,7 +18,7 @@
 /**
  * \file
  *
- * \author Anoop Saldanha <poonaatsoc@gmail.com>
+ * \author Anoop Saldanha <anoopsaldanha@gmail.com>
  *
  * Error utility functions
  *
@@ -211,6 +211,7 @@ const char * SCErrorToString(SCError err)
         CASE_CODE (SC_ERR_AFP_DISPATCH);
         CASE_CODE (SC_ERR_CMD_LINE);
         CASE_CODE (SC_ERR_SIZE_PARSE);
+        CASE_CODE (SC_ERR_RAWBYTES_FILE_DATA);
 
         default:
             return "UNKNOWN_ERROR";

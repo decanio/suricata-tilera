@@ -25,7 +25,7 @@
 /**
  * \file
  *
- * \author Anoop Saldanha <poonaatsoc@gmail.com>
+ * \author Anoop Saldanha <anoopsaldanha@gmail.com>
  *
  * Implements support for the http_client_body keyword
  */
@@ -2447,7 +2447,7 @@ int DetectHttpClientBodyTest34(void)
 
     DetectPcreData *pd1 = de_ctx->sig_list->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH]->prev->ctx;
     DetectContentData *hcbd2 = de_ctx->sig_list->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH]->ctx;
-    if (pd1->flags != (DETECT_PCRE_RELATIVE_NEXT | DETECT_PCRE_HTTP_BODY_AL) ||
+    if (pd1->flags != (DETECT_PCRE_RELATIVE_NEXT | DETECT_PCRE_HTTP_CLIENT_BODY) ||
         hcbd2->flags != DETECT_CONTENT_WITHIN ||
         memcmp(hcbd2->content, "two", hcbd2->content_len) != 0) {
         goto end;
@@ -2498,7 +2498,7 @@ int DetectHttpClientBodyTest35(void)
 
     DetectContentData *hcbd1 = de_ctx->sig_list->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH]->prev->ctx;
     DetectPcreData *pd2 = de_ctx->sig_list->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH]->ctx;
-    if (pd2->flags != (DETECT_PCRE_RELATIVE | DETECT_PCRE_HTTP_BODY_AL) ||
+    if (pd2->flags != (DETECT_PCRE_RELATIVE | DETECT_PCRE_HTTP_CLIENT_BODY) ||
         hcbd1->flags != DETECT_CONTENT_RELATIVE_NEXT ||
         memcmp(hcbd1->content, "two", hcbd1->content_len) != 0) {
         goto end;
@@ -2549,7 +2549,7 @@ int DetectHttpClientBodyTest36(void)
 
     DetectPcreData *pd1 = de_ctx->sig_list->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH]->prev->ctx;
     DetectContentData *hcbd2 = de_ctx->sig_list->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH]->ctx;
-    if (pd1->flags != (DETECT_PCRE_RELATIVE_NEXT | DETECT_PCRE_HTTP_BODY_AL) ||
+    if (pd1->flags != (DETECT_PCRE_RELATIVE_NEXT | DETECT_PCRE_HTTP_CLIENT_BODY) ||
         hcbd2->flags != DETECT_CONTENT_DISTANCE ||
         memcmp(hcbd2->content, "two", hcbd2->content_len) != 0) {
         goto end;

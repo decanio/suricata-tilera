@@ -256,126 +256,6 @@ int DetectBytetestMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 {
     return DetectBytetestDoMatch(det_ctx, s, m, p->payload, p->payload_len,
                                  ((DetectBytetestData *)m->ctx)->flags, 0, 0);
-#if 0
-    DetectBytetestData *data = (DetectBytetestData *)m->ctx;
-    uint8_t *ptr = NULL;
-    uint16_t len = 0;
-    uint64_t val = 0;
-    int extbytes;
-    int neg;
-    int match;
-
-    if (p->payload_len == 0) {
-        return 0;
-    }
-
-    /* Calculate the ptr value for the bytetest and length remaining in
-     * the packet from that point.
-     */
-    if (data->flags & DETECT_BYTETEST_RELATIVE) {
-        ptr = det_ctx->pkt_ptr;
-        len = GET_PKT_LEN(p) - det_ctx->pkt_off;
-
-        /* No match if there is no relative base */
-        if (ptr == NULL || len == 0) {
-            return 0;
-        }
-
-        ptr += data->offset;
-        len -= data->offset;
-    }
-    else {
-        ptr = p->payload + data->offset;
-        len = p->payload_len - data->offset;
-    }
-
-    /* Validate that the to-be-extracted is within the packet
-     * \todo Should this validate it is in the *payload*?
-     */
-    if (ptr < GET_PKT_DATA(p) || data->nbytes > len) {
-        SCLogDebug("Data not within packet pkt=%p, ptr=%p, len=%d, nbytes=%d",
-                    GET_PKT_DATA(p), ptr, len, data->nbytes);
-        return 0;
-    }
-
-    neg = data->flags & DETECT_BYTETEST_NEGOP;
-
-    /* Extract the byte data */
-    if (data->flags & DETECT_BYTETEST_STRING) {
-        extbytes = ByteExtractStringUint64(&val, data->base,
-                                           data->nbytes, (const char *)ptr);
-        if (extbytes <= 0) {
-            /* strtoull() return 0 if there is no numeric value in data string */
-            if (val == 0) {
-                SCLogDebug("No Numeric value");
-                return 0;
-            } else {
-                SCLogError(SC_ERR_INVALID_NUM_BYTES, "Error extracting %d "
-                        "bytes of string data: %d", data->nbytes, extbytes);
-                return -1;
-            }
-        }
-
-        SCLogDebug("comparing base %d string 0x%" PRIx64 " %s%c 0x%" PRIx64 "",
-               data->base, val, (neg ? "!" : ""), data->op, data->value);
-    }
-    else {
-        int endianness = (data->flags & DETECT_BYTETEST_LITTLE) ?
-                          BYTE_LITTLE_ENDIAN : BYTE_BIG_ENDIAN;
-        extbytes = ByteExtractUint64(&val, endianness, data->nbytes, ptr);
-        if (extbytes != data->nbytes) {
-            SCLogError(SC_ERR_INVALID_NUM_BYTES, "Error extracting %d bytes "
-                   "of numeric data: %d\n", data->nbytes, extbytes);
-            return -1;
-        }
-
-        SCLogDebug("comparing numeric 0x%" PRIx64 " %s%c 0x%" PRIx64 "",
-               val, (neg ? "!" : ""), data->op, data->value);
-    }
-
-
-    /* Compare using the configured operator */
-    match = 0;
-    switch (data->op) {
-        case DETECT_BYTETEST_OP_EQ:
-            if (val == data->value) {
-                match = 1;
-            }
-            break;
-        case DETECT_BYTETEST_OP_LT:
-            if (val < data->value) {
-                match = 1;
-            }
-            break;
-        case DETECT_BYTETEST_OP_GT:
-            if (val > data->value) {
-                match = 1;
-            }
-            break;
-        case DETECT_BYTETEST_OP_AND:
-            if (val & data->value) {
-                match = 1;
-            }
-            break;
-        case DETECT_BYTETEST_OP_OR:
-            if (val ^ data->value) {
-                match = 1;
-            }
-            break;
-        default:
-            /* Should never get here as we handle this in parsing. */
-            return -1;
-    }
-
-    /* A successful match depends on negation */
-    if ((!neg && match) || (neg && !match)) {
-        SCLogDebug("MATCH");
-        return 1;
-    }
-
-    SCLogDebug("NO MATCH");
-    return 0;
-#endif
 }
 
 DetectBytetestData *DetectBytetestParse(char *optstr, char **value, char **offset)
@@ -604,19 +484,40 @@ int DetectBytetestSetup(DetectEngineCtx *de_ctx, Signature *s, char *optstr)
         }
     }
 
-    if (s->alproto == ALPROTO_DCERPC &&
+
+    if (s->init_flags & SIG_FLAG_INIT_FILE_DATA) {
+        if (data->flags & DETECT_BYTETEST_RELATIVE) {
+            SigMatch *prev_sm = NULL;
+            prev_sm = SigMatchGetLastSMFromLists(s, 8,
+                    DETECT_AL_HTTP_SERVER_BODY, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
+                    DETECT_BYTETEST, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
+                    DETECT_BYTEJUMP, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
+                    DETECT_PCRE, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH]);
+            if (prev_sm == NULL) {
+                data->flags &= ~DETECT_BYTETEST_RELATIVE;
+            }
+
+            s->flags |= SIG_FLAG_APPLAYER;
+            AppLayerHtpEnableResponseBodyCallback();
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HSBDMATCH);
+        } else {
+            s->flags |= SIG_FLAG_APPLAYER;
+            AppLayerHtpEnableResponseBodyCallback();
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HSBDMATCH);
+        }
+    } else if (s->alproto == ALPROTO_DCERPC &&
         data->flags & DETECT_BYTETEST_RELATIVE) {
         SigMatch *pm = NULL;
         SigMatch *dm = NULL;
 
         pm = SigMatchGetLastSMFromLists(s, 6,
-                                        DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_PMATCH],
-                                        DETECT_PCRE, s->sm_lists_tail[DETECT_SM_LIST_PMATCH],
-                                        DETECT_BYTEJUMP, s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
+                DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_PMATCH],
+                DETECT_PCRE, s->sm_lists_tail[DETECT_SM_LIST_PMATCH],
+                DETECT_BYTEJUMP, s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
         dm = SigMatchGetLastSMFromLists(s, 6,
-                                        DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_DMATCH],
-                                        DETECT_PCRE, s->sm_lists_tail[DETECT_SM_LIST_DMATCH],
-                                        DETECT_BYTEJUMP, s->sm_lists_tail[DETECT_SM_LIST_DMATCH]);
+                DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_DMATCH],
+                DETECT_PCRE, s->sm_lists_tail[DETECT_SM_LIST_DMATCH],
+                DETECT_BYTEJUMP, s->sm_lists_tail[DETECT_SM_LIST_DMATCH]);
 
         if (pm == NULL) {
             SigMatchAppendDcePayload(s, sm);
@@ -659,6 +560,10 @@ int DetectBytetestSetup(DetectEngineCtx *de_ctx, Signature *s, char *optstr)
         btd->offset = ((DetectByteExtractData *)bed_sm->ctx)->local_id;
         btd->flags |= DETECT_BYTETEST_OFFSET_BE;
         SCFree(offset);
+    }
+
+    if (s->init_flags & SIG_FLAG_INIT_FILE_DATA) {
+        return 0;
     }
 
     if ( !(data->flags & DETECT_BYTETEST_RELATIVE)) {
@@ -1380,6 +1285,59 @@ int DetectBytetestTestParse21(void)
 }
 
 /**
+ * \test Test file_data
+ */
+static int DetectBytetestTestParse22(void)
+{
+    DetectEngineCtx *de_ctx = NULL;
+    int result = 0;
+    Signature *s = NULL;
+    DetectBytetestData *bd = NULL;
+
+    de_ctx = DetectEngineCtxInit();
+    if (de_ctx == NULL)
+        goto end;
+
+    de_ctx->flags |= DE_QUIET;
+    de_ctx->sig_list = SigInit(de_ctx, "alert tcp any any -> any any "
+                               "(file_data; byte_test:1,=,1,6,relative; sid:1;)");
+    if (de_ctx->sig_list == NULL) {
+        printf("sig parse failed: ");
+        goto end;
+    }
+
+    s = de_ctx->sig_list;
+    if (s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH] == NULL) {
+        printf("empty server body list: ");
+        goto end;
+    }
+
+    if (s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH]->type != DETECT_BYTETEST) {
+        printf("bytetest not last sm in server body list: ");
+        goto end;
+    }
+
+    bd = (DetectBytetestData *)s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH]->ctx;
+    if (bd->flags & DETECT_BYTETEST_DCE &&
+        bd->flags & DETECT_BYTETEST_RELATIVE &&
+        (bd->flags & DETECT_BYTETEST_STRING) &&
+        (bd->flags & DETECT_BYTETEST_BIG) &&
+        (bd->flags & DETECT_BYTETEST_LITTLE) &&
+        (bd->flags & DETECT_BYTETEST_NEGOP) ) {
+        printf("wrong flags: ");
+        goto end;
+    }
+
+    result = 1;
+ end:
+    SigGroupCleanup(de_ctx);
+    SigCleanSignatures(de_ctx);
+    DetectEngineCtxFree(de_ctx);
+
+    return result;
+}
+
+/**
  * \test DetectByteTestTestPacket01 is a test to check matches of
  * byte_test and byte_test relative works if the previous keyword is pcre
  * (bug 142)
@@ -1559,6 +1517,8 @@ void DetectBytetestRegisterTests(void) {
     UtRegisterTest("DetectBytetestTestParse19", DetectBytetestTestParse19, 1);
     UtRegisterTest("DetectBytetestTestParse20", DetectBytetestTestParse20, 1);
     UtRegisterTest("DetectBytetestTestParse21", DetectBytetestTestParse21, 1);
+    UtRegisterTest("DetectBytetestTestParse22", DetectBytetestTestParse22, 1);
+
     UtRegisterTest("DetectByteTestTestPacket01", DetectByteTestTestPacket01, 1);
     UtRegisterTest("DetectByteTestTestPacket02", DetectByteTestTestPacket02, 1);
     UtRegisterTest("DetectByteTestTestPacket03", DetectByteTestTestPacket03, 1);

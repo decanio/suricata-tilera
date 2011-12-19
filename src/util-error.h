@@ -18,7 +18,7 @@
 /**
  * \file
  *
- * \author Anoop Saldanha <poonaatsoc@gmail.com>
+ * \author Anoop Saldanha <anoopsaldanha@gmail.com>
  */
 
 #ifndef __ERROR_H__
@@ -226,6 +226,7 @@ typedef enum {
     SC_ERR_MAGIC_OPEN,
     SC_ERR_MAGIC_LOAD,
     SC_ERR_SIZE_PARSE,
+    SC_ERR_RAWBYTES_FILE_DATA,
 } SCError;
 
 const char *SCErrorToString(SCError);

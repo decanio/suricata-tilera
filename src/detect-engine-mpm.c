@@ -84,7 +84,7 @@ int SignatureHasPacketContent(Signature *s) {
         SCReturnInt(0);
     }
 
-    if (!(s->flags & SIG_FLAG_MPM)) {
+    if (s->sm_lists[DETECT_SM_LIST_PMATCH] == NULL) {
         SCLogDebug("no mpm");
         SCReturnInt(0);
     }
@@ -117,7 +117,7 @@ int SignatureHasStreamContent(Signature *s) {
         SCReturnInt(0);
     }
 
-    if (!(s->flags & SIG_FLAG_MPM)) {
+    if (s->sm_lists[DETECT_SM_LIST_PMATCH] == NULL) {
         SCLogDebug("no mpm");
         SCReturnInt(0);
     }
@@ -293,6 +293,31 @@ uint32_t HttpClientBodyPatternSearch(DetectEngineThreadCtx *det_ctx,
     SCReturnUInt(ret);
 }
 
+/** \brief Http server body pattern match -- searches for one pattern per
+ *         signature.
+ *
+ *  \param det_ctx  Detection engine thread ctx.
+ *  \param body     The request body to inspect.
+ *  \param body_len Body length.
+ *
+ *  \retval ret Number of matches.
+ */
+uint32_t HttpServerBodyPatternSearch(DetectEngineThreadCtx *det_ctx,
+                                     uint8_t *body, uint32_t body_len)
+{
+    SCEnter();
+
+    if (det_ctx->sgh->mpm_hsbd_ctx == NULL)
+        SCReturnUInt(0);
+
+    uint32_t ret;
+    ret = mpm_table[det_ctx->sgh->mpm_hsbd_ctx->mpm_type].
+        Search(det_ctx->sgh->mpm_hsbd_ctx, &det_ctx->mtcu,
+               &det_ctx->pmq, body, body_len);
+
+    SCReturnUInt(ret);
+}
+
 /**
  * \brief Http header match -- searches for one pattern per signature.
  *
@@ -436,9 +461,6 @@ uint32_t StreamPatternSearch(DetectEngineThreadCtx *det_ctx, Packet *p,
     uint8_t cnt = 0;
 
     for ( ; smsg != NULL; smsg = smsg->next) {
-        if (smsg->data.data_len < det_ctx->sgh->mpm_streamcontent_maxlen)
-            continue;
-
         //PrintRawDataFp(stdout, smsg->data.data, smsg->data.data_len);
 
         uint32_t r = mpm_table[det_ctx->sgh->mpm_stream_ctx->mpm_type].Search(det_ctx->sgh->mpm_stream_ctx,
@@ -712,6 +734,7 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
         DetectContentData *cd = NULL;
         DetectContentData *ud = NULL;
         DetectContentData *hcbd = NULL;
+        DetectContentData *hsbd = NULL;
         DetectContentData *hhd = NULL;
         DetectContentData *hrhd = NULL;
         DetectContentData *hmd = NULL;
@@ -762,8 +785,8 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                         }
                         /* tell matcher we are inspecting stream */
                         s->flags |= SIG_FLAG_MPM_STREAM;
-                        s->mpm_stream_pattern_id_div_8 = cd->id / 8;
-                        s->mpm_stream_pattern_id_mod_8 = 1 << (cd->id % 8);
+                        s->mpm_pattern_id_div_8 = cd->id / 8;
+                        s->mpm_pattern_id_mod_8 = 1 << (cd->id % 8);
                         if (cd->flags & DETECT_CONTENT_NEGATED) {
                             SCLogDebug("flagging sig %"PRIu32" to be looking for negated mpm", s->id);
                             s->flags |= SIG_FLAG_MPM_STREAM_NEG;
@@ -825,8 +848,8 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                         }
                         /* tell matcher we are inspecting stream */
                         s->flags |= SIG_FLAG_MPM_STREAM;
-                        s->mpm_stream_pattern_id_div_8 = cd->id / 8;
-                        s->mpm_stream_pattern_id_mod_8 = 1 << (cd->id % 8);
+                        s->mpm_pattern_id_div_8 = cd->id / 8;
+                        s->mpm_pattern_id_mod_8 = 1 << (cd->id % 8);
                         if (cd->flags & DETECT_CONTENT_NEGATED) {
                             SCLogDebug("flagging sig %"PRIu32" to be looking for negated mpm", s->id);
                             s->flags |= SIG_FLAG_MPM_STREAM_NEG;
@@ -888,10 +911,11 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     }
                 }
                 /* tell matcher we are inspecting uri */
-                s->flags |= SIG_FLAG_MPM_URICONTENT;
-                s->mpm_http_pattern_id = ud->id;
+                s->flags |= SIG_FLAG_MPM_HTTP;
+                s->mpm_pattern_id_div_8 = ud->id / 8;
+                s->mpm_pattern_id_mod_8 = 1 << (ud->id % 8);
                 if (ud->flags & DETECT_CONTENT_NEGATED)
-                    s->flags |= SIG_FLAG_MPM_URICONTENT_NEG;
+                    s->flags |= SIG_FLAG_MPM_HTTP_NEG;
 
                 sgh->flags |= SIG_GROUP_HEAD_MPM_URI;
 
@@ -943,12 +967,69 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     }
                 }
                 /* tell matcher we are inspecting uri */
-                s->flags |= SIG_FLAG_MPM_HCBDCONTENT;
-                s->mpm_http_pattern_id = hcbd->id;
+                s->flags |= SIG_FLAG_MPM_HTTP;
+                s->mpm_pattern_id_div_8 = hcbd->id / 8;
+                s->mpm_pattern_id_mod_8 = 1 << (hcbd->id % 8);
                 if (hcbd->flags & DETECT_CONTENT_NEGATED)
-                    s->flags |= SIG_FLAG_MPM_HCBDCONTENT_NEG;
+                    s->flags |= SIG_FLAG_MPM_HTTP_NEG;
 
                 sgh->flags |= SIG_GROUP_HEAD_MPM_HCBD;
+
+                break;
+            } /* case DETECT_AL_HTTP_CLIENT_BODY */
+
+            case DETECT_AL_HTTP_SERVER_BODY:
+            {
+                hsbd = (DetectContentData *)mpm_sm->ctx;
+                if (hsbd->flags & DETECT_CONTENT_FAST_PATTERN_CHOP) {
+                    /* add the content to the "hcbd" mpm */
+                    if (hsbd->flags & DETECT_CONTENT_NOCASE) {
+                        mpm_table[sgh->mpm_hsbd_ctx->mpm_type].
+                            AddPatternNocase(sgh->mpm_hsbd_ctx,
+                                             hsbd->content + hsbd->fp_chop_offset,
+                                             hsbd->fp_chop_len,
+                                             0, 0, hsbd->id, s->num, flags);
+                    } else {
+                        mpm_table[sgh->mpm_hsbd_ctx->mpm_type].
+                            AddPattern(sgh->mpm_hsbd_ctx,
+                                       hsbd->content + hsbd->fp_chop_offset,
+                                       hsbd->fp_chop_len,
+                                       0, 0, hsbd->id, s->num, flags);
+                    }
+                } else {
+                    if (hsbd->flags & DETECT_CONTENT_FAST_PATTERN_ONLY) {
+                        if (DETECT_CONTENT_IS_SINGLE(hsbd)) {
+                            hsbd->flags |= DETECT_CONTENT_HSBD_MPM;
+                        }
+
+                        /* see if we can bypass the match validation for this pattern */
+                    } else {
+                        if (DETECT_CONTENT_IS_SINGLE(hsbd)) {
+                            hsbd->flags |= DETECT_CONTENT_HSBD_MPM;
+                        }
+                    } /* else - if (hcbd->flags & DETECT_CONTENT_FAST_PATTERN_ONLY) */
+
+                    /* add the content to the "hsbd" mpm */
+                    if (hsbd->flags & DETECT_CONTENT_NOCASE) {
+                        mpm_table[sgh->mpm_hsbd_ctx->mpm_type].
+                            AddPatternNocase(sgh->mpm_hsbd_ctx,
+                                             hsbd->content, hsbd->content_len,
+                                             0, 0, hsbd->id, s->num, flags);
+                    } else {
+                        mpm_table[sgh->mpm_hsbd_ctx->mpm_type].
+                            AddPattern(sgh->mpm_hsbd_ctx,
+                                       hsbd->content, hsbd->content_len,
+                                       0, 0, hsbd->id, s->num, flags);
+                    }
+                }
+                /* tell matcher we are inspecting uri */
+                s->flags |= SIG_FLAG_MPM_HTTP;
+                s->mpm_pattern_id_div_8 = hsbd->id / 8;
+                s->mpm_pattern_id_mod_8 = 1 << (hsbd->id % 8);
+                if (hsbd->flags & DETECT_CONTENT_NEGATED)
+                    s->flags |= SIG_FLAG_MPM_HTTP_NEG;
+
+                sgh->flags |= SIG_GROUP_HEAD_MPM_HSBD;
 
                 break;
             } /* case DETECT_AL_HTTP_CLIENT_BODY */
@@ -998,10 +1079,11 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     }
                 }
                 /* tell matcher we are inspecting uri */
-                s->flags |= SIG_FLAG_MPM_HHDCONTENT;
-                s->mpm_http_pattern_id = hhd->id;
+                s->flags |= SIG_FLAG_MPM_HTTP;
+                s->mpm_pattern_id_div_8 = hhd->id / 8;
+                s->mpm_pattern_id_mod_8 = 1 << (hhd->id % 8);
                 if (hhd->flags & DETECT_CONTENT_NEGATED)
-                    s->flags |= SIG_FLAG_MPM_HHDCONTENT_NEG;
+                    s->flags |= SIG_FLAG_MPM_HTTP_NEG;
 
                 sgh->flags |= SIG_GROUP_HEAD_MPM_HHD;
 
@@ -1053,10 +1135,11 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     }
                 }
                 /* tell matcher we are inspecting uri */
-                s->flags |= SIG_FLAG_MPM_HRHDCONTENT;
-                s->mpm_http_pattern_id = hrhd->id;
+                s->flags |= SIG_FLAG_MPM_HTTP;
+                s->mpm_pattern_id_div_8 = hrhd->id / 8;
+                s->mpm_pattern_id_mod_8 = 1 << (hrhd->id % 8);
                 if (hrhd->flags & DETECT_CONTENT_NEGATED)
-                    s->flags |= SIG_FLAG_MPM_HRHDCONTENT_NEG;
+                    s->flags |= SIG_FLAG_MPM_HTTP_NEG;
 
                 sgh->flags |= SIG_GROUP_HEAD_MPM_HRHD;
 
@@ -1108,10 +1191,11 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     }
                 }
                 /* tell matcher we are inspecting method */
-                s->flags |= SIG_FLAG_MPM_HMDCONTENT;
-                s->mpm_http_pattern_id = hmd->id;
+                s->flags |= SIG_FLAG_MPM_HTTP;
+                s->mpm_pattern_id_div_8 = hmd->id / 8;
+                s->mpm_pattern_id_mod_8 = 1 << (hmd->id % 8);
                 if (hmd->flags & DETECT_CONTENT_NEGATED)
-                    s->flags |= SIG_FLAG_MPM_HMDCONTENT_NEG;
+                    s->flags |= SIG_FLAG_MPM_HTTP_NEG;
 
                 sgh->flags |= SIG_GROUP_HEAD_MPM_HMD;
 
@@ -1163,10 +1247,11 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     }
                 }
                 /* tell matcher we are inspecting cookie */
-                s->flags |= SIG_FLAG_MPM_HCDCONTENT;
-                s->mpm_http_pattern_id = hcd->id;
+                s->flags |= SIG_FLAG_MPM_HTTP;
+                s->mpm_pattern_id_div_8 = hcd->id / 8;
+                s->mpm_pattern_id_mod_8 = 1 << (hcd->id % 8);
                 if (hcd->flags & DETECT_CONTENT_NEGATED)
-                    s->flags |= SIG_FLAG_MPM_HCDCONTENT_NEG;
+                    s->flags |= SIG_FLAG_MPM_HTTP_NEG;
 
                 sgh->flags |= SIG_GROUP_HEAD_MPM_HCD;
 
@@ -1218,10 +1303,11 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     }
                 }
                 /* tell matcher we are inspecting raw uri */
-                s->flags |= SIG_FLAG_MPM_HRUDCONTENT;
-                s->mpm_http_pattern_id = hrud->id;
+                s->flags |= SIG_FLAG_MPM_HTTP;
+                s->mpm_pattern_id_div_8 = hrud->id / 8;
+                s->mpm_pattern_id_mod_8 = 1 << (hrud->id % 8);
                 if (hrud->flags & DETECT_CONTENT_NEGATED)
-                    s->flags |= SIG_FLAG_MPM_HRUDCONTENT_NEG;
+                    s->flags |= SIG_FLAG_MPM_HTTP_NEG;
 
                 sgh->flags |= SIG_GROUP_HEAD_MPM_HRUD;
 
@@ -1239,100 +1325,6 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
 
     return;
 }
-
-///**
-// * \internal
-// * \brief Helper function for PrepareGroupPopulateMpm.  Used to decide if a
-// *        pattern should be skipped or considered under certain conditions.
-// *
-// * \param sgh Pointer to the sgh.
-// * \param s   Pointer to the signature.
-// * \param sm  Pointer to the SigMatch which holds the content.
-// *
-// * \retval 1 If the content should be skipped.
-// * \retval 0 Otherwise.
-// */
-//static int PopulateMpmSkipContent(SigGroupHead *sgh, Signature *s, SigMatch *sm)
-//{
-//    switch (sm->type) {
-//        case DETECT_CONTENT:
-//        {
-//            if (s->flags & SIG_FLAG_HAS_NO_PKT_AND_STREAM_CONTENT) {
-//                return 1;
-//            }
-//
-//            if (!(sgh->flags & SIG_GROUP_HAVECONTENT &&
-//                  !(sgh->flags & SIG_GROUP_HEAD_MPM_COPY)) &&
-//                !(sgh->flags & SIG_GROUP_HAVESTREAMCONTENT &&
-//                  !(sgh->flags & SIG_GROUP_HEAD_MPM_STREAM_COPY))) {
-//                return 1;
-//            }
-//
-//            DetectContentData *cd = sm->ctx;
-//            if (cd->flags & DETECT_CONTENT_FAST_PATTERN)
-//                return 0;
-//
-//            return 1;
-//
-//            if (sgh->flags & SIG_GROUP_HAVECONTENT &&
-//                !(sgh->flags & SIG_GROUP_HEAD_MPM_COPY) &&
-//                sgh->flags & SIG_GROUP_HAVESTREAMCONTENT &&
-//                !(sgh->flags & SIG_GROUP_HEAD_MPM_STREAM_COPY)) {
-//                if (sgh->mpm_content_maxlen == sgh->mpm_streamcontent_maxlen) {
-//                    if (cd->content_len < sgh->mpm_content_maxlen)
-//                        return 1;
-//                    else
-//                        return 0;
-//                } else if (sgh->mpm_content_maxlen < sgh->mpm_streamcontent_maxlen) {
-//                    if (cd->content_len < sgh->mpm_content_maxlen)
-//                        return 1;
-//                    else
-//                        return 0;
-//                } else {
-//                    if (cd->content_len < sgh->mpm_streamcontent_maxlen)
-//                        return 1;
-//                    else
-//                        return 0;
-//                }
-//            } else if (sgh->flags & SIG_GROUP_HAVECONTENT &&
-//                       !(sgh->flags & SIG_GROUP_HEAD_MPM_COPY)) {
-//                if (cd->content_len < sgh->mpm_content_maxlen)
-//                    return 1;
-//                else
-//                    return 0;
-//            } else if (sgh->flags & SIG_GROUP_HAVESTREAMCONTENT &&
-//                       !(sgh->flags & SIG_GROUP_HEAD_MPM_STREAM_COPY)){
-//                if (cd->content_len < sgh->mpm_streamcontent_maxlen)
-//                    return 1;
-//                else
-//                    return 0;
-//            }
-//        }
-//
-//        case DETECT_URICONTENT:
-//        {
-//            if (!(sgh->flags & SIG_GROUP_HAVEURICONTENT &&
-//                  !(sgh->flags & SIG_GROUP_HEAD_MPM_URI_COPY))) {
-//                return 1;
-//            }
-//
-//            DetectContentData *cd = sm->ctx;
-//            if (cd->flags & DETECT_CONTENT_FAST_PATTERN)
-//                return 0;
-//
-//            return 1;
-//
-//            if (cd->content_len < sgh->mpm_uricontent_maxlen)
-//                return 1;
-//            else
-//                return 0;
-//        }
-//
-//        default:
-//            return 0;
-//    }
-//
-//}
 
 /**
  * \internal
@@ -1516,6 +1508,8 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
     uint32_t has_co_uri = 0;    /**< our sgh has uri inspecting content */
     /* used to indicate if sgh has atleast one sig with http_client_body */
     uint32_t has_co_hcbd = 0;
+    /* used to indicate if sgh has atleast one sig with http_server_body */
+    uint32_t has_co_hsbd = 0;
     /* used to indicate if sgh has atleast one sig with http_header */
     uint32_t has_co_hhd = 0;
     /* used to indicate if sgh has atleast one sig with http_raw_header */
@@ -1552,6 +1546,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
             has_co_hcbd = 1;
         }
 
+        if (s->sm_lists[DETECT_SM_LIST_HSBDMATCH] != NULL) {
+            has_co_hsbd = 1;
+        }
+
         if (s->sm_lists[DETECT_SM_LIST_HHDMATCH] != NULL) {
             has_co_hhd = 1;
         }
@@ -1584,6 +1582,9 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
     }
     if (has_co_hcbd > 0) {
         sh->flags |= SIG_GROUP_HAVEHCBDCONTENT;
+    }
+    if (has_co_hsbd > 0) {
+        sh->flags |= SIG_GROUP_HAVEHSBDCONTENT;
     }
     if (has_co_hhd > 0) {
         sh->flags |= SIG_GROUP_HAVEHHDCONTENT;
@@ -1671,6 +1672,24 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
         MpmInitCtx(sh->mpm_hcbd_ctx, de_ctx->mpm_matcher, -1);
 #else
         MpmInitCtx(sh->mpm_hcbd_ctx, de_ctx->mpm_matcher, de_ctx->cuda_rc_mod_handle);
+#endif
+    }
+
+    if (sh->flags & SIG_GROUP_HAVEHSBDCONTENT) {
+        if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
+            sh->mpm_hsbd_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hsbd);
+        } else {
+            sh->mpm_hsbd_ctx = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT);
+        }
+        if (sh->mpm_hsbd_ctx == NULL) {
+            SCLogDebug("sh->mpm_hsbd_ctx == NULL. This should never happen");
+            exit(EXIT_FAILURE);
+        }
+
+#ifndef __SC_CUDA_SUPPORT__
+        MpmInitCtx(sh->mpm_hsbd_ctx, de_ctx->mpm_matcher, -1);
+#else
+        MpmInitCtx(sh->mpm_hsbd_ctx, de_ctx->mpm_matcher, de_ctx->cuda_rc_mod_handle);
 #endif
     }
 
@@ -1768,6 +1787,7 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
         sh->flags & SIG_GROUP_HAVESTREAMCONTENT ||
         sh->flags & SIG_GROUP_HAVEURICONTENT ||
         sh->flags & SIG_GROUP_HAVEHCBDCONTENT ||
+        sh->flags & SIG_GROUP_HAVEHSBDCONTENT ||
         sh->flags & SIG_GROUP_HAVEHHDCONTENT ||
         sh->flags & SIG_GROUP_HAVEHRHDCONTENT ||
         sh->flags & SIG_GROUP_HAVEHMDCONTENT ||
@@ -1818,6 +1838,17 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
                     if (sh->flags & SIG_GROUP_HAVEHCBDCONTENT) {
                         if (mpm_table[sh->mpm_hcbd_ctx->mpm_type].Prepare != NULL)
                             mpm_table[sh->mpm_hcbd_ctx->mpm_type].Prepare(sh->mpm_hcbd_ctx);
+                    }
+                }
+            }
+            if (sh->mpm_hsbd_ctx != NULL) {
+                if (sh->mpm_hsbd_ctx->pattern_cnt == 0) {
+                    MpmFactoryReClaimMpmCtx(sh->mpm_hsbd_ctx);
+                    sh->mpm_hsbd_ctx = NULL;
+                } else {
+                    if (sh->flags & SIG_GROUP_HAVEHSBDCONTENT) {
+                        if (mpm_table[sh->mpm_hsbd_ctx->mpm_type].Prepare != NULL)
+                            mpm_table[sh->mpm_hsbd_ctx->mpm_type].Prepare(sh->mpm_hsbd_ctx);
                     }
                 }
             }
