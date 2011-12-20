@@ -41,33 +41,6 @@
 #define RESET_COUNTERS(f)
 #endif
 
-#ifdef __tile__
-#define FLOW_INITIALIZE(f) do { \
-        (f)->sp = 0; \
-        (f)->dp = 0; \
-        SC_ATOMIC_INIT((f)->use_cnt); \
-        (f)->flags = 0; \
-        (f)->lastts_sec = 0; \
-        tmc_spin_queued_mutex_init(&(f)->m); \
-        (f)->protoctx = NULL; \
-        (f)->alproto = 0; \
-        (f)->probing_parser_toserver_al_proto_masks = 0; \
-        (f)->probing_parser_toclient_al_proto_masks = 0; \
-        (f)->alparser = NULL; \
-        (f)->alstate = NULL; \
-        (f)->de_state = NULL; \
-        (f)->sgh_toserver = NULL; \
-        (f)->sgh_toclient = NULL; \
-        (f)->tag_list = NULL; \
-        (f)->flowvar = NULL; \
-        tmc_spin_queued_mutex_init(&(f)->de_state_m); \
-        (f)->hnext = NULL; \
-        (f)->hprev = NULL; \
-        (f)->lnext = NULL; \
-        (f)->lprev = NULL; \
-        RESET_COUNTERS((f)); \
-    } while (0)
-#else
 #define FLOW_INITIALIZE(f) do { \
         (f)->sp = 0; \
         (f)->dp = 0; \
@@ -93,7 +66,6 @@
         (f)->lprev = NULL; \
         RESET_COUNTERS((f)); \
     } while (0)
-#endif
 
 /** \brief macro to recycle a flow before it goes into the spare queue for reuse.
  *
@@ -125,21 +97,6 @@
         RESET_COUNTERS((f)); \
     } while(0)
 
-#ifdef __tile__
-#define FLOW_DESTROY(f) do { \
-        SC_ATOMIC_DESTROY((f)->use_cnt); \
-        \
-        /*SCMutexDestroy(&(f)->m);*/ \
-        FlowCleanupAppLayer((f)); \
-        if ((f)->de_state != NULL) { \
-            DetectEngineStateFree((f)->de_state); \
-        } \
-        DetectTagDataListFree((f)->tag_list); \
-        GenericVarFree((f)->flowvar); \
-        /*SCMutexDestroy(&(f)->de_state_m);*/ \
-        (f)->tag_list = NULL; \
-    } while(0)
-#else
 #define FLOW_DESTROY(f) do { \
         SC_ATOMIC_DESTROY((f)->use_cnt); \
         \
@@ -153,7 +110,6 @@
         SCMutexDestroy(&(f)->de_state_m); \
         (f)->tag_list = NULL; \
     } while(0)
-#endif
 
 Flow *FlowAlloc(void);
 Flow *FlowAllocDirect(void);

@@ -77,17 +77,9 @@ void TmqDebugList(void) {
     uint16_t i = 0;
     for (i = 0; i < tmq_id; i++) {
         /* get a lock accessing the len */
-#ifdef __tile__
-        tmc_spin_queued_mutex_lock(&trans_q[tmqs[i].id].mutex_q);
-#else
         SCMutexLock(&trans_q[tmqs[i].id].mutex_q);
-#endif
         printf("TmqDebugList: id %" PRIu32 ", name \'%s\', len %" PRIu32 "\n", tmqs[i].id, tmqs[i].name, trans_q[tmqs[i].id].len);
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&trans_q[tmqs[i].id].mutex_q);
-#else
         SCMutexUnlock(&trans_q[tmqs[i].id].mutex_q);
-#endif
     }
 }
 
@@ -106,11 +98,7 @@ void TmValidateQueueState(void)
     char err = FALSE;
 
     for (i = 0; i < tmq_id; i++) {
-#ifdef __tile__
-        tmc_spin_queued_mutex_lock(&trans_q[tmqs[i].id].mutex_q);
-#else
         SCMutexLock(&trans_q[tmqs[i].id].mutex_q);
-#endif
 #ifdef NOTYET
         if (tmqs[i].reader_cnt == 0) {
             printf("Error: Queue \"%s\" doesn't have a reader\n", tmqs[i].name);
@@ -120,11 +108,7 @@ void TmValidateQueueState(void)
             err = TRUE;
         }
 #endif
-#ifdef __tile__
-        tmc_spin_queued_mutex_unlock(&trans_q[tmqs[i].id].mutex_q);
-#else
         SCMutexUnlock(&trans_q[tmqs[i].id].mutex_q);
-#endif
 
         if (err == TRUE)
             goto error;

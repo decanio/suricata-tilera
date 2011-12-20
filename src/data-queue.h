@@ -53,11 +53,10 @@ typedef struct SCDQDataQueue_ {
     uint16_t dbg_maxlen;
 #endif /* DBG_PERF */
 
+    SCMutex mutex_q;
 #ifdef __tile__
-    tmc_spin_queued_mutex_t mutex_q;
     volatile uint32_t cond_q;
 #else
-    SCMutex mutex_q;
     SCCondT cond_q;
 #endif
 

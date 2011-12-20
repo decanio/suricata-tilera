@@ -158,9 +158,9 @@ SCDQGenericQData *TmqhInputSimpleOnQ(SCDQDataQueue *q)
         for (;;) {
             if ((q->len > 0) || q->cond_q)
                 break;
-            tmc_spin_queued_mutex_unlock(&q->mutex_q);
+            SCMutexUnlock(&q->mutex_q);
             cycle_pause(4300);
-            tmc_spin_queued_mutex_lock(&q->mutex_q);
+            SCMutexLock(&q->mutex_q);
         }
 #else
         SCCondWait(&q->cond_q, &q->mutex_q);
@@ -171,20 +171,16 @@ SCDQGenericQData *TmqhInputSimpleOnQ(SCDQDataQueue *q)
         SCDQGenericQData *data = SCDQDataDequeue(q);
 #ifdef __tile__
         if (q->len == 0) q->cond_q = 0;
-        tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
-        SCMutexUnlock(&q->mutex_q);
 #endif
+        SCMutexUnlock(&q->mutex_q);
         return data;
     } else {
         /* return NULL if we have no data in the queue. Should only happen
          * on signals. */
 #ifdef __tile__
         q->cond_q = 0;
-        tmc_spin_queued_mutex_unlock(&q->mutex_q);
-#else
-        SCMutexUnlock(&q->mutex_q);
 #endif
+        SCMutexUnlock(&q->mutex_q);
         return NULL;
     }
 }
@@ -209,7 +205,7 @@ void TmqhOutputSimpleOnQ(SCDQDataQueue *q, SCDQGenericQData *data)
     SCDQDataEnqueue(q, data);
 #ifdef __tile__
     q->cond_q = 0;
-    tmc_spin_queued_mutex_unlock(&q->mutex_q);
+    SCMutexUnlock(&q->mutex_q);
 #else
     SCCondSignal(&q->cond_q);
     SCMutexUnlock(&q->mutex_q);

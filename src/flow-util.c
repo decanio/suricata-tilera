@@ -75,7 +75,7 @@ Flow *FlowAlloc(void)
     SCMutexLock(&flow_alloc_mutex);
     fc = FlowAllocList;
     FlowAllocList = fc->next;
-    SCMutexUnLock(&flow_alloc_mutex);
+    SCMutexUnlock(&flow_alloc_mutex);
     f = &fc->flow;
 #else
     f = SCMalloc(sizeof(Flow));

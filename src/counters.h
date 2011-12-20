@@ -140,11 +140,7 @@ typedef struct SCPerfContext_ {
     uint16_t curr_id;
 
     /* mutex to prevent simultaneous access during update_counter/output_stat */
-#ifdef __tile__
-    tmc_spin_queued_mutex_t m;
-#else
     SCMutex m;
-#endif
 } SCPerfContext;
 
 /**
@@ -216,11 +212,7 @@ typedef struct SCPerfOPIfaceContext_ {
     uint32_t club_tm;
 
     SCPerfClubTMInst *pctmi;
-#ifdef __tile__
-    tmc_spin_queued_mutex_t pctmi_lock;
-#else
     SCMutex pctmi_lock;
-#endif
 } SCPerfOPIfaceContext;
 
 /* the initialization functions */

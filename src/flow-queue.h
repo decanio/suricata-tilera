@@ -42,11 +42,10 @@ typedef struct FlowQueue_
 #endif /* DBG_PERF */
 #ifdef __tile__
     volatile unsigned cond_q;
-    tmc_spin_queued_mutex_t mutex_q;
 #else
-    SCMutex mutex_q;
     SCCondT cond_q;
 #endif
+    SCMutex mutex_q;
 } FlowQueue;
 
 /* prototypes */
