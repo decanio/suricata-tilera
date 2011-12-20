@@ -1082,7 +1082,7 @@ static int SCACCGetDelta(int i, int j, MpmCtx *mpm_ctx)
     }
 }
 
-static inline SCACCMappedDeltaIndex(uint32_t state, int entries, int code)
+static inline int SCACCMappedDeltaIndex(uint32_t state, int entries, int code)
 {
     return (state * entries) + code;
 }
@@ -1092,7 +1092,6 @@ static void SCACCCompressDeltaTable(MpmCtx *mpm_ctx)
     SCACCCtx *ctx = (SCACCCtx *)mpm_ctx->ctx;
     int ascii_code = 0;
     uint32_t state = 0;
-    uint32_t temp_state = 0;
     uint32_t empty;
     int k;
 
@@ -1295,7 +1294,7 @@ static inline void SCACCDedupDeltaTable(MpmCtx *mpm_ctx)
         state_table16_t *t16 = (state_table16_t *)((char *)ctx->state_table_u16 - sizeof(state_table_hdr_t));
         state_table16_t *m16 = (state_table16_t *)((char *)ctx->state_table_m16 - sizeof(state_table_hdr_t));
 
-	    l16 = head_state_table16;
+        l16 = head_state_table16;
         printf("list l16 %p\n", l16);
         int i = 0;
         int match = 0;
@@ -1343,6 +1342,56 @@ static inline void SCACCDedupDeltaTable(MpmCtx *mpm_ctx)
         }
 
     } else {
+        state_table32_t *l32;
+        state_table32_t *t32 = (state_table32_t *)((char *)ctx->state_table_u32 - sizeof(state_table_hdr_t));
+        state_table32_t *m32 = (state_table32_t *)((char *)ctx->state_table_m32 - sizeof(state_table_hdr_t));
+
+        l32 = head_state_table32;
+        printf("list l32 %p\n", l32);
+        int i = 0;
+        int match = 0;
+        while (l32 != NULL) {
+            //printf("checking against state_count %d size %ld\n",
+            //       l8->hdr.state_count, l8->hdr.size);
+            SC_ACC_STATE_TYPE_U32 *l_u32 = &l32->u32;
+            SC_ACC_STATE_TYPE_U32 *t_m32 = &m32->u32;
+            if ((l32->hdr.state_count == m32->hdr.state_count) &&
+                (l32->hdr.size == m32->hdr.size) &&
+                (SCMemcmp(l_u32, t_m32, l32->hdr.size) == 0)) {
+                printf("matching state table 16 at %d\n", i);
+                match = 1;
+		        break;
+#if 0
+                SC_ACC_STATE_TYPE_U8 (*l_u8)[ALPHABET_SIZE] = &l8->u8;
+                SC_ACC_STATE_TYPE_U8 (*t_u8)[ALPHABET_SIZE] = &t8->u8;
+                printf("memcmp result %d\n", SCMemcmp(l_u8, t_u8, l8->hdr.size));
+                for (int s = 0; s < t8->hdr.state_count; s++) {
+                    for (int j = 0; j < ALPHABET_SIZE; j++) {
+                        printf("%cs: %d j: %d %04x %04x\n", 
+                                (t_u8[s][j] != l_u8[s][j]) ? 'X':' ',
+                                s,j,t_u8[s][j], l_u8[s][j]);
+                    }
+                }
+#endif
+            }
+            l32 = (state_table32_t *)l32->hdr.next;
+            i += 1;
+        }
+        if (match == 0) {
+            size_t bytes = m32->hdr.size;
+
+            cumulative_bytes += bytes;
+            printf("BYTES %ld\n", bytes);
+            printf("CUMULATIVE bytes %lld\n", cumulative_bytes);
+            m32->hdr.next = head_state_table32;
+            head_state_table32 = m32;
+            printf("added m32 %p\n", m32);
+        } else {
+            printf("SWAPPING in match\n");
+            ctx->state_table_m32 = &l32->u32;
+            SCFree(m32);
+            SCFree(t32);
+        }
     }
 
     return;

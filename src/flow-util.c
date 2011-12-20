@@ -38,7 +38,9 @@
 #include "detect.h"
 #include "detect-engine-state.h"
 
+#ifdef __tile__
 #define FLOW_ALLOC_CACHE
+#endif
 
 #ifdef FLOW_ALLOC_CACHE
 typedef union FlowCache_
@@ -48,7 +50,7 @@ typedef union FlowCache_
 } FlowCache;
 
 static union FlowCache_ *FlowAllocList;
-static tmc_spin_queued_mutex_t flow_alloc_mutex;
+static SCMutex flow_alloc_mutex;
 #endif
 
 /** \brief allocate a flow
@@ -70,10 +72,10 @@ Flow *FlowAlloc(void)
 
 #ifdef FLOW_ALLOC_CACHE
     FlowCache *fc;
-    tmc_spin_queued_mutex_lock(&flow_alloc_mutex);
+    SCMutexLock(&flow_alloc_mutex);
     fc = FlowAllocList;
     FlowAllocList = fc->next;
-    tmc_spin_queued_mutex_unlock(&flow_alloc_mutex);
+    SCMutexUnLock(&flow_alloc_mutex);
     f = &fc->flow;
 #else
     f = SCMalloc(sizeof(Flow));
@@ -98,10 +100,10 @@ void FlowFree(Flow *f)
     FLOW_DESTROY(f);
 #ifdef FLOW_ALLOC_CACHE
     FlowCache *fc = (FlowCache *)f;
-    tmc_spin_queued_mutex_lock(&flow_alloc_mutex);
+    SCMutexLock(&flow_alloc_mutex);
     fc->next = FlowAllocList;
     FlowAllocList = fc;
-    tmc_spin_queued_mutex_unlock(&flow_alloc_mutex);
+    SCMutexUnlock(&flow_alloc_mutex);
 #else
     SCFree(f);
 #endif
