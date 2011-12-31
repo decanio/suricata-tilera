@@ -136,8 +136,8 @@ TILE_MONITOR_UT_ARGS = \
   --run -+- suricata -u -+-
 
 WILDCAT_CPU = --hvd CHIP_WIDTH=6 --hvd CHIP_HEIGHT=6
-#WILDCAT_SPEED = --hvd MEM_SPEED=750 --hvd CPU_SPEED=750
-WILDCAT_SPEED = --hvd MEM_SPEED=1066 --hvd CPU_SPEED=1200
+WILDCAT_SPEED = --hvd MEM_SPEED=750 --hvd CPU_SPEED=750
+#WILDCAT_SPEED = --hvd MEM_SPEED=1066 --hvd CPU_SPEED=1200
 #WILDCAT_SPEED = --hvd MEM_SPEED=800 --hvd CPU_SPEED=1000
 
 TILE_MONITOR_WILDCAT_ARGS = \
@@ -160,7 +160,7 @@ TILE_MONITOR_WILDCAT_ARGS = \
   --upload $(YAML_DIR)/src/.libs/libyaml.so /lib/libyaml.so \
   --upload ./src/.libs/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
-  --run -+- suricata -c $(RULES_CONFIG) -I xgbe3 -+-
+  --run -+- suricata -c $(RULES_CONFIG) -i xgbe3 -+-
 
 #  --run -+- strace -e !nanosleep /suricata -c /opt/suricata/etc/suricata.yaml -I xgbe3 -+-
 
@@ -177,7 +177,7 @@ TILE_MONITOR_WILDCAT_STATIC_ARGS = \
   --upload $(TILERA_ROOT)/tile/usr/bin/strace /usr/bin/strace \
   --upload ./src/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
-  --run -+- suricata -c $(RULES_CONFIG) -I xgbe3 -+-
+  --run -+- suricata -c $(RULES_CONFIG) -i xgbe3 -+-
 
 TILE_MONITOR_WILDCAT_FEEDBACK_ARGS = \
   --hvx "dataplane=1-35" \
@@ -198,7 +198,7 @@ TILE_MONITOR_WILDCAT_FEEDBACK_ARGS = \
   --upload $(YAML_DIR)/src/.libs/libyaml.so /lib/libyaml.so \
   --upload ./src/.libs/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
-  --run -+- suricata -c $(RULES_CONFIG) -I xgbe3 -+- \
+  --run -+- suricata -c $(RULES_CONFIG) -i xgbe3 -+- \
   --download /tmp/raw_feedback raw_feedback
 
 TILE_MONITOR_WILDCAT_FEEDBACK_STATIC_ARGS = \
@@ -220,7 +220,7 @@ TILE_MONITOR_WILDCAT_FEEDBACK_STATIC_ARGS = \
   --upload $(YAML_DIR)/src/.libs/libyaml.so /lib/libyaml.so \
   --upload ./src/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
-  --run -+- suricata -c $(RULES_CONFIG) -I xgbe3 -+- \
+  --run -+- suricata -c $(RULES_CONFIG) -i xgbe3 -+- \
   --download /tmp/raw_feedback raw_feedback
 
 TILE_MONITOR_WILDCAT_PROFILE_ARGS = \
@@ -243,7 +243,7 @@ TILE_MONITOR_WILDCAT_PROFILE_ARGS = \
   --upload $(YAML_DIR)/src/.libs/libyaml.so /lib/libyaml.so \
   --upload ./src/.libs/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
-  --launch -+- suricata -c $(RULES_CONFIG) -I xgbe3 -+- \
+  --launch -+- suricata -c $(RULES_CONFIG) -i xgbe3 -+- \
   --run -+- sleep 210 -+- \
   --profile-init --profile-kernel \
   --profile-reset \
@@ -269,7 +269,7 @@ TILE_MONITOR_WILDCAT_PROFILE_STATIC_ARGS = \
   --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
   --upload ./src/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
-  --launch -+- suricata -c $(RULES_CONFIG) -I xgbe3 -+- \
+  --launch -+- suricata -c $(RULES_CONFIG) -i xgbe3 -+- \
   --run -+- sleep 210 -+- \
   --profile-init --profile-kernel \
   --profile-reset \

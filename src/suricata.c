@@ -220,7 +220,7 @@ int sc_set_caps;
 tmc_mspace global_mspace;
 /** Place mpm into memory in hash for home memory not cached in local L2 */
 tmc_mspace mpm_mspace;
-tmc_sync_barrier_t startup_barrier = TMC_SYNC_BARRIER_INIT((NUM_TILERA_PIPELINES * TILES_PER_PIPELINE) + 4);
+tmc_sync_barrier_t startup_barrier;
 #endif
 
 int RunmodeIsUnittests(void) {
@@ -434,11 +434,12 @@ void usage(const char *progname)
     printf("USAGE: %s\n\n", progname);
     printf("\t-c <path>                    : path to configuration file\n");
 #ifdef __tilegx__
-    printf("\t-I <dev>                     : run in tilera mpipe mode\n");
+    printf("\t-i <dev>                     : run in tilera mpipe mode\n");
 #elif defined(__tile__)
-    printf("\t-I <dev>                     : run in tilera netio mode\n");
-#endif
+    printf("\t-i <dev>                     : run in tilera netio mode\n");
+#else
     printf("\t-i <dev or ip>               : run in pcap live mode\n");
+#endif
     printf("\t-F <bpf filter file>         : bpf filter file\n");
     printf("\t-r <path>                    : run in pcap file/offline mode\n");
 #ifdef NFQ
@@ -612,9 +613,6 @@ int main(int argc, char **argv)
 {
     int opt;
     char pcap_dev[128];
-#ifdef __tile__
-    char tile_dev[128];
-#endif
     char *sig_file = NULL;
     int sig_file_exclusive = FALSE;
     char *conf_filename = NULL;
@@ -731,7 +729,7 @@ int main(int argc, char **argv)
     /* getopt_long stores the option index here. */
     int option_index = 0;
 
-    char short_opts[] = "c:DhI:i:l:q:d:r:us:S:U:VF:";
+    char short_opts[] = "c:Dhi:l:q:d:r:us:S:U:VF:";
 
     while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
         switch (opt) {
@@ -970,8 +968,16 @@ int main(int argc, char **argv)
             break;
         case 'i':
             if (run_mode == RUNMODE_UNKNOWN) {
+#ifdef __tilegx__
+                run_mode = RUNMODE_TILERA_MPIPE;
+                MpipeLiveRegisterDevice(optarg);
+#elif defined(__tile__)
+                run_mode = RUNMODE_TILERA_NETIO;
+                NetioLiveRegisterDevice(optarg);
+#else
                 run_mode = RUNMODE_PCAP_DEV;
                 LiveRegisterDevice(optarg);
+#endif
             } else if (run_mode == RUNMODE_PCAP_DEV) {
 #ifdef OS_WIN32
                 SCLogError(SC_ERR_PCAP_MULTI_DEV_NO_SUPPORT, "pcap multi dev "
@@ -991,26 +997,6 @@ int main(int argc, char **argv)
             memset(pcap_dev, 0, sizeof(pcap_dev));
             strlcpy(pcap_dev, optarg, ((strlen(optarg) < sizeof(pcap_dev)) ? (strlen(optarg)+1) : (sizeof(pcap_dev))));
             break;
-#ifdef __tile__
-        case 'I':
-            if (run_mode == RUNMODE_UNKNOWN) {
-#ifdef __tilegx__
-                run_mode = RUNMODE_TILERA_MPIPE;
-                MpipeLiveRegisterDevice(optarg);
-#elif defined(__tile__)
-                run_mode = RUNMODE_TILERA_NETIO;
-                NetioLiveRegisterDevice(optarg);
-#endif
-            } else {
-                SCLogError(SC_ERR_MULTIPLE_RUN_MODE, "more than one run mode "
-                                                     "has been specified");
-                usage(argv[0]);
-                exit(EXIT_FAILURE);
-            }
-            memset(tile_dev, 0, sizeof(tile_dev));
-            strncpy(tile_dev, optarg, ((strlen(optarg) < sizeof(tile_dev)) ? (strlen(optarg)) : (sizeof(tile_dev)-1)));
-            break;
-#endif
         case 'l':
             if (ConfSet("default-log-dir", optarg, 0) != 1) {
                 fprintf(stderr, "ERROR: Failed to set log directory.\n");
@@ -1522,6 +1508,9 @@ int main(int argc, char **argv)
     SCLogDebug("preallocating packets... packet size %" PRIuMAX "", (uintmax_t)SIZE_OF_PACKET);
     int i = 0;
 #ifdef __tile__
+    RunModeTileGetPipelines();
+    tmc_sync_barrier_init(&startup_barrier,
+                          (TileNumPipelines * TILES_PER_PIPELINE) + 4);
     {
     Packet *p = SCMalloc(max_pending_packets * sizeof(Packet));
     if (p == NULL) {
@@ -1539,10 +1528,8 @@ int main(int argc, char **argv)
         }
 #endif
         PACKET_INITIALIZE(p);
-#ifdef __tilegx__
-	 p->pool = i % NUM_TILERA_MPIPE_PIPELINES;
-#elif defined(__tile__)
-	 p->pool = i % NUM_TILERA_NETIO_PIPELINES;
+#ifdef __tile__
+	 p->pool = i % TileNumPipelines;
 #endif
 
         PacketPoolStorePacket(p);
@@ -1634,15 +1621,19 @@ int main(int argc, char **argv)
         }
 #ifdef __tilegx__
     } else if (run_mode == RUNMODE_TILERA_MPIPE) {
-        if (ConfSet("netio.single_mpipe_dev", tile_dev, 0) != 1) {
-            fprintf(stderr, "ERROR: Failed to set netio.single_mpipe_dev\n");
-            exit(EXIT_FAILURE);
+        if (strlen(pcap_dev)) {
+            if (ConfSet("mpipe.single_mpipe_dev", pcap_dev, 0) != 1) {
+                fprintf(stderr, "ERROR: Failed to set netio.single_mpipe_dev\n");
+                exit(EXIT_FAILURE);
+            }
         }
 #elif defined(__tile__)
     } else if (run_mode == RUNMODE_TILERA_NETIO) {
-        if (ConfSet("netio.single_netio_dev", tile_dev, 0) != 1) {
-            fprintf(stderr, "ERROR: Failed to set netio.single_netio_dev\n");
-            exit(EXIT_FAILURE);
+        if (strlen(pcap_dev)) {
+            if (ConfSet("netio.single_netio_dev", pcap_dev, 0) != 1) {
+                fprintf(stderr, "ERROR: Failed to set netio.single_netio_dev\n");
+                exit(EXIT_FAILURE);
+            }
         }
 #endif
 #ifdef HAVE_PFRING

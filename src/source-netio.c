@@ -50,7 +50,7 @@
 #include <tmc/perf.h>
 
 extern uint8_t suricata_ctl_flags;
-extern unsigned int NetioNumPipes;
+//extern unsigned int NetioNumPipes;
 
 //#define NETIO_DEBUG
 
@@ -379,7 +379,7 @@ TmEcode ReceiveNetioThreadInit(ThreadVars *tv, void *initdata, void **data) {
       for (unsigned int j = 0; j < num_buckets; j++)
       {
         buckets[j] = next_queue++;
-        if (next_queue == NetioNumPipes)
+        if (next_queue == TileNumPipelines)
           next_queue = 0;
       }
 
@@ -422,7 +422,7 @@ TmEcode ReceiveNetioThreadInit(ThreadVars *tv, void *initdata, void **data) {
 TmEcode ReceiveNetioInit(void) {
     SCEnter();
 
-    pthread_barrier_init(&barrier, NULL, NetioNumPipes*2);
+    pthread_barrier_init(&barrier, NULL, TileNumPipelines*2);
 
     SCReturnInt(TM_ECODE_OK);
 }

@@ -56,13 +56,12 @@
 #include "source-mpipe.h"
 #include "source-netio.h"
 
-#ifdef __tilegx__
-static RingBuffer16 *ringbuffer[NUM_TILERA_MPIPE_PIPELINES] = { NULL };
-#elif defined(__tile__)
-static RingBuffer16 *ringbuffer[NUM_TILERA_NETIO_PIPELINES] = { NULL };
+#ifdef __tile__
+static RingBuffer16 *ringbuffer[MAX_TILERA_PIPELINES] = { NULL };
 #else
 static RingBuffer16 *ringbuffer = NULL;
 #endif
+
 /**
  * \brief TmqhPacketpoolRegister
  * \initonly
@@ -73,7 +72,7 @@ void TmqhPacketpoolRegister (void) {
     tmqh_table[TMQH_PACKETPOOL].OutHandler = TmqhOutputPacketpool;
 
 #ifdef __tile__
-    for (int i = 0; i < NUM_TILERA_PIPELINES; i++) {
+    for (int i = 0; i < MAX_TILERA_PIPELINES; i++) {
         ringbuffer[i] = RingBufferInit();
         if (ringbuffer[i] == NULL) {
             SCLogError(SC_ERR_FATAL, "Error registering Packet pool handler (at ring buffer init)");

@@ -71,7 +71,8 @@
 #define min(a,b) (((a) < (b)) ? (a) : (b))
 
 extern uint8_t suricata_ctl_flags;
-extern unsigned int MpipeNumPipes;
+//extern unsigned int MpipeNumPipes;
+//extern unsigned int TileNumPipes;
 extern intmax_t max_pending_packets;
 
 /** storage for mpipe device names */
@@ -561,7 +562,7 @@ SCLogInfo("DEBUG: %u non-zero sized stacks", stack_count);
         VERIFY(result, "gxio_mpipe_alloc_buffer_stacks()");
         int stack = result;
         first_stack = (uint16_t)stack;
-SCLogInfo("DEBUG: initial stack at %d", stack);
+	/*SCLogInfo("DEBUG: initial stack at %d", stack);*/
 
         unsigned int i = 0;
         for (unsigned int stackidx = stack; stackidx < stack + stack_count; stackidx++, i++) {
@@ -671,7 +672,8 @@ SCLogInfo("DEBUG: initial stack at %d", stack);
 TmEcode ReceiveMpipeInit(void) {
     SCEnter();
 
-    tmc_sync_barrier_init(&barrier, MpipeNumPipes);
+SCLogInfo("TileNumPipelines: %d", TileNumPipelines);
+    tmc_sync_barrier_init(&barrier, TileNumPipelines);
 
     SCReturnInt(TM_ECODE_OK);
 }
@@ -718,7 +720,7 @@ TmEcode DecodeMpipeThreadInit(ThreadVars *tv, void *initdata, void **data)
     DecodeRegisterPerfCounters(dtv, tv);
 
     *data = (void *)dtv;
-    SCLogInfo("DecodeMpipeThreadInit");
+    /*SCLogInfo("DecodeMpipeThreadInit");*/
 
     SCReturnInt(TM_ECODE_OK);
 

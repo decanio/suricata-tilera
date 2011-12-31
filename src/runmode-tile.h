@@ -52,6 +52,10 @@ cycle_pause(unsigned int delay)
 #define NUM_TILERA_PIPELINES (NUM_TILERA_NETIO_PIPELINES)
 #endif
 
+#define MAX_TILERA_PIPELINES 16
+
+extern unsigned int TileNumPipelines;
+
 int RunModeIdsTileNetioAuto(DetectEngineCtx *);
 int RunModeIdsTileNetioAutoFp(DetectEngineCtx *de_ctx);
 void RunModeIdsTileNetioRegister(void);

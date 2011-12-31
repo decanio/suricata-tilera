@@ -55,6 +55,8 @@
  * Compiler is telling us we are building for Tilera
  */
 
+unsigned int TileNumPipelines;
+
 #ifdef __tilegx__
 
 #define COMBINE_RESPOND_REJECT_AND_OUTPUT
@@ -73,7 +75,7 @@ void tile_pcre_free(void *ptr)
 }
 
 static const char *mpipe_default_mode = NULL;
-unsigned int MpipeNumPipes = NUM_TILERA_MPIPE_PIPELINES;
+//unsigned int MpipeNumPipes = NUM_TILERA_MPIPE_PIPELINES;
 
 const char *RunModeIdsTileMpipeGetDefaultMode(void)
 {
@@ -183,6 +185,17 @@ int TileMpipeUnmapTile(int cpu)
 #endif
 }
 
+void RunModeTileGetPipelines(void) {
+    intmax_t pipelines;
+
+    if (ConfGetInt("tile.pipelines", &pipelines) == 1) {
+        TileNumPipelines = pipelines;
+    } else {
+        TileNumPipelines = NUM_TILERA_PIPELINES;
+    }
+    SCLogInfo("%d Tilera pipelines", TileNumPipelines);
+}
+
 /**
  * \brief RunModeIdsTileMpipeAuto set up the following thread packet handlers:
  *        - Receive thread (from iface pcap)
@@ -215,7 +228,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
     int pool_detect_threads = 0;
     extern TmEcode ReceiveMpipeInit(void); // move this
 
-    SCLogInfo("RunModeIdsTileMpipeAuto\n");
+    /*SCLogInfo("RunModeIdsTileMpipeAuto\n");*/
     
     if (ConfGet("tile.detect", &detectmode) == 1) {
         if (detectmode) {
@@ -237,19 +250,25 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
 
     int nmpipe = MpipeLiveGetDeviceCount();
 
-    int pipe_max = MpipeNumPipes;
+    int pipe_max = TileNumPipelines;
 
     ReceiveMpipeInit();
 
     for (pipe = 0; pipe < pipe_max; pipe++) {
 
         if (nmpipe == 1) {
-	        char *mpipe_dev = NULL;
+            char *mpipe_dev = NULL;
 
-            if (ConfGet("netio.single_mpipe_dev", &mpipe_dev) == 0) {
-	            SCLogError(SC_ERR_RUNMODE, "Failed retrieving "
-                           "netio.single_mpipe_dev from Conf");
-                exit(EXIT_FAILURE);
+            /*
+             * Attempt to get interface from config file
+             * overrides -i from command line.
+             */
+            if (ConfGet("mpipe.interface", &mpipe_dev) == 0) {
+                if (ConfGet("mpipe.single_mpipe_dev", &mpipe_dev) == 0) {
+	                SCLogError(SC_ERR_RUNMODE, "Failed retrieving "
+                               "mpipe.single_mpipe_dev from Conf");
+                    exit(EXIT_FAILURE);
+                }
             }
 
             SCLogDebug("mpipe_dev %s", mpipe_dev);
@@ -459,7 +478,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
  * runmode support for tile64 and tilepro
  */
 static const char *netio_default_mode = NULL;
-unsigned int NetioNumPipes = NUM_TILERA_NETIO_PIPELINES;
+//unsigned int NetioNumPipes = NUM_TILERA_NETIO_PIPELINES;
 
 const char *RunModeIdsTileNetioGetDefaultMode(void)
 {
@@ -522,7 +541,7 @@ int RunModeIdsTileNetioAuto(DetectEngineCtx *de_ctx) {
 
     int nnetio = NetioLiveGetDeviceCount();
 
-    int pipe_max = NetioNumPipes;
+    int pipe_max = TileNumPipelines;
 
     ReceiveNetioInit();
 
