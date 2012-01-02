@@ -723,6 +723,11 @@ int main(int argc, char **argv)
         {"erf-in", required_argument, 0, 0},
         {"dag", required_argument, 0, 0},
         {"build-info", 0, &build_info, 1},
+#ifdef __tilegx__
+        {"mpipe", optional_argument, 0, 0},
+#elif defined(__tile__)
+        {"netio", optional_argument, 0, 0},
+#endif
         {NULL, 0, NULL, 0}
     };
 
@@ -953,6 +958,43 @@ int main(int argc, char **argv)
                 SCPrintBuildInfo();
                 exit(EXIT_SUCCESS);
             }
+#ifdef __tilegx__
+            else if(strcmp((long_opts[option_index]).name , "mpipe") == 0){
+                if (run_mode == RUNMODE_UNKNOWN) {
+                    run_mode = RUNMODE_TILERA_MPIPE;
+                    if (optarg != NULL) {
+                        memset(pcap_dev, 0, sizeof(pcap_dev));
+                        strlcpy(pcap_dev, optarg,
+                                ((strlen(optarg) < sizeof(pcap_dev)) ?
+                                 (strlen(optarg) + 1) : sizeof(pcap_dev)));
+                        LiveRegisterDevice(optarg);
+                    }
+                } else {
+                    SCLogError(SC_ERR_MULTIPLE_RUN_MODE, "more than one run mode "
+                            "has been specified");
+                    usage(argv[0]);
+                    exit(EXIT_FAILURE);
+                }
+            }
+#elif defined(__tile__)
+            else if(strcmp((long_opts[option_index]).name , "netio") == 0){
+                if (run_mode == RUNMODE_UNKNOWN) {
+                    run_mode = RUNMODE_TILERA_NETIO;
+                    if (optarg != NULL) {
+                        memset(pcap_dev, 0, sizeof(pcap_dev));
+                        strlcpy(pcap_dev, optarg,
+                                ((strlen(optarg) < sizeof(pcap_dev)) ?
+                                 (strlen(optarg) + 1) : sizeof(pcap_dev)));
+                        LiveRegisterDevice(optarg);
+                    }
+                } else {
+                    SCLogError(SC_ERR_MULTIPLE_RUN_MODE, "more than one run mode "
+                            "has been specified");
+                    usage(argv[0]);
+                    exit(EXIT_FAILURE);
+                }
+            }
+#endif
             break;
         case 'c':
             conf_filename = optarg;
@@ -1508,7 +1550,7 @@ int main(int argc, char **argv)
     SCLogDebug("preallocating packets... packet size %" PRIuMAX "", (uintmax_t)SIZE_OF_PACKET);
     int i = 0;
 #ifdef __tile__
-    RunModeTileGetPipelines();
+    RunModeTileGetPipelineConfig();
     tmc_sync_barrier_init(&startup_barrier,
                           (TileNumPipelines * TILES_PER_PIPELINE) + 4);
     {
@@ -1624,6 +1666,12 @@ int main(int argc, char **argv)
         if (strlen(pcap_dev)) {
             if (ConfSet("mpipe.single_mpipe_dev", pcap_dev, 0) != 1) {
                 fprintf(stderr, "ERROR: Failed to set netio.single_mpipe_dev\n");
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            int ret = LiveBuildDeviceList("mpipe");
+            if (ret == 0) {
+                fprintf(stderr, "ERROR: No interface found in config for mpipe\n");
                 exit(EXIT_FAILURE);
             }
         }
@@ -1745,11 +1793,7 @@ printf("DEBUG: setting affinity for main\n");
                      * we are done */
 #ifdef __tile__
                     /* TBD: this is temporary, it isn't quite correct */
-#ifdef __tilegx__
-                    for (int pool = 0; pool < NUM_TILERA_MPIPE_PIPELINES; pool++) {
-#else 
-                    for (int pool = 0; pool < NUM_TILERA_NETIO_PIPELINES; pool++) {
-#endif
+                    for (int pool = 0; pool <  TileNumPipelines; pool++) {
                         if (PacketPoolSize(pool) == max_pending_packets)
                             done = 1;
                     }

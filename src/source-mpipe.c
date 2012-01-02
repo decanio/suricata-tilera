@@ -409,7 +409,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 #endif
     unsigned int num_buffers;
     unsigned int total_buffers = max_pending_packets;
-    unsigned int num_workers = NUM_TILERA_MPIPE_PIPELINES;
+    unsigned int num_workers = TileNumPipelines /*DFLT_TILERA_MPIPE_PIPELINES*/;
     unsigned int stack_count = 0;
     const gxio_mpipe_buffer_size_enum_t gxio_buffer_sizes[] = {
             GXIO_MPIPE_BUFFER_SIZE_128,
@@ -672,7 +672,7 @@ SCLogInfo("DEBUG: %u non-zero sized stacks", stack_count);
 TmEcode ReceiveMpipeInit(void) {
     SCEnter();
 
-SCLogInfo("TileNumPipelines: %d", TileNumPipelines);
+    SCLogInfo("TileNumPipelines: %d", TileNumPipelines);
     tmc_sync_barrier_init(&barrier, TileNumPipelines);
 
     SCReturnInt(TM_ECODE_OK);

@@ -48,6 +48,7 @@
 #include "util-time.h"
 #include "util-cpu.h"
 #include "util-affinity.h"
+#include "util-device.h"
 
 #ifdef __tile__
 
@@ -55,7 +56,9 @@
  * Compiler is telling us we are building for Tilera
  */
 
-unsigned int TileNumPipelines;
+unsigned int TileNumPipelines;    /* number of configured parallel pipelines */
+unsigned int TileDetectThreadPerPipeline; /* detect threads per pipeline */
+unsigned int TilesPerPipelines; /* total tiles per pipeline */
 
 #ifdef __tilegx__
 
@@ -185,15 +188,23 @@ int TileMpipeUnmapTile(int cpu)
 #endif
 }
 
-void RunModeTileGetPipelines(void) {
+void RunModeTileGetPipelineConfig(void) {
     intmax_t pipelines;
+    intmax_t detect_per_pipe;
 
     if (ConfGetInt("tile.pipelines", &pipelines) == 1) {
         TileNumPipelines = pipelines;
     } else {
-        TileNumPipelines = NUM_TILERA_PIPELINES;
+        TileNumPipelines = DFLT_TILERA_PIPELINES;
     }
     SCLogInfo("%d Tilera pipelines", TileNumPipelines);
+    if (ConfGetInt("tile.detect-per-pipeline", &detect_per_pipe) == 1) {
+        TileDetectThreadPerPipeline = detect_per_pipe;
+    } else {
+        TileDetectThreadPerPipeline = DFLT_DETECT_THREADS_PER_PIPELINE;
+    }
+    SCLogInfo("%d detect threads per pipeline", TileDetectThreadPerPipeline);
+    SCLogInfo("%d utilized dataplane tiles", TILES_PER_PIPELINE * TileNumPipelines);
 }
 
 /**
@@ -248,30 +259,34 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
 
     TimeModeSetLive();
 
-    int nmpipe = MpipeLiveGetDeviceCount();
-
     int pipe_max = TileNumPipelines;
 
     ReceiveMpipeInit();
 
+    char *mpipe_dev = NULL;
+    int nlive = LiveGetDeviceCount();
+    if (nlive > 0) {
+        SCLogInfo("Using %d live device(s).", nlive);
+        mpipe_dev = LiveGetDevice(0);
+    } else {
+        /*
+         * Attempt to get interface from config file
+         * overrides -i from command line.
+         */
+        if (ConfGet("mpipe.interface", &mpipe_dev) == 0) {
+            if (ConfGet("mpipe.single_mpipe_dev", &mpipe_dev) == 0) {
+	            SCLogError(SC_ERR_RUNMODE, "Failed retrieving "
+                           "mpipe.single_mpipe_dev from Conf");
+                exit(EXIT_FAILURE);
+            }
+        }
+    }
+
+    SCLogDebug("mpipe_dev %s", mpipe_dev);
+
     for (pipe = 0; pipe < pipe_max; pipe++) {
 
-        if (nmpipe == 1) {
-            char *mpipe_dev = NULL;
-
-            /*
-             * Attempt to get interface from config file
-             * overrides -i from command line.
-             */
-            if (ConfGet("mpipe.interface", &mpipe_dev) == 0) {
-                if (ConfGet("mpipe.single_mpipe_dev", &mpipe_dev) == 0) {
-	                SCLogError(SC_ERR_RUNMODE, "Failed retrieving "
-                               "mpipe.single_mpipe_dev from Conf");
-                    exit(EXIT_FAILURE);
-                }
-            }
-
-            SCLogDebug("mpipe_dev %s", mpipe_dev);
+        if (1) {
 
             char *mpipe_devc = SCStrdup(mpipe_dev);
 
@@ -342,7 +357,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             exit(EXIT_FAILURE);
         }
 
-        int thread_max = DETECT_THREADS_PER_MPIPE_PIPELINE;
+        int thread_max = TileDetectThreadPerPipeline;
 
         for (thread = 0; thread < thread_max; thread++) {
             snprintf(tname, sizeof(tname),"Detect%d-%"PRIu16, pipe+1, thread+1);
@@ -634,7 +649,7 @@ int RunModeIdsTileNetioAuto(DetectEngineCtx *de_ctx) {
         }
         SCLogInfo("Decode & Stream spawned\n");
 
-        int thread_max = DETECT_THREADS_PER_PIPELINE;
+        int thread_max = TileDetectThreadsPerPipeline;
 
         for (thread = 0; thread < thread_max; thread++) {
 
