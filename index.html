@@ -5,20 +5,23 @@
 	<TITLE></TITLE>
 	<META NAME="GENERATOR" CONTENT="LibreOffice 3.4  (Unix)">
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
-	<META NAME="CREATED" CONTENT="20111213;20301700">
+	<META NAME="CREATED" CONTENT="20120102;16542200">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
-	<META NAME="CHANGED" CONTENT="20111213;20430200">
+	<META NAME="CHANGED" CONTENT="20120102;16564600">
 	<STYLE TYPE="text/css">
 	<!--
+		@page { margin: 0.79in }
+		P { margin-bottom: 0.08in }
+		PRE.cjk { font-family: "WenQuanYi Micro Hei", monospace }
+		A:link { so-language: zxx }
 		CODE.cjk { font-family: "WenQuanYi Micro Hei", monospace }
 	-->
 	</STYLE>
 </HEAD>
-<BODY LANG="en-US" BGCOLOR="#99ccff" DIR="LTR">
-<H1>Suricata for Tilera</H1>
+<BODY LANG="en-US" DIR="LTR">
+<P STYLE="margin-bottom: 0in"><BR>
+</P>
 <DIV ID="wiki-content" DIR="LTR">
-	<P STYLE="margin-bottom: 0in"><BR>
-	</P>
 	<DIV ID="wiki-body" DIR="LTR">
 		<P STYLE="margin-bottom: 0in"><BR>
 		</P>
@@ -79,23 +82,21 @@
 			.</P>
 			<P>Retrieve the source code for Suricata, libyaml and libmagic as
 			follows:</P>
-			<P><CODE CLASS="western">git clone
-			git@github.com:decanio/suricata.git</CODE></P>
-			<P><CODE CLASS="western">git clone git@github.com:decanio/yaml.git</CODE></P>
-			<P><CODE CLASS="western">git clone
-			git@github.com:decanio/libmagic.git</CODE></P>
-			<P><STRONG>Building Suricata for Tilera</STRONG></P>
+			<PRE CLASS="western"><CODE CLASS="western">git clone git@github.com:decanio/suricata.git</CODE>
+<CODE CLASS="western">git clone git@github.com:decanio/yaml.git</CODE>
+<CODE CLASS="western">git clone git@github.com:decanio/libmagic.git</CODE></PRE><P>
+			<STRONG>Building Suricata for Tilera</STRONG></P>
 			<P>Both the libyaml and libmagic libraries must be build prior to
 			building Suricata for Tilera.</P>
 			<P>Build libyaml as follows:</P>
-			<P><CODE CLASS="western">cd yaml</CODE></P>
-			<P><CODE CLASS="western">./configure --host=tile</CODE></P>
-			<P><CODE CLASS="western">make</CODE></P>
-			<P>Build libmagic as follows:</P>
-			<P><CODE CLASS="western">cd libmagic</CODE></P>
-			<P><CODE CLASS="western">./configure --host=tile</CODE></P>
-			<P><CODE CLASS="western">make</CODE></P>
-			<P><STRONG>Building Suricata for TileGX</STRONG></P>
+			<PRE CLASS="western"><CODE CLASS="western">cd yaml</CODE>
+<CODE CLASS="western">./configure --host=tile</CODE>
+<CODE CLASS="western">make</CODE></PRE><P>
+			Build libmagic as follows:</P>
+			<PRE CLASS="western"><CODE CLASS="western">cd libmagic</CODE>
+<CODE CLASS="western">./configure --host=tile</CODE>
+<CODE CLASS="western">make</CODE></PRE><P>
+			<STRONG>Building Suricata for TileGX</STRONG></P>
 			<P>The file doc/INSTALL.TILERA contains written instructions on
 			building Suricata for both the TilePro and TileGX architectures.</P>
 			<P>A Makefile tile/Makefile.tilegx has been provided that
@@ -103,10 +104,10 @@
 			This performs most of the operations required to build suricata
 			for Tilera.</P>
 			<P>Suricata for TileGX can be built as follows:</P>
-			<P><CODE CLASS="western">cd suricata</CODE></P>
-			<P><CODE CLASS="western">./autogen.sh</CODE></P>
-			<P><CODE CLASS="western">make -f tile/Makefile.tilegx build_static</CODE></P>
-			<P><STRONG>Preconfigured Tilera based Suricata Systems</STRONG></P>
+			<PRE CLASS="western"><CODE CLASS="western">cd suricata</CODE>
+<CODE CLASS="western">./autogen.sh</CODE>
+<CODE CLASS="western">make -f tile/Makefile.tilegx build_static</CODE></PRE><P>
+			<STRONG>Preconfigured Tilera based Suricata Systems</STRONG></P>
 			<P>If you would like a system with suricata for Tilera already
 			installed please contact <A HREF="mailto:decanio.tom@gmail.com">decanio.tom@gmail.com</A>
 			for assistance.</P>
@@ -116,19 +117,49 @@
 			<P>Copy the suricata binary, built above, and your suricata
 			configuration files to your Tilera platform.</P>
 			<P>Execute suricata with a command such as the following:</P>
-			<P><CODE CLASS="western">suricata -c
-			/opt/suricata/etc/suricata.yaml -I xgbe3</CODE></P>
-			<P>The Tilera version of suricata uses the -I <EM>&lt;dev&gt;</EM>
-			option in place of the usual -i <EM>&lt;dev&gt;</EM> option. On
-			the Tilera platform <EM>&lt;dev&gt;</EM> is the mpipe interface
-			name of the ethernet interface you would like suricata to monitor.
-			The 10 gigabit interface names are typically xgbe1, xgbe2, xgbe3
-			and xgbe4. The 1 gigabit interface names are typically gbe1, gbe2,
-			gbe3 and gbe4.</P>
+			<PRE CLASS="western" STYLE="margin-bottom: 0.2in"><CODE CLASS="western">suricata -c /opt/suricata/etc/suricata.yaml --mpipe=xgbe3</CODE></PRE><P>
+			Tilera tilegx platforms use Tilera's mpipe hardware to deliver
+			packets to Suricata. Therefore --mpipe=<EM>&lt;dev&gt;</EM>
+			indicates usage of the <EM>mpipe</EM> runmode using the given
+			ethernet interface to be monitored. The 10 gigabit interface names
+			are typically xgbe1, xgbe2, xgbe3 and xgbe4. The 1 gigabit
+			interface names are typically gbe1, gbe2, gbe3 and gbe4.</P>
+			<P><STRONG>YAML Configuration for Tilera</STRONG></P>
+			<P>The Tilera implementation of Suricata adds two optional
+			sections in the yaml configuration file. These affect the Tilera
+			specific runmode configuration and allow specification of a list
+			of monitored interfaces within the configuration file.</P>
+			<P>The section below configures suricata to monitor the two Tilera
+			gigabit ethernet interfaces gbe3 and gbe4.</P>
+			<PRE CLASS="western"><CODE CLASS="western"># Tilera mpipe configuration. for use on Tilera tilegx</CODE>
+<CODE CLASS="western">mpipe:</CODE>
+
+<CODE CLASS="western">  </CODE><CODE CLASS="western"># List of interfaces we will listen on.</CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western">- interface: gbe3</CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western">- interface: gbe4</CODE></PRE><P>
+			Suricata can be configured to utilize available tiles on different
+			Tilera processors by indicating the number of parallel processing
+			pipelines to be spawned and the number of detect threads to be
+			utilized on each of those pipelines. The configuration must leave
+			one free non-dataplane tile to contain several overhead threads.</P>
+			<P>The configuration below is a typical configuration for the
+			Tilera tilegx-36 processor. This spawns 5 parallel pipelines each
+			pipeline utilizing 4 detect threads. This configuration utilizes
+			35 Tilera dataplane tiles and fully utilizes the device.</P>
+			<PRE CLASS="western"><CODE CLASS="western"># Tilera runmode configuration. for use on Tilera tilepro and tilegx</CODE>
+<CODE CLASS="western">tile:</CODE>
+
+<CODE CLASS="western">  </CODE><CODE CLASS="western"># Number of parallel processing pipelines</CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western">pipelines: 5</CODE>
+
+<CODE CLASS="western">  </CODE><CODE CLASS="western"># Number of detect threads per pipeline</CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western">detect-per-pipeline: 4</CODE></PRE><P>
+			If this section is omitted in the YAML configuration file the
+			configuration above is used by default.</P>
 		</DIV>
 	</DIV>
 </DIV>
-<P><BR><BR>
+<P STYLE="margin-bottom: 0in"><BR>
 </P>
 </BODY>
 </HTML>
