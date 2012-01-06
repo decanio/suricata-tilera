@@ -287,8 +287,13 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
     for (pipe = 0; pipe < pipe_max; pipe++) {
 
         if (1) {
+            char *mpipe_devc;
 
-            char *mpipe_devc = SCStrdup(mpipe_dev);
+            if (nlive > 0) {
+                mpipe_devc = SCStrdup("multi");
+            } else {
+                mpipe_devc = SCStrdup(mpipe_dev);
+            }
 
             sprintf(pickup_queue[pipe], "pickup-queue%d", pipe);
 

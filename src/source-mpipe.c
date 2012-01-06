@@ -37,6 +37,7 @@
 #include "util-debug.h"
 #include "util-error.h"
 #include "util-privs.h"
+#include "util-device.h"
 #include "tmqh-packetpool.h"
 
 #ifdef __tilegx__
@@ -52,12 +53,12 @@
 #include <tmc/perf.h>
 #include <arch/sim.h>
 
-// Define this to verify a bunch of facts about each packet.
+/* Define this to verify a bunch of facts about each packet. */
 #define PARANOIA
 
 //#define MPIPE_DEBUG
 
-// Align "p" mod "align", assuming "p" is a "void*".
+/* Align "p" mod "align", assuming "p" is a "void*". */
 #define ALIGN(p, align) do { (p) += -(long)(p) & ((align) - 1); } while(0)
 
 #define VERIFY(VAL, WHAT)                                       \
@@ -71,8 +72,6 @@
 #define min(a,b) (((a) < (b)) ? (a) : (b))
 
 extern uint8_t suricata_ctl_flags;
-//extern unsigned int MpipeNumPipes;
-//extern unsigned int TileNumPipes;
 extern intmax_t max_pending_packets;
 
 /** storage for mpipe device names */
@@ -134,8 +133,6 @@ static gxio_mpipe_context_t context_body;
 static gxio_mpipe_context_t* context = &context_body;
 
 /* The ingress queues (one per worker) */
-//static gxio_mpipe_iqueue_t iqueue_body;
-//static gxio_mpipe_iqueue_t* iqueue = &iqueue_body;
 static gxio_mpipe_iqueue_t** iqueues;
 
 static unsigned long long tile_gtod_fast_boot = 0;
@@ -195,7 +192,7 @@ void MpipeFreePacket(Packet *p) {
 #ifdef __TILEGX_FEEDBACK_RUN__
     static uint32_t packet_count = 0;
 
-    // disable profiling at end of simulation input
+    /* disable profiling at end of simulation input */
     if (++packet_count == 1000000) {
         SCLogInfo("Mpipe exiting\n");
         EngineStop();
@@ -205,7 +202,7 @@ void MpipeFreePacket(Packet *p) {
 #ifdef __TILEGX_SIMULATION__
     static uint32_t packet_count = 0;
 
-    // disable profiling at end of simulation input
+    /* disable profiling at end of simulation input */
     if (++packet_count == 10000) {
         SCLogInfo("Mpipe disabling profiler\n");
         sim_profiler_disable();
@@ -472,17 +469,36 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
     if (rank == 0) {
 
-        SCLogInfo("using interface %s", (char *)initdata);
+        if (strcmp(link_name, "multi") == 0) {
+            int nlive = LiveGetDeviceCount();
+            int instance = gxio_mpipe_link_instance(LiveGetDevice(0));
+            for (int i = 1; i < nlive; i++) {
+                link_name = LiveGetDevice(i);
+                if (gxio_mpipe_link_instance(link_name) != instance) {
+                    SCLogError(SC_ERR_INVALID_ARGUMENT, "All interfaces not on same mpipe instrance");
+                    SCReturnInt(TM_ECODE_FAILED);
+                }
+            }
+            gxio_mpipe_init(context, instance);
+            VERIFY(result, "gxio_mpipe_init()");
+            for (int i = 0; i < nlive; i++) {
+                gxio_mpipe_link_t link;
+                link_name = LiveGetDevice(i);
+                SCLogInfo("opening interface %s", link_name);
+                result = gxio_mpipe_link_open(&link, context, link_name, 0);
+                VERIFY(result, "gxio_mpipe_link_open()");
+            }
+        } else {
+            SCLogInfo("using single interface %s", (char *)initdata);
 
-        //SCLogInfo("Total mpipe %d packet buffers", total_buffers);
+            /* Start the driver. */
+            result = gxio_mpipe_init(context, gxio_mpipe_link_instance(link_name));
+            VERIFY(result, "gxio_mpipe_init()");
 
-        /* Start the driver. */
-        result = gxio_mpipe_init(context, gxio_mpipe_link_instance(link_name));
-        VERIFY(result, "gxio_mpipe_init()");
-
-        gxio_mpipe_link_t link;
-        result = gxio_mpipe_link_open(&link, context, link_name, 0);
-        VERIFY(result, "gxio_mpipe_link_open()");
+            gxio_mpipe_link_t link;
+            result = gxio_mpipe_link_open(&link, context, link_name, 0);
+            VERIFY(result, "gxio_mpipe_link_open()");
+        }
 
         /* Allocate some iqueues. */
         iqueues = calloc(num_workers, sizeof(*iqueues));

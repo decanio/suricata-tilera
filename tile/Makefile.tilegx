@@ -102,7 +102,7 @@ TILE_MONITOR_ARGS = \
   --upload $(YAML_DIR)/src/.libs/libyaml.so /lib/libyaml.so \
   --upload ./src/.libs/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
-  --run -+- suricata -c $(RULES_CONFIG) -I xgbe0 -+-
+  --run -+- suricata -c $(RULES_CONFIG) --mpipe -+-
 
 
 TILE_MONITOR_STATIC_ARGS = \
@@ -117,7 +117,7 @@ TILE_MONITOR_STATIC_ARGS = \
   --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
   --upload ./src/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
-  --run -+- suricata -c $(RULES_CONFIG) -I xgbe0 -+-
+  --run -+- suricata -c $(RULES_CONFIG) --mpipe -+-
 
 TILE_MONITOR_UT_ARGS = \
   --huge-pages 800 \
