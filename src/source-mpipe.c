@@ -471,9 +471,11 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
         if (strcmp(link_name, "multi") == 0) {
             int nlive = LiveGetDeviceCount();
-            int instance = gxio_mpipe_link_instance(LiveGetDevice(0));
+printf("nlive: %d\n", nlive);
+printf("device 0: %d\n", LiveGetDeviceName(0));
+            int instance = gxio_mpipe_link_instance(LiveGetDeviceName(0));
             for (int i = 1; i < nlive; i++) {
-                link_name = LiveGetDevice(i);
+                link_name = LiveGetDeviceName(i);
                 if (gxio_mpipe_link_instance(link_name) != instance) {
                     SCLogError(SC_ERR_INVALID_ARGUMENT, "All interfaces not on same mpipe instrance");
                     SCReturnInt(TM_ECODE_FAILED);
@@ -483,7 +485,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             VERIFY(result, "gxio_mpipe_init()");
             for (int i = 0; i < nlive; i++) {
                 gxio_mpipe_link_t link;
-                link_name = LiveGetDevice(i);
+                link_name = LiveGetDeviceName(i);
                 SCLogInfo("opening interface %s", link_name);
                 result = gxio_mpipe_link_open(&link, context, link_name, 0);
                 VERIFY(result, "gxio_mpipe_link_open()");
