@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2011 Open Information Security Foundation
+/* Copyright (C) 2007-2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -19,11 +19,13 @@
  * \file
  *
  * \author Victor Julien <victor@inliniac.net>
+ *
  */
 
-#ifndef __LOG_FILELOG_H__
-#define __LOG_FILELOG_H__
+#ifndef __UTIL_PATH_H__
+#define __UTIL_PATH_H__
 
-void TmModuleLogFileLogRegister (void);
+int PathIsAbsolute(const char *);
+int PathIsRelative(const char *);
 
-#endif /* __LOG_FILELOG_H__ */
+#endif /* __UTIL_PATH_H__ */

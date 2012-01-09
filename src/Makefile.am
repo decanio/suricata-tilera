@@ -1,6 +1,6 @@
 noinst_HEADERS = action-globals.h \
     app-layer-nbss.h app-layer-dcerpc-common.h \
-    debug.h decode-events.h \
+    debug.h \
 	flow-private.h queue.h source-nfq-prototypes.h \
 	suricata-common.h threadvars.h util-binsearch.h \
     util-atomic.h util-validate.h
@@ -164,6 +164,8 @@ detect-http-stat-code.c detect-http-stat-code.h \
 detect-ssl-version.c detect-ssl-version.h \
 detect-ssl-state.c detect-ssl-state.h \
 detect-byte-extract.c detect-byte-extract.h \
+detect-app-layer-event.c detect-app-layer-event.h \
+decode-events.c decode-events.h \
 detect-replace.c detect-replace.h \
 util-magic.c util-magic.h \
 util-misc.c util-misc.h \
@@ -229,6 +231,7 @@ util-device.c util-device.h \
 util-checksum.c util-checksum.h \
 util-runmodes.c util-runmodes.h \
 util-file.c util-file.h \
+util-path.c util-path.h \
 tm-modules.c tm-modules.h \
 tm-queues.c tm-queues.h \
 tm-queuehandlers.c tm-queuehandlers.h \
@@ -282,7 +285,8 @@ util-action.c util-action.h \
 win32-syslog.h \
 util-profiling.c util-profiling.h \
 cuda-packet-batcher.c cuda-packet-batcher.h \
-util-ioctl.h util-ioctl.c
+util-ioctl.h util-ioctl.c \
+util-logopenfile.h util-logopenfile.c
 
 # set the include path found by configure
 INCLUDES= $(all_includes)

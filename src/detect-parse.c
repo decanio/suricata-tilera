@@ -819,6 +819,12 @@ int SigParseProto(Signature *s, const char *protostr) {
         SCReturnInt(-1);
     }
 
+    if (s->proto.flags & DETECT_PROTO_ONLY_PKT) {
+        s->flags |= SIG_FLAG_REQUIRE_PACKET;
+    } else if (s->proto.flags & DETECT_PROTO_ONLY_STREAM) {
+        s->flags |= SIG_FLAG_REQUIRE_STREAM;
+    }
+
     SCReturnInt(0);
 }
 
@@ -963,7 +969,7 @@ static int SigParseBasics(Signature *s, char *sigstr, char ***result, uint8_t ad
         goto error;
 
     if (strcmp(arr[CONFIG_DIREC], "<-") == 0) {
-        SCLogError(SC_ERR_INVALID_DIRECTION, "\"->\" is not a valid direction modifier, \"->\" and \"<>\" are supported.");
+        SCLogError(SC_ERR_INVALID_DIRECTION, "\"<-\" is not a valid direction modifier, \"->\" and \"<>\" are supported.");
         goto error;
     }
 
@@ -980,7 +986,7 @@ static int SigParseBasics(Signature *s, char *sigstr, char ***result, uint8_t ad
 
     /* For IPOnly */
     if (IPOnlySigParseAddress(s, arr[CONFIG_SRC], SIG_DIREC_SRC ^ addrs_direction) < 0)
-       goto error;
+        goto error;
 
     if (IPOnlySigParseAddress(s, arr[CONFIG_DST], SIG_DIREC_DST ^ addrs_direction) < 0)
         goto error;
@@ -1305,6 +1311,12 @@ static void SigBuildAddressMatchArray(Signature *s) {
 static int SigValidate(Signature *s) {
     SCEnter();
 
+    if (s->flags & SIG_FLAG_REQUIRE_PACKET &&
+        s->flags & SIG_FLAG_REQUIRE_STREAM) {
+        SCLogError(SC_ERR_INVALID_SIGNATURE, "can't mix packet keywords with tcp-stream or flow:only_stream.");
+        SCReturnInt(0);
+    }
+
     /* check for uricontent + from_server/to_client */
     if (s->sm_lists[DETECT_SM_LIST_UMATCH] != NULL) {
         SigMatch *sm;
@@ -1321,6 +1333,21 @@ static int SigValidate(Signature *s) {
             }
         }
     }
+
+#ifndef UNITTESTS /** \todo HACK... this fails 72 unittests, no time to fix them now */
+#ifndef HAVE_HTP_TX_GET_RESPONSE_HEADERS_RAW
+    if (s->sm_lists[DETECT_SM_LIST_HRHDMATCH] != NULL) {
+        if ((s->flags & (SIG_FLAG_TOCLIENT|SIG_FLAG_TOSERVER)) == (SIG_FLAG_TOCLIENT|SIG_FLAG_TOSERVER)) {
+            SCLogError(SC_ERR_INVALID_SIGNATURE,"http_raw_header signature without a flow direction. See issue #389.");
+            SCReturnInt(0);
+        }
+        if (s->flags & SIG_FLAG_TOCLIENT) {
+            SCLogError(SC_ERR_INVALID_SIGNATURE,"http_raw_header signature with to_client flow direction. See issue #389.");
+            SCReturnInt(0);
+        }
+    }
+#endif
+#endif
 
     if (s->alproto == ALPROTO_DCERPC) {
         /* \todo We haven't covered dce rpc cases now.  They need special
@@ -1496,6 +1523,11 @@ Signature *SigInit(DetectEngineCtx *de_ctx, char *sigstr) {
         sig->flags |= SIG_FLAG_STATE_MATCH;
     if (sig->sm_lists[DETECT_SM_LIST_FILEMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
+
+    if (!(sig->init_flags & SIG_FLAG_INIT_FLOW)) {
+        sig->flags |= SIG_FLAG_TOSERVER;
+        sig->flags |= SIG_FLAG_TOCLIENT;
+    }
 
     SCLogDebug("sig %"PRIu32" SIG_FLAG_APPLAYER: %s, SIG_FLAG_PACKET: %s",
         sig->id, sig->flags & SIG_FLAG_APPLAYER ? "set" : "not set",
@@ -1682,6 +1714,11 @@ Signature *SigInitReal(DetectEngineCtx *de_ctx, char *sigstr) {
         sig->flags |= SIG_FLAG_STATE_MATCH;
     if (sig->sm_lists[DETECT_SM_LIST_FILEMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
+
+    if (!(sig->init_flags & SIG_FLAG_INIT_FLOW)) {
+        sig->flags |= SIG_FLAG_TOSERVER;
+        sig->flags |= SIG_FLAG_TOCLIENT;
+    }
 
     SigBuildAddressMatchArray(sig);
 

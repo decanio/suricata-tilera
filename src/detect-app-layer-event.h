@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2011 Open Information Security Foundation
+/* Copyright (C) 2007-2010 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -18,12 +18,17 @@
 /**
  * \file
  *
- * \author Victor Julien <victor@inliniac.net>
+ * \author Anoop Saldanha <anoopsaldanha@gmail.com>
  */
 
-#ifndef __LOG_FILELOG_H__
-#define __LOG_FILELOG_H__
+#ifndef __DETECT_APP_LAYER_EVENT_H__
+#define __DETECT_APP_LAYER_EVENT_H__
 
-void TmModuleLogFileLogRegister (void);
+typedef struct DetectAppLayerEventData_ {
+    uint16_t alproto;
+    int event_id;
+} DetectAppLayerEventData;
 
-#endif /* __LOG_FILELOG_H__ */
+void DetectAppLayerEventRegister(void);
+
+#endif /* __DETECT_APP_LAYER_EVENT_H__ */

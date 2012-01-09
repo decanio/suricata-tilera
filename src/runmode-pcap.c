@@ -82,6 +82,7 @@ void *ParsePcapConfig(const char *iface)
     ConfNode *pcap_node;
     PcapIfaceConfig *aconf = SCMalloc(sizeof(*aconf));
     char *tmpbpf;
+    char *tmpctype;
     intmax_t value;
 
     if (iface == NULL) {
@@ -100,6 +101,7 @@ void *ParsePcapConfig(const char *iface)
         aconf->buffer_size = value;
     }
 
+    aconf->checksum_mode = CHECKSUM_VALIDATION_AUTO;
     aconf->bpf_filter = NULL;
     if ((ConfGet("bpf-filter", &tmpbpf)) == 1) {
         aconf->bpf_filter = tmpbpf;
@@ -141,6 +143,18 @@ void *ParsePcapConfig(const char *iface)
         }
     } else {
         SCLogInfo("BPF filter set from command line or via old 'bpf-filter' option.");
+    }
+
+    if (ConfGetChildValue(if_root, "checksum-checks", &tmpctype) == 1) {
+        if (strcmp(tmpctype, "auto") == 0) {
+            aconf->checksum_mode = CHECKSUM_VALIDATION_AUTO;
+        } else if (strcmp(tmpctype, "yes") == 0) {
+            aconf->checksum_mode = CHECKSUM_VALIDATION_ENABLE;
+        } else if (strcmp(tmpctype, "no") == 0) {
+            aconf->checksum_mode = CHECKSUM_VALIDATION_DISABLE;
+        } else {
+            SCLogError(SC_ERR_INVALID_ARGUMENT, "Invalid value for checksum-checks for %s", aconf->iface);
+        }
     }
 
     return aconf;
@@ -204,7 +218,7 @@ int RunModeIdsPcapSingle(DetectEngineCtx *de_ctx)
 int RunModeIdsPcapAuto(DetectEngineCtx *de_ctx)
 {
     /* tname = Detect + cpuid, this is 11bytes length as max */
-    char *live_dev;
+    char *live_dev = NULL;
     int ret;
 
     SCEnter();

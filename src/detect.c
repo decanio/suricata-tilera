@@ -132,6 +132,7 @@
 #include "detect-file-data.h"
 #include "detect-replace.h"
 #include "detect-tos.h"
+#include "detect-app-layer-event.h"
 
 #include "util-rule-vars.h"
 
@@ -1163,12 +1164,12 @@ static inline void DetectMpmPrefilter(DetectEngineCtx *de_ctx,
             }
             if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HHD) {
                 PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HHD);
-                DetectEngineRunHttpHeaderMpm(det_ctx, p->flow, alstate);
+                DetectEngineRunHttpHeaderMpm(det_ctx, p->flow, alstate, flags);
                 PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HHD);
             }
             if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HRHD) {
                 PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HRHD);
-                DetectEngineRunHttpRawHeaderMpm(det_ctx, p->flow, alstate);
+                DetectEngineRunHttpRawHeaderMpm(det_ctx, p->flow, alstate, flags);
                 PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HRHD);
             }
             if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HMD) {
@@ -1459,47 +1460,53 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
         if (s->sm_lists[DETECT_SM_LIST_PMATCH] != NULL) {
             /* if we have stream msgs, inspect against those first,
              * but not for a "dsize" signature */
-            if (!(s->flags & SIG_FLAG_REQUIRE_PACKET) && smsg != NULL) {
+            if (!(s->flags & SIG_FLAG_REQUIRE_PACKET)) {
                 char pmatch = 0;
-                uint8_t pmq_idx = 0;
-                StreamMsg *smsg_inspect = smsg;
-                for ( ; smsg_inspect != NULL; smsg_inspect = smsg_inspect->next, pmq_idx++) {
-                    //if (det_ctx->smsg_pmq[pmq_idx].pattern_id_array_cnt == 0) {
-                    //    SCLogDebug("no match in smsg_inspect %p (%u), idx %d", smsg_inspect, smsg_inspect->data.data_len, pmq_idx);
-                    //    continue;
-                    //}
+                if (smsg != NULL) {
+                    uint8_t pmq_idx = 0;
+                    StreamMsg *smsg_inspect = smsg;
+                    for ( ; smsg_inspect != NULL; smsg_inspect = smsg_inspect->next, pmq_idx++) {
+                        //if (det_ctx->smsg_pmq[pmq_idx].pattern_id_array_cnt == 0) {
+                        //    SCLogDebug("no match in smsg_inspect %p (%u), idx %d", smsg_inspect, smsg_inspect->data.data_len, pmq_idx);
+                        //    continue;
+                        //}
 
-                    if (det_ctx->smsg_pmq[pmq_idx].pattern_id_bitarray != NULL) {
-                        /* filter out sigs that want pattern matches, but
-                         * have no matches */
-                        if (!(det_ctx->smsg_pmq[pmq_idx].pattern_id_bitarray[(s->mpm_pattern_id_div_8)] & s->mpm_pattern_id_mod_8) &&
+                        if (det_ctx->smsg_pmq[pmq_idx].pattern_id_bitarray != NULL) {
+                            /* filter out sigs that want pattern matches, but
+                             * have no matches */
+                            if (!(det_ctx->smsg_pmq[pmq_idx].pattern_id_bitarray[(s->mpm_pattern_id_div_8)] & s->mpm_pattern_id_mod_8) &&
                                 (s->flags & SIG_FLAG_MPM_STREAM) && !(s->flags & SIG_FLAG_MPM_STREAM_NEG)) {
-                            SCLogDebug("no match in this smsg");
-                            continue;
-                        }
-
-                        if (DetectEngineInspectStreamPayload(de_ctx, det_ctx, s, p->flow, smsg_inspect->data.data, smsg_inspect->data.data_len) == 1) {
-                            SCLogDebug("match in smsg %p", smsg);
-                            pmatch = 1;
-                            /* Tell the engine that this reassembled stream can drop the
-                             * rest of the pkts with no further inspection */
-                            if (s->action == ACTION_DROP)
-                                alert_flags |= PACKET_ALERT_FLAG_DROP_FLOW;
-
-                            /* store ptr to current smsg */
-                            if (alert_msg == NULL) {
-                                alert_msg = smsg_inspect;
-                                p->alerts.alert_msgs = smsg;
+                                SCLogDebug("no match in this smsg");
+                                continue;
                             }
 
-                            break;
+                            if (DetectEngineInspectStreamPayload(de_ctx, det_ctx, s, p->flow, smsg_inspect->data.data, smsg_inspect->data.data_len) == 1) {
+                                SCLogDebug("match in smsg %p", smsg);
+                                pmatch = 1;
+                                /* Tell the engine that this reassembled stream can drop the
+                                 * rest of the pkts with no further inspection */
+                                if (s->action == ACTION_DROP)
+                                    alert_flags |= PACKET_ALERT_FLAG_DROP_FLOW;
+
+                                /* store ptr to current smsg */
+                                if (alert_msg == NULL) {
+                                    alert_msg = smsg_inspect;
+                                    p->alerts.alert_msgs = smsg;
+                                }
+
+                                break;
+                            }
                         }
                     }
-                }
+
+                } /* if (smsg != NULL) */
 
                 /* no match? then inspect packet payload */
                 if (pmatch == 0) {
                     SCLogDebug("no match in smsg, fall back to packet payload");
+
+                    if (p->flags & PKT_STREAM_ADD)
+                        goto next;
 
                     if (sms_runflags & SMS_USED_PM) {
                         if (s->flags & SIG_FLAG_MPM_PACKET && !(s->flags & SIG_FLAG_MPM_PACKET_NEG) &&
@@ -1511,8 +1518,9 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                             goto next;
                         }
                     } else {
-                        if (DetectEngineInspectPacketPayload(de_ctx, det_ctx, s, p->flow, flags, alstate, p) != 1)
+                        if (DetectEngineInspectPacketPayload(de_ctx, det_ctx, s, p->flow, flags, alstate, p) != 1) {
                             goto next;
+                        }
                     }
                 }
             } else {
@@ -1529,6 +1537,19 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                 } else {
                     if (DetectEngineInspectPacketPayload(de_ctx, det_ctx, s, p->flow, flags, alstate, p) != 1)
                         goto next;
+                }
+            }
+        }
+
+        /* run the packet match functions */
+        if (s->sm_lists[DETECT_SM_LIST_MATCH] != NULL) {
+            sm = s->sm_lists[DETECT_SM_LIST_MATCH];
+
+            SCLogDebug("running match functions, sm %p", sm);
+            for ( ; sm != NULL; sm = sm->next) {
+                match = sigmatch_table[sm->type].Match(th_v, det_ctx, p, s, sm);
+                if (match <= 0) {
+                    goto next;
                 }
             }
         }
@@ -1577,96 +1598,18 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
             alert_flags |= PACKET_ALERT_FLAG_STATE_MATCH;
         }
 
-        /* if we get here but have no sigmatches to match against,
-         * we consider the sig matched. */
-        if (s->sm_lists[DETECT_SM_LIST_MATCH] == NULL) {
-            SCLogDebug("signature matched without sigmatches");
+        /* match! */
+        fmatch = 1;
+        DetectReplaceExecute(p, det_ctx->replist);
+        det_ctx->replist = NULL;
+        DetectFilestorePostMatch(th_v, det_ctx,p);
 
-            fmatch = 1;
-
-            DetectReplaceExecute(p, det_ctx->replist);
-            det_ctx->replist = NULL;
-            DetectFilestorePostMatch(th_v, det_ctx,p);
-            if (!(s->flags & SIG_FLAG_NOALERT)) {
-                PacketAlertAppend(det_ctx, s, p, alert_flags, NULL);
-            }
-        } else {
-            if (s->flags & SIG_FLAG_RECURSIVE) {
-                uint8_t rmatch = 0;
-                uint8_t recursion_cnt = 0;
-
-                do {
-                    sm = s->sm_lists[DETECT_SM_LIST_MATCH];
-                    while (sm) {
-                        match = sigmatch_table[sm->type].Match(th_v, det_ctx, p, s, sm);
-                        if (match > 0) {
-                            /* okay, try the next match */
-                            sm = sm->next;
-
-                            /* only if the last matched as well, we have a hit */
-                            if (sm == NULL) {
-
-                                DetectReplaceExecute(p, det_ctx->replist);
-                                det_ctx->replist = NULL;
-                                DetectFilestorePostMatch(th_v, det_ctx,p);
-                                if (!(s->flags & SIG_FLAG_NOALERT)) {
-                                    /* only add once */
-                                    if (rmatch == 0) {
-                                        PacketAlertAppend(det_ctx, s, p, alert_flags, alert_msg);
-                                    }
-                                }
-                                rmatch = fmatch = 1;
-                                recursion_cnt++;
-                            }
-                        } else {
-                            /* done with this sig */
-                            sm = NULL;
-                            rmatch = 0;
-
-                            DetectReplaceFree(det_ctx->replist);
-                            det_ctx->replist = NULL;
-                        }
-                    }
-
-                    /* Limit the number of times we do this recursive thing.
-                     * XXX is this a sane limit? Should it be configurable? */
-                    if (recursion_cnt == 10)
-                        goto next;
-                } while (rmatch);
-
-            } else {
-                sm = s->sm_lists[DETECT_SM_LIST_MATCH];
-
-                SCLogDebug("running match functions, sm %p", sm);
-                while (sm) {
-                    match = sigmatch_table[sm->type].Match(th_v, det_ctx, p, s, sm);
-                    if (match > 0) {
-                        /* okay, try the next match */
-                        sm = sm->next;
-
-                        /* only if the last matched as well, we have a hit */
-                        if (sm == NULL) {
-                            fmatch = 1;
-                            DetectReplaceExecute(p, det_ctx->replist);
-                            det_ctx->replist = NULL;
-                            DetectFilestorePostMatch(th_v, det_ctx,p);
-
-                            if (!(s->flags & SIG_FLAG_NOALERT)) {
-                                PacketAlertAppend(det_ctx, s, p, alert_flags, alert_msg);
-                            }
-                        }
-                    } else {
-                        DetectReplaceFree(det_ctx->replist);
-                        det_ctx->replist = NULL;
-                        /* done with this sig */
-                        sm = NULL;
-                    }
-                }
-
-                SCLogDebug("match functions done, sm %p", sm);
-            }
+        if (!(s->flags & SIG_FLAG_NOALERT)) {
+            PacketAlertAppend(det_ctx, s, p, alert_flags, alert_msg);
         }
-    next:
+next:
+        DetectReplaceFree(det_ctx->replist);
+        det_ctx->replist = NULL;
         RULE_PROFILING_END(s, match);
         continue;
     }
@@ -2287,8 +2230,14 @@ static int SignatureCreateMask(Signature *s) {
 
 static void SigInitStandardMpmFactoryContexts(DetectEngineCtx *de_ctx)
 {
-    de_ctx->sgh_mpm_context_packet =
-        MpmFactoryRegisterMpmCtxProfile("packet",
+    de_ctx->sgh_mpm_context_proto_tcp_packet =
+        MpmFactoryRegisterMpmCtxProfile("packet_proto_tcp",
+                                        MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
+    de_ctx->sgh_mpm_context_proto_udp_packet =
+        MpmFactoryRegisterMpmCtxProfile("packet_proto_udp",
+                                        MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
+    de_ctx->sgh_mpm_context_proto_other_packet =
+        MpmFactoryRegisterMpmCtxProfile("packet_proto_other",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_uri =
         MpmFactoryRegisterMpmCtxProfile("uri",
@@ -2517,40 +2466,22 @@ error:
     return -1;
 }
 
-/* add signature to the right flow groups
+/**
+ *  \brief add signature to the right flow group(s)
  */
 static int DetectEngineLookupFlowAddSig(DetectEngineCtx *de_ctx, Signature *s, int family) {
-    uint8_t flags = 0;
+    SCLogDebug("s->id %u", s->id);
 
-    if (s->init_flags & SIG_FLAG_INIT_FLOW) {
-        SigMatch *sm = s->sm_lists[DETECT_SM_LIST_MATCH];
-        for ( ; sm != NULL; sm = sm->next) {
-            if (sm->type != DETECT_FLOW)
-                continue;
-
-            DetectFlowData *df = (DetectFlowData *)sm->ctx;
-            if (df == NULL)
-                continue;
-
-            flags = df->flags;
-        }
+    if (s->flags & SIG_FLAG_TOCLIENT) {
+        SCLogDebug("s->id %u (toclient)", s->id);
+        DetectEngineLookupBuildSourceAddressList(de_ctx,
+                &de_ctx->flow_gh[0], s, family);
     }
 
-    if (flags & FLOW_PKT_TOCLIENT) {
-        /* only toclient */
-        DetectEngineLookupBuildSourceAddressList(de_ctx, &de_ctx->flow_gh[0], s, family);
-
-    } else if (flags & FLOW_PKT_TOSERVER) {
-        /* only toserver */
-        DetectEngineLookupBuildSourceAddressList(de_ctx, &de_ctx->flow_gh[1], s, family);
-
-    } else {
-        //printf("DetectEngineLookupFlowAddSig: s->id %"PRIu32"\n", s->id);
-
-        /* both */
-        DetectEngineLookupBuildSourceAddressList(de_ctx, &de_ctx->flow_gh[0], s, family);
-        DetectEngineLookupBuildSourceAddressList(de_ctx, &de_ctx->flow_gh[1], s, family);
-
+    if (s->flags & SIG_FLAG_TOSERVER) {
+        SCLogDebug("s->id %u (toserver)", s->id);
+        DetectEngineLookupBuildSourceAddressList(de_ctx,
+                &de_ctx->flow_gh[1], s, family);
     }
 
     return 0;
@@ -3192,11 +3123,23 @@ int BuildDestinationAddressHeads(DetectEngineCtx *de_ctx, DetectAddressHead *hea
                     printf("PatternMatchPrepareGroup failed\n");
                     goto error;
                 }
-                if (sgr->sh->mpm_ctx != NULL) {
-                    if (de_ctx->mpm_max_patcnt < sgr->sh->mpm_ctx->pattern_cnt)
-                        de_ctx->mpm_max_patcnt = sgr->sh->mpm_ctx->pattern_cnt;
+                if (sgr->sh->mpm_proto_tcp_ctx != NULL) {
+                    if (de_ctx->mpm_max_patcnt < sgr->sh->mpm_proto_tcp_ctx->pattern_cnt)
+                        de_ctx->mpm_max_patcnt = sgr->sh->mpm_proto_tcp_ctx->pattern_cnt;
 
-                    de_ctx->mpm_tot_patcnt += sgr->sh->mpm_ctx->pattern_cnt;
+                    de_ctx->mpm_tot_patcnt += sgr->sh->mpm_proto_tcp_ctx->pattern_cnt;
+                }
+                if (sgr->sh->mpm_proto_udp_ctx != NULL) {
+                    if (de_ctx->mpm_max_patcnt < sgr->sh->mpm_proto_udp_ctx->pattern_cnt)
+                        de_ctx->mpm_max_patcnt = sgr->sh->mpm_proto_udp_ctx->pattern_cnt;
+
+                    de_ctx->mpm_tot_patcnt += sgr->sh->mpm_proto_udp_ctx->pattern_cnt;
+                }
+                if (sgr->sh->mpm_proto_other_ctx != NULL) {
+                    if (de_ctx->mpm_max_patcnt < sgr->sh->mpm_proto_other_ctx->pattern_cnt)
+                        de_ctx->mpm_max_patcnt = sgr->sh->mpm_proto_other_ctx->pattern_cnt;
+
+                    de_ctx->mpm_tot_patcnt += sgr->sh->mpm_proto_other_ctx->pattern_cnt;
                 }
                 if (sgr->sh->mpm_uri_ctx != NULL) {
                     if (de_ctx->mpm_uri_max_patcnt < sgr->sh->mpm_uri_ctx->pattern_cnt)
@@ -3205,8 +3148,14 @@ int BuildDestinationAddressHeads(DetectEngineCtx *de_ctx, DetectAddressHead *hea
                     de_ctx->mpm_uri_tot_patcnt += sgr->sh->mpm_uri_ctx->pattern_cnt;
                 }
                 /* dbg */
-                if (!(sgr->sh->flags & SIG_GROUP_HEAD_MPM_COPY) && sgr->sh->mpm_ctx) {
-                    de_ctx->mpm_memory_size += sgr->sh->mpm_ctx->memory_size;
+                if (!(sgr->sh->flags & SIG_GROUP_HEAD_MPM_COPY) && sgr->sh->mpm_proto_tcp_ctx) {
+                    de_ctx->mpm_memory_size += sgr->sh->mpm_proto_tcp_ctx->memory_size;
+                }
+                if (!(sgr->sh->flags & SIG_GROUP_HEAD_MPM_COPY) && sgr->sh->mpm_proto_udp_ctx) {
+                    de_ctx->mpm_memory_size += sgr->sh->mpm_proto_udp_ctx->memory_size;
+                }
+                if (!(sgr->sh->flags & SIG_GROUP_HEAD_MPM_COPY) && sgr->sh->mpm_proto_other_ctx) {
+                    de_ctx->mpm_memory_size += sgr->sh->mpm_proto_other_ctx->memory_size;
                 }
                 if (!(sgr->sh->flags & SIG_GROUP_HEAD_MPM_URI_COPY) && sgr->sh->mpm_uri_ctx) {
                     de_ctx->mpm_memory_size += sgr->sh->mpm_uri_ctx->memory_size;
@@ -3443,11 +3392,23 @@ int BuildDestinationAddressHeadsWithBothPorts(DetectEngineCtx *de_ctx, DetectAdd
                                     printf("PatternMatchPrepareGroup failed\n");
                                     goto error;
                                 }
-                                if (dp->sh->mpm_ctx != NULL) {
-                                    if (de_ctx->mpm_max_patcnt < dp->sh->mpm_ctx->pattern_cnt)
-                                        de_ctx->mpm_max_patcnt = dp->sh->mpm_ctx->pattern_cnt;
+                                if (dp->sh->mpm_proto_tcp_ctx != NULL) {
+                                    if (de_ctx->mpm_max_patcnt < dp->sh->mpm_proto_tcp_ctx->pattern_cnt)
+                                        de_ctx->mpm_max_patcnt = dp->sh->mpm_proto_tcp_ctx->pattern_cnt;
 
-                                    de_ctx->mpm_tot_patcnt += dp->sh->mpm_ctx->pattern_cnt;
+                                    de_ctx->mpm_tot_patcnt += dp->sh->mpm_proto_tcp_ctx->pattern_cnt;
+                                }
+                                if (dp->sh->mpm_proto_udp_ctx != NULL) {
+                                    if (de_ctx->mpm_max_patcnt < dp->sh->mpm_proto_udp_ctx->pattern_cnt)
+                                        de_ctx->mpm_max_patcnt = dp->sh->mpm_proto_udp_ctx->pattern_cnt;
+
+                                    de_ctx->mpm_tot_patcnt += dp->sh->mpm_proto_udp_ctx->pattern_cnt;
+                                }
+                                if (dp->sh->mpm_proto_other_ctx != NULL) {
+                                    if (de_ctx->mpm_max_patcnt < dp->sh->mpm_proto_other_ctx->pattern_cnt)
+                                        de_ctx->mpm_max_patcnt = dp->sh->mpm_proto_other_ctx->pattern_cnt;
+
+                                    de_ctx->mpm_tot_patcnt += dp->sh->mpm_proto_other_ctx->pattern_cnt;
                                 }
                                 if (dp->sh->mpm_uri_ctx != NULL) {
                                     if (de_ctx->mpm_uri_max_patcnt < dp->sh->mpm_uri_ctx->pattern_cnt)
@@ -3456,8 +3417,14 @@ int BuildDestinationAddressHeadsWithBothPorts(DetectEngineCtx *de_ctx, DetectAdd
                                     de_ctx->mpm_uri_tot_patcnt += dp->sh->mpm_uri_ctx->pattern_cnt;
                                 }
                                 /* dbg */
-                                if (!(dp->sh->flags & SIG_GROUP_HEAD_MPM_COPY) && dp->sh->mpm_ctx) {
-                                    de_ctx->mpm_memory_size += dp->sh->mpm_ctx->memory_size;
+                                if (!(dp->sh->flags & SIG_GROUP_HEAD_MPM_COPY) && dp->sh->mpm_proto_tcp_ctx) {
+                                    de_ctx->mpm_memory_size += dp->sh->mpm_proto_tcp_ctx->memory_size;
+                                }
+                                if (!(dp->sh->flags & SIG_GROUP_HEAD_MPM_COPY) && dp->sh->mpm_proto_udp_ctx) {
+                                    de_ctx->mpm_memory_size += dp->sh->mpm_proto_udp_ctx->memory_size;
+                                }
+                                if (!(dp->sh->flags & SIG_GROUP_HEAD_MPM_COPY) && dp->sh->mpm_proto_other_ctx) {
+                                    de_ctx->mpm_memory_size += dp->sh->mpm_proto_other_ctx->memory_size;
                                 }
                                 if (!(dp->sh->flags & SIG_GROUP_HEAD_MPM_URI_COPY) && dp->sh->mpm_uri_ctx) {
                                     de_ctx->mpm_memory_size += dp->sh->mpm_uri_ctx->memory_size;
@@ -3856,7 +3823,13 @@ int SigAddressPrepareStage5(DetectEngineCtx *de_ctx) {
                         for ( ; dp != NULL; dp = dp->next) {
                             printf("   4 Dst port(range): "); DetectPortPrint(dp);
                             printf(" (sigs %" PRIu32 ", sgh %p, maxlen %" PRIu32 ")", dp->sh->sig_cnt, dp->sh, dp->sh->mpm_content_maxlen);
-                            printf(" mpm_ctx %p, mpm_stream_ctx %p", dp->sh->mpm_ctx, dp->sh->mpm_stream_ctx);
+                            printf(" mpm_proto_tcp_ctx %p, mpm_prooto_udp_ctx "
+                                   "%p, mpm_proto_other_ctx %p mpm_stream_ctx "
+                                   "%p",
+                                   dp->sh->mpm_proto_tcp_ctx,
+                                   dp->sh->mpm_proto_udp_ctx,
+                                   dp->sh->mpm_proto_other_ctx,
+                                   dp->sh->mpm_stream_ctx);
 #ifdef PRINTSIGS
                             printf(" - ");
                             for (u = 0; u < dp->sh->sig_cnt; u++) {
@@ -4173,7 +4146,19 @@ int SigGroupBuild (DetectEngineCtx *de_ctx) {
 
     if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
         MpmCtx *mpm_ctx = NULL;
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_packet);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_tcp_packet);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("packet- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_udp_packet);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("packet- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_other_packet);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
@@ -4330,6 +4315,7 @@ void SigTableSetup(void) {
     DetectFileextRegister();
     DetectFilestoreRegister();
     DetectFilemagicRegister();
+    DetectAppLayerEventRegister();
 
     uint8_t i = 0;
     for (i = 0; i < DETECT_TBLSIZE; i++) {
@@ -9308,8 +9294,11 @@ static int SigTestSgh05 (void) {
         goto end;
     }
 
-    if (sgh->mpm_ctx != NULL) {
-        printf("sgh->mpm_ctx != NULL: ");
+    if (sgh->mpm_proto_tcp_ctx != NULL ||
+        sgh->mpm_proto_udp_ctx != NULL || sgh->mpm_proto_other_ctx != NULL) {
+        printf("sgh->mpm_proto_tcp_ctx != NULL || "
+               "sgh->mpm_proto_udp_ctx != NULL || "
+               "sgh->mpm_proto_other_ctx != NULL: ");
         goto end;
     }
 
@@ -9319,7 +9308,7 @@ static int SigTestSgh05 (void) {
     }
 
     if (sgh->mpm_stream_ctx->mpm_type != MPM_WUMANBER) {
-        printf("sgh->mpm_type != MPM_WUMANBER, expected %d, got %d: ", MPM_WUMANBER, sgh->mpm_ctx->mpm_type);
+        printf("sgh->mpm_type != MPM_WUMANBER, expected %d, got %d: ", MPM_WUMANBER, sgh->mpm_stream_ctx->mpm_type);
         goto end;
     }
 

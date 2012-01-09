@@ -53,6 +53,7 @@ typedef struct AFPIfaceConfig_
     int cluster_type;
     /* promisc mode */
     int promisc;
+    ChecksumValidationMode checksum_mode;
     SC_ATOMIC_DECLARE(unsigned int, ref);
     void (*DerefFunc)(void *);
 } AFPIfaceConfig;

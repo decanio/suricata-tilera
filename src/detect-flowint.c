@@ -41,7 +41,7 @@
 #include "detect-engine-mpm.h"
 
 /*                         name             modifiers          value      */
-#define PARSE_REGEX "^\\s*([a-zA-Z][\\w\\d_]+)\\s*,\\s*([+=-]{1}|==|!=|<|<=|>|>=|isset|notset)\\s*,?\\s*([a-zA-Z][\\w\\d]+|[\\d]{1,10})?\\s*$"
+#define PARSE_REGEX "^\\s*([a-zA-Z][\\w\\d_.]+)\\s*,\\s*([+=-]{1}|==|!=|<|<=|>|>=|isset|notset)\\s*,?\\s*([a-zA-Z][\\w\\d]+|[\\d]{1,10})?\\s*$"
 /* Varnames must begin with a letter */
 
 static pcre *parse_regex;
@@ -154,13 +154,13 @@ int DetectFlowintMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
     }
 
     if (fv != NULL && fv->datatype == FLOWVAR_TYPE_INT) {
-
         if (sfd->modifier == FLOWINT_MODIFIER_ADD) {
             SCLogDebug("Adding %u to %s", targetval, sfd->name);
             FlowVarAddInt(p->flow, sfd->idx, fv->data.fv_int.value +
                            targetval);
             return 1;
         }
+
         if (sfd->modifier == FLOWINT_MODIFIER_SUB) {
             SCLogDebug("Substracting %u to %s", targetval, sfd->name);
             FlowVarAddInt(p->flow, sfd->idx, fv->data.fv_int.value -
@@ -198,11 +198,20 @@ int DetectFlowintMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
                 exit(EXIT_FAILURE);
         }
     } else {
-        SCLogDebug("Var not found!");
-        /* It doesn't exist because it wasn't set
-        * or it is a string var, that we don't compare here
-        */
-        return 0;
+        /* allow a add on a non-existing var, it will init to the "add" value,
+         * so implying a 0 set. */
+        if (sfd->modifier == FLOWINT_MODIFIER_ADD) {
+            SCLogDebug("Adding %u to %s (new var)", targetval, sfd->name);
+            FlowVarAddInt(p->flow, sfd->idx, targetval);
+            return 1;
+        } else {
+
+            SCLogDebug("Var not found!");
+            /* It doesn't exist because it wasn't set
+             * or it is a string var, that we don't compare here
+             */
+            return 0;
+        }
     }
 }
 

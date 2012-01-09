@@ -31,10 +31,18 @@
 
 #include "threadvars.h"
 
+typedef enum {
+    CHECKSUM_VALIDATION_DISABLE,
+    CHECKSUM_VALIDATION_ENABLE,
+    CHECKSUM_VALIDATION_AUTO,
+    CHECKSUM_VALIDATION_RXONLY,
+    CHECKSUM_VALIDATION_KERNEL,
+} ChecksumValidationMode;
+
 #include "source-nfq.h"
 #include "source-ipfw.h"
-
 #include "source-pcap.h"
+
 #include "action-globals.h"
 
 #include "decode-ethernet.h"
@@ -441,6 +449,9 @@ typedef struct Packet_
     uint8_t *ext_pkt;
     uint32_t pktlen;
 
+    /* Incoming interface */
+    struct LiveDevice_ *livedev;
+
     PacketAlerts alerts;
 
     /** packet number in the pcap file, matches wireshark */
@@ -605,6 +616,7 @@ typedef struct DecodeThreadVars_
     SCMutexInit(&(p)->tunnel_mutex, NULL); \
     PACKET_RESET_CHECKSUMS((p)); \
     (p)->pkt = ((uint8_t *)(p)) + sizeof(Packet); \
+    (p)->livedev = NULL; \
 }
 #else
 #define PACKET_INITIALIZE(p) { \
@@ -614,6 +626,7 @@ typedef struct DecodeThreadVars_
     SCMutexInit(&(p)->cuda_mutex, NULL); \
     SCCondInit(&(p)->cuda_cond, NULL); \
     (p)->pkt = ((uint8_t *)(p)) + sizeof(Packet); \
+    (p)->livedev = NULL; \
 }
 #endif
 
@@ -680,6 +693,7 @@ typedef struct DecodeThreadVars_
         (p)->next = NULL;                       \
         (p)->prev = NULL;                       \
         (p)->root = NULL;                       \
+        (p)->livedev = NULL;                      \
         PACKET_RESET_CHECKSUMS((p));            \
         PACKET_PROFILING_RESET((p));            \
     } while (0)
@@ -922,7 +936,8 @@ void AddressDebugPrint(Address *);
 #define PKT_TUNNEL                      0x1000
 #define PKT_TUNNEL_VERDICTED            0x2000
 
-#define PKT_NETIO                       0x4000     /**< Packet payload from netio */
+#define PKT_IGNORE_CHECKSUM             0x4000    /**< Packet checksum is not computed (TX packet for example) */
+#define PKT_NETIO                       0x8000     /**< Packet payload from netio */
 #define PKT_MPIPE                       0x8000     /**< Packet payload from mpipe */
 
 /** \brief return 1 if the packet is a pseudo packet */

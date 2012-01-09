@@ -233,18 +233,23 @@ typedef struct DetectPort_ {
 #define SIG_FLAG_IPONLY                 (1<<8) /**< ip only signature */
 
 #define SIG_FLAG_STATE_MATCH            (1<<9) /**< signature has matches that require stateful inspection */
+
 #define SIG_FLAG_REQUIRE_PACKET         (1<<10) /**< signature is requiring packet match */
+#define SIG_FLAG_REQUIRE_STREAM         (1<<11) /**< signature is requiring stream match */
 
-#define SIG_FLAG_MPM_PACKET             (1<<11)
-#define SIG_FLAG_MPM_PACKET_NEG         (1<<12)
-#define SIG_FLAG_MPM_STREAM             (1<<13)
-#define SIG_FLAG_MPM_STREAM_NEG         (1<<14)
-#define SIG_FLAG_MPM_HTTP               (1<<15)
-#define SIG_FLAG_MPM_HTTP_NEG           (1<<16)
+#define SIG_FLAG_MPM_PACKET             (1<<12)
+#define SIG_FLAG_MPM_PACKET_NEG         (1<<13)
+#define SIG_FLAG_MPM_STREAM             (1<<14)
+#define SIG_FLAG_MPM_STREAM_NEG         (1<<15)
+#define SIG_FLAG_MPM_HTTP               (1<<16)
+#define SIG_FLAG_MPM_HTTP_NEG           (1<<17)
 
-#define SIG_FLAG_REQUIRE_FLOWVAR        (1<<17) /**< signature can only match if a flowbit, flowvar or flowint is available. */
+#define SIG_FLAG_REQUIRE_FLOWVAR        (1<<18) /**< signature can only match if a flowbit, flowvar or flowint is available. */
 
-#define SIG_FLAG_FILESTORE              (1<<18) /**< signature has filestore keyword */
+#define SIG_FLAG_FILESTORE              (1<<19) /**< signature has filestore keyword */
+
+#define SIG_FLAG_TOSERVER               (1<<20)
+#define SIG_FLAG_TOCLIENT               (1<<21)
 
 /* signature init flags */
 #define SIG_FLAG_INIT_DEONLY         1  /**< decode event only signature */
@@ -628,7 +633,9 @@ typedef struct DetectEngineCtx_ {
     uint32_t sgh_array_cnt;
     uint32_t sgh_array_size;
 
-    int32_t sgh_mpm_context_packet;
+    int32_t sgh_mpm_context_proto_tcp_packet;
+    int32_t sgh_mpm_context_proto_udp_packet;
+    int32_t sgh_mpm_context_proto_other_packet;
     int32_t sgh_mpm_context_stream;
     int32_t sgh_mpm_context_uri;
     int32_t sgh_mpm_context_hcbd;
@@ -867,7 +874,9 @@ typedef struct SigGroupHead_ {
     SignatureHeader *head_array;
 
     /* pattern matcher instances */
-    MpmCtx *mpm_ctx;
+    MpmCtx *mpm_proto_other_ctx;
+    MpmCtx *mpm_proto_tcp_ctx;
+    MpmCtx *mpm_proto_udp_ctx;
     MpmCtx *mpm_stream_ctx;
     MpmCtx *mpm_uri_ctx;
     MpmCtx *mpm_hcbd_ctx;
@@ -992,6 +1001,7 @@ enum {
     DETECT_AL_SSL_STATE,
     DETECT_BYTE_EXTRACT,
     DETECT_FILE_DATA,
+    DETECT_AL_APP_LAYER_EVENT,
 
     DETECT_DCE_IFACE,
     DETECT_DCE_OPNUM,

@@ -58,9 +58,11 @@
 #include "tm-threads-common.h"
 #include "conf.h"
 #include "util-debug.h"
+#include "util-device.h"
 #include "util-error.h"
 #include "util-privs.h"
 #include "util-optimize.h"
+#include "util-checksum.h"
 #include "tmqh-packetpool.h"
 #include "source-af-packet.h"
 
@@ -157,15 +159,17 @@ typedef struct AFPThreadVars_
     int datalen; /** Length of per function and thread data */
 
     char iface[AFP_IFACE_NAME_LENGTH];
+    LiveDevice *livedev;
+
     /* socket buffer size */
     int buffer_size;
     int promisc;
+    ChecksumValidationMode checksum_mode;
 
     int cluster_id;
     int cluster_type;
 
     int threads;
-
 
 } AFPThreadVars;
 
@@ -228,22 +232,18 @@ int AFPRead(AFPThreadVars *ptv)
     struct sockaddr_ll from;
     struct iovec iov;
     struct msghdr msg;
-#if 0
     struct cmsghdr *cmsg;
     union {
         struct cmsghdr cmsg;
         char buf[CMSG_SPACE(sizeof(struct tpacket_auxdata))];
     } cmsg_buf;
-#endif
 
     msg.msg_name = &from;
     msg.msg_namelen = sizeof(from);
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
-#if 0
     msg.msg_control = &cmsg_buf;
     msg.msg_controllen = sizeof(cmsg_buf);
-#endif
     msg.msg_flags = 0;
 
     if (ptv->cooked)
@@ -276,6 +276,8 @@ int AFPRead(AFPThreadVars *ptv)
 
     ptv->pkts++;
     ptv->bytes += caplen + offset;
+    SC_ATOMIC_ADD(ptv->livedev->pkts, 1);
+    p->livedev = ptv->livedev;
 
     /* add forged header */
     if (ptv->cooked) {
@@ -292,6 +294,37 @@ int AFPRead(AFPThreadVars *ptv)
     }
     SCLogDebug("pktlen: %" PRIu32 " (pkt %p, pkt data %p)",
                GET_PKT_LEN(p), p, GET_PKT_DATA(p));
+
+    /* We only check for checksum disable */
+    if (ptv->checksum_mode == CHECKSUM_VALIDATION_DISABLE) {
+        p->flags |= PKT_IGNORE_CHECKSUM;
+    } else if (ptv->checksum_mode == CHECKSUM_VALIDATION_AUTO) {
+        if (ptv->livedev->ignore_checksum) {
+            p->flags |= PKT_IGNORE_CHECKSUM;
+        } else if (ChecksumAutoModeCheck(ptv->pkts,
+                                          SC_ATOMIC_GET(ptv->livedev->pkts),
+                                          SC_ATOMIC_GET(ptv->livedev->invalid_checksums))) {
+            ptv->livedev->ignore_checksum = 1;
+            p->flags |= PKT_IGNORE_CHECKSUM;
+        }
+    } else {
+        /* List is NULL if we don't have activated auxiliary data */
+        for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+            struct tpacket_auxdata *aux;
+
+            if (cmsg->cmsg_len < CMSG_LEN(sizeof(struct tpacket_auxdata)) ||
+                    cmsg->cmsg_level != SOL_PACKET ||
+                    cmsg->cmsg_type != PACKET_AUXDATA)
+                continue;
+
+            aux = (struct tpacket_auxdata *)CMSG_DATA(cmsg);
+
+            if (aux->tp_status & TP_STATUS_CSUMNOTREADY) {
+                p->flags |= PKT_IGNORE_CHECKSUM;
+            }
+            break;
+        }
+    }
 
     if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
         TmqhOutputPacketpool(ptv->tv, p);
@@ -510,6 +543,17 @@ static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose)
             return -1;
         }
     }
+
+    if (ptv->checksum_mode == CHECKSUM_VALIDATION_KERNEL) {
+        int val = 1;
+        if (setsockopt(ptv->socket, SOL_PACKET, PACKET_AUXDATA, &val,
+                    sizeof(val)) == -1 && errno != ENOPROTOOPT) {
+            SCLogWarning(SC_ERR_NO_AF_PACKET,
+                         "'kernel' checksum mode not supported, failling back to full mode.");
+            ptv->checksum_mode = CHECKSUM_VALIDATION_ENABLE;
+        }
+    }
+
     /* set socket recv buffer size */
     if (ptv->buffer_size != 0) {
         /*
@@ -584,9 +628,16 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data) {
     strlcpy(ptv->iface, afpconfig->iface, AFP_IFACE_NAME_LENGTH);
     ptv->iface[AFP_IFACE_NAME_LENGTH - 1]= '\0';
 
+    ptv->livedev = LiveGetDevice(ptv->iface);
+    if (ptv->livedev == NULL) {
+        SCLogError(SC_ERR_INVALID_VALUE, "Unable to find Live device");
+        SCReturnInt(TM_ECODE_FAILED);
+    }
+
     ptv->buffer_size = afpconfig->buffer_size;
 
     ptv->promisc = afpconfig->promisc;
+    ptv->checksum_mode = afpconfig->checksum_mode;
 
     ptv->threads = 1;
 #ifdef HAVE_PACKET_FANOUT

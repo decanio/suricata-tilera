@@ -56,6 +56,7 @@
 #include "util-spm.h"
 
 #include "util-debug.h"
+#include "decode-events.h"
 #include "util-unittest-helper.h"
 
 static AppLayerProto al_proto_table[ALPROTO_MAX];   /**< Application layer protocol
@@ -680,6 +681,9 @@ void AppLayerParserStateStoreFree(AppLayerParserStateStore *s)
         SCFree(s->to_server.store);
     if (s->to_client.store != NULL)
         SCFree(s->to_client.store);
+    if (s->decoder_events != NULL)
+        AppLayerDecoderEventsFreeEvents(s->decoder_events);
+    s->decoder_events = NULL;
 
     SCFree(s);
 }
@@ -852,7 +856,7 @@ int AppLayerParse(void *local_data, Flow *f, uint8_t proto,
     /* Do this check before calling AppLayerParse */
     if (flags & STREAM_GAP) {
         SCLogDebug("stream gap detected (missing packets), this is not yet supported.");
-        goto gap;
+        goto error;
     }
 
     /* Get the parser state (if any) */
@@ -965,6 +969,7 @@ int AppLayerParse(void *local_data, Flow *f, uint8_t proto,
 
 error:
     if (ssn != NULL) {
+#ifdef DEBUG
         if (FLOW_IS_IPV4(f)) {
             char src[16];
             char dst[16];
@@ -973,8 +978,7 @@ error:
             PrintInet(AF_INET, (const void*)&f->dst.addr_data32[0], dst,
                       sizeof (dst));
 
-            SCLogError(SC_ERR_ALPARSER, "Error occured in parsing "
-                       "\"%s\" app layer "
+            SCLogDebug("Error occured in parsing \"%s\" app layer "
                        "protocol, using network protocol %"PRIu8", source IP "
                        "address %s, destination IP address %s, src port %"PRIu16" and "
                        "dst port %"PRIu16"", al_proto_table[f->alproto].name,
@@ -989,19 +993,13 @@ error:
             PrintInet(AF_INET6, (const void*)&f->dst.addr_data32, dst6,
                       sizeof (dst6));
 
-            SCLogError(SC_ERR_ALPARSER, "Error occured in parsing "
-                       "\"%s\" app layer "
+            SCLogDebug("Error occured in parsing \"%s\" app layer "
                        "protocol, using network protocol %"PRIu8", source IPv6 "
                        "address %s, destination IPv6 address %s, src port %"PRIu16" and "
                        "dst port %"PRIu16"", al_proto_table[f->alproto].name,
                        f->proto, src6, dst6, f->sp, f->dp);
             fflush(stdout);
         }
-    }
-
-gap:
-    if (ssn != NULL) {
-#ifdef DEBUG
         applayererrors++;
         if (f->alproto == ALPROTO_HTTP)
             applayerhttperrors++;
@@ -1205,6 +1203,23 @@ int AppLayerTransactionUpdateInspectId(Flow *f, char direction)
     }
 
     SCReturnInt(r);
+}
+
+AppLayerDecoderEvents *AppLayerGetDecoderEventsForFlow(Flow *f)
+{
+    /* Get the parser state (if any) */
+    AppLayerParserStateStore *parser_state_store = NULL;
+
+    if (f == NULL || f->alparser == NULL) {
+        return NULL;
+    }
+
+    parser_state_store = (AppLayerParserStateStore *)f->alparser;
+    if (parser_state_store != NULL) {
+        return parser_state_store->decoder_events;
+    }
+
+    return NULL;
 }
 
 void RegisterAppLayerParsers(void)

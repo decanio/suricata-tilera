@@ -1,4 +1,4 @@
-/* Copyright (C) 2011 Open Information Security Foundation
+/* Copyright (C) 2011-2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -23,13 +23,17 @@
 /** storage for live device names */
 typedef struct LiveDevice_ {
     char *dev;  /**< the device (e.g. "eth0") */
+    int ignore_checksum;
+    SC_ATOMIC_DECLARE(unsigned int, pkts);
+    SC_ATOMIC_DECLARE(unsigned int, invalid_checksums);
     TAILQ_ENTRY(LiveDevice_) next;
 } LiveDevice;
 
 
 int LiveRegisterDevice(char *dev);
 int LiveGetDeviceCount(void);
-char *LiveGetDevice(int number);
+char *LiveGetDeviceName(int number);
+LiveDevice *LiveGetDevice(char *dev);
 int LiveBuildDeviceList(char * base);
 
 #endif /* __UTIL_DEVICE_H__ */

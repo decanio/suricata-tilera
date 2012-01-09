@@ -18,12 +18,15 @@
 /**
  * \file
  *
- * \author Victor Julien <victor@inliniac.net>
+ * \author Mike Pomraning <mpomraning@qualys.com>
  */
 
-#ifndef __LOG_FILELOG_H__
-#define __LOG_FILELOG_H__
+#ifndef __UTIL_LOGOPENFILE_H__
+#define __UTIL_LOGOPENFILE_H__
 
-void TmModuleLogFileLogRegister (void);
+#include "conf.h"            /* ConfNode   */
+#include "tm-modules.h"      /* LogFileCtx */
 
-#endif /* __LOG_FILELOG_H__ */
+int SCConfLogOpenGeneric(ConfNode *conf, LogFileCtx *, const char *);
+
+#endif /* __UTIL_LOGOPENFILE_H__ */

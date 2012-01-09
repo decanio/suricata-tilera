@@ -44,6 +44,7 @@
 #include "util-privs.h"
 #include "util-device.h"
 #include "util-optimize.h"
+#include "util-checksum.h"
 #include "tmqh-packetpool.h"
 
 extern uint8_t suricata_ctl_flags;
@@ -83,9 +84,12 @@ typedef struct PcapThreadVars_
     /* pcap buffer size */
     int pcap_buffer_size;
 
+    ChecksumValidationMode checksum_mode;
+
 #if LIBPCAP_VERSION_MAJOR == 0
     char iface[PCAP_IFACE_NAME_LENGTH];
 #endif
+    LiveDevice *livedev;
 } PcapThreadVars;
 
 TmEcode ReceivePcapThreadInit(ThreadVars *, void *, void **);
@@ -211,10 +215,30 @@ void PcapCallbackLoop(char *user, struct pcap_pkthdr *h, u_char *pkt) {
 
     ptv->pkts++;
     ptv->bytes += h->caplen;
+    SC_ATOMIC_ADD(ptv->livedev->pkts, 1);
+    p->livedev = ptv->livedev;
 
     if (unlikely(PacketCopyData(p, pkt, h->caplen))) {
         TmqhOutputPacketpool(ptv->tv, p);
         SCReturn;
+    }
+
+    switch (ptv->checksum_mode) {
+        case CHECKSUM_VALIDATION_AUTO:
+            if (ptv->livedev->ignore_checksum) {
+                p->flags |= PKT_IGNORE_CHECKSUM;
+            } else if (ChecksumAutoModeCheck(ptv->pkts,
+                        SC_ATOMIC_GET(ptv->livedev->pkts),
+                        SC_ATOMIC_GET(ptv->livedev->invalid_checksums))) {
+                ptv->livedev->ignore_checksum = 1;
+                p->flags |= PKT_IGNORE_CHECKSUM;
+            }
+            break;
+        case CHECKSUM_VALIDATION_DISABLE:
+            p->flags |= PKT_IGNORE_CHECKSUM;
+            break;
+        default:
+            break;
     }
 
     if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
@@ -327,12 +351,25 @@ TmEcode ReceivePcapThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
     ptv->tv = tv;
 
+    ptv->livedev = LiveGetDevice(pcapconfig->iface);
+    if (ptv->livedev == NULL) {
+        SCLogError(SC_ERR_INVALID_VALUE, "Unable to find Live device");
+        SCReturnInt(TM_ECODE_FAILED);
+    }
+
     SCLogInfo("using interface %s", (char *)pcapconfig->iface);
+
+    ptv->checksum_mode = pcapconfig->checksum_mode;
+    if (ptv->checksum_mode == CHECKSUM_VALIDATION_AUTO) {
+        SCLogInfo("Running in 'auto' checksum mode. Detection of interface state will require "
+                  xstr(CHECKSUM_SAMPLE_COUNT) " packets.");
+    }
+
     /* XXX create a general pcap setup function */
     char errbuf[PCAP_ERRBUF_SIZE];
     ptv->pcap_handle = pcap_create((char *)pcapconfig->iface, errbuf);
     if (ptv->pcap_handle == NULL) {
-        SCLogError(SC_ERR_PCAP_CREATE, "Coudn't create a new pcap handler, error %s", pcap_geterr(ptv->pcap_handle));
+        SCLogError(SC_ERR_PCAP_CREATE, "Couldn't create a new pcap handler, error %s", pcap_geterr(ptv->pcap_handle));
         SCFree(ptv);
         pcapconfig->DerefFunc(pcapconfig);
         SCReturnInt(TM_ECODE_FAILED);
@@ -368,7 +405,8 @@ TmEcode ReceivePcapThreadInit(ThreadVars *tv, void *initdata, void **data) {
 #ifdef HAVE_PCAP_SET_BUFF
     ptv->pcap_buffer_size = pcapconfig->buffer_size;
     if (ptv->pcap_buffer_size >= 0 && ptv->pcap_buffer_size <= INT_MAX) {
-        SCLogInfo("Going to use pcap buffer size of %" PRId32 "", ptv->pcap_buffer_size);
+        if (ptv->pcap_buffer_size > 0)
+            SCLogInfo("Going to use pcap buffer size of %" PRId32 "", ptv->pcap_buffer_size);
 
         int pcap_set_buffer_size_r = pcap_set_buffer_size(ptv->pcap_handle,ptv->pcap_buffer_size);
         //printf("ReceivePcapThreadInit: pcap_set_timeout(%p) returned %" PRId32 "\n", ptv->pcap_handle, pcap_set_buffer_size_r);
@@ -440,6 +478,12 @@ TmEcode ReceivePcapThreadInit(ThreadVars *tv, void *initdata, void **data) {
     memset(ptv, 0, sizeof(PcapThreadVars));
 
     ptv->tv = tv;
+
+    ptv->livedev = LiveGetDevice(pcapconfig->iface);
+    if (ptv->livedev == NULL) {
+        SCLogError(SC_ERR_INVALID_VALUE, "Unable to find Live device");
+        SCReturnInt(TM_ECODE_FAILED);
+    }
 
     SCLogInfo("using interface %s", (char *)initdata);
     if(strlen(initdata)>PCAP_IFACE_NAME_LENGTH) {

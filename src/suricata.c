@@ -510,6 +510,12 @@ void SCPrintBuildInfo(void) {
     char *endian = "<unknown>-endian";
     char features[2048] = "";
 
+#ifdef REVISION
+    SCLogInfo("This is %s version %s (rev %s)", PROG_NAME, PROG_VER, xstr(REVISION));
+#else
+    SCLogInfo("This is %s version %s", PROG_NAME, PROG_VER);
+#endif
+
 #ifdef DEBUG
     strlcat(features, "DEBUG ", sizeof(features));
 #endif
@@ -553,6 +559,9 @@ void SCPrintBuildInfo(void) {
 #endif
 #ifdef HAVE_HTP_URI_NORMALIZE_HOOK
     strlcat(features, "HAVE_HTP_URI_NORMALIZE_HOOK ", sizeof(features));
+#endif
+#ifdef HAVE_HTP_TX_GET_RESPONSE_HEADERS_RAW
+    strlcat(features, "HAVE_HTP_TX_GET_RESPONSE_HEADERS_RAW ", sizeof(features));
 #endif
 #ifdef PCRE_HAVE_JIT
     strlcat(features, "PCRE_JIT ", sizeof(features));
@@ -685,12 +694,6 @@ int main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 #endif /* OS_WIN32 */
-
-#ifdef REVISION
-    SCLogInfo("This is %s version %s (rev %s)", PROG_NAME, PROG_VER, xstr(REVISION));
-#else
-    SCLogInfo("This is %s version %s", PROG_NAME, PROG_VER);
-#endif
 
     /* Initialize the configuration module. */
     ConfInit();
@@ -1160,6 +1163,13 @@ int main(int argc, char **argv)
             exit(EXIT_FAILURE);
         }
     }
+
+#ifdef REVISION
+    SCLogInfo("This is %s version %s (rev %s)", PROG_NAME, PROG_VER, xstr(REVISION));
+#else
+    SCLogInfo("This is %s version %s", PROG_NAME, PROG_VER);
+#endif
+
     SetBpfString(optind, argv);
 
     UtilCpuPrintSummary();
@@ -1494,6 +1504,8 @@ int main(int argc, char **argv)
         exit(EXIT_SUCCESS);
     }
 #endif /* UNITTESTS */
+
+    TmModuleRunInit();
 
     if (daemon == 1) {
         Daemonize();
@@ -1918,6 +1930,8 @@ printf("DEBUG: setting affinity for main\n");
     DefragDestroy();
     TmqhPacketpoolDestroy();
     MagicDeinit();
+
+    TmModuleRunDeInit();
 
 #ifdef PROFILING
     if (profiling_rules_enabled)

@@ -81,6 +81,8 @@ TAILQ_HEAD(, RunModeOutput_) RunModeOutputs =
 
 static RunModes runmodes[RUNMODE_MAX];
 
+static char *active_runmode;
+
 /**
  * \internal
  * \brief Translate a runmode mode to a printale string.
@@ -143,6 +145,19 @@ static RunMode *RunModeGetCustomMode(int runmode, const char *custom_mode)
     }
 
     return NULL;
+}
+
+
+/**
+ * Return the running mode
+ *
+ * The returned string must not be freed.
+ *
+ * \return a string containing the current running mode
+ */
+char *RunmodeGetActive(void)
+{
+    return active_runmode;
 }
 
 /**
@@ -275,6 +290,10 @@ void RunModeDispatch(int runmode, const char *custom_mode, DetectEngineCtx *de_c
                    custom_mode, RunModeTranslateModeToName(runmode));
         exit(EXIT_FAILURE);
     }
+
+    /* Export the custom mode */
+    active_runmode = SCStrdup(custom_mode);
+
     mode->RunModeFunc(de_ctx);
 
     return;

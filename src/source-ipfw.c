@@ -186,6 +186,34 @@ void TmModuleDecodeIPFWRegister (void) {
     tmm_modules[TMM_DECODEIPFW].RegisterTests = NULL;
 }
 
+static inline void IPFWMutexInit(IPFWQueueVars *nq)
+{
+    char *active_runmode = RunmodeGetActive();
+
+    if (active_runmode && !strcmp("worker", active_runmode)) {
+        nq->use_mutex = 0;
+        SCLogInfo("IPFW running in 'worker' runmode, will not use mutex.");
+    } else {
+        nq->use_mutex = 1;
+    }
+    if (nq->use_mutex)
+        SCMutexInit(&nq->socket_lock, NULL);
+}
+
+static inline void IPFWMutexLock(IPFWQueueVars *nq)
+{
+    if (nq->use_mutex)
+        SCMutexLock(&nq->socket_lock);
+}
+
+static inline void IPFWMutexUnlock(IPFWQueueVars *nq)
+{
+    if (nq->use_mutex)
+        SCMutexUnlock(&nq->socket_lock);
+}
+
+
+
 /**
  * \brief Recieves packets from an interface via ipfw divert socket.
  * \todo Unit tests are needed for this module.
@@ -233,7 +261,6 @@ TmEcode ReceiveIPFW(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pack
     } /* end while */
 
     if ((pktlen = recvfrom(nq->fd, pkt, sizeof(pkt), 0,(struct sockaddr *)&nq->ipfw_sin, &nq->ipfw_sinlen)) == -1) {
-
         /* We received an error on socket read */
         if (errno == EINTR || errno == EWOULDBLOCK) {
             /* Nothing for us to process */
@@ -243,13 +270,13 @@ TmEcode ReceiveIPFW(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pack
             SCLogWarning(SC_WARN_IPFW_RECV,"Read from IPFW divert socket failed: %s",strerror(errno));
             SCReturnInt(TM_ECODE_FAILED);
         }
-
-    } else {
-        /* We have a packet to process */
-        memset (&IPFWts, 0, sizeof(struct timeval));
-        gettimeofday(&IPFWts, NULL);
-        r++;
+        SCReturnInt(TM_ECODE_FAILED);
     }
+
+    /* We have a packet to process */
+    memset (&IPFWts, 0, sizeof(struct timeval));
+    gettimeofday(&IPFWts, NULL);
+    r++;
 
     SCLogDebug("Received Packet Len: %d",pktlen);
 
@@ -332,11 +359,11 @@ TmEcode ReceiveIPFWLoop(ThreadVars *tv, void *data, void *slot)
                              strerror(errno));
                 SCReturnInt(TM_ECODE_FAILED);
             }
-        } else {
-            /* We have a packet to process */
-            memset (&IPFWts, 0, sizeof(struct timeval));
-            gettimeofday(&IPFWts, NULL);
+            SCReturnInt(TM_ECODE_FAILED);
         }
+        /* We have a packet to process */
+        memset (&IPFWts, 0, sizeof(struct timeval));
+        gettimeofday(&IPFWts, NULL);
 
         /* make sure we have at least one packet in the packet pool, to prevent
          * us from alloc'ing packets at line rate */
@@ -404,7 +431,7 @@ TmEcode ReceiveIPFWThreadInit(ThreadVars *tv, void *initdata, void **data)
 
     SCEnter();
 
-    SCMutexInit(&nq->socket_lock, NULL);
+    IPFWMutexInit(nq);
     /* We need a divert socket to play with */
     if ((nq->fd = socket(PF_INET, SOCK_RAW, IPPROTO_DIVERT)) == -1) {
         SCLogError(SC_ERR_IPFW_SOCK,"Can't create divert socket: %s", strerror(errno));
@@ -587,29 +614,29 @@ TmEcode IPFWSetVerdict(ThreadVars *tv, IPFWThreadVars *ptv, Packet *p)
         SCLogDebug("IPFW Verdict is to Accept");
         ptv->accepted++;
 
-
         /* For divert sockets, accepting means writing the
          * packet back to the socket for ipfw to pick up
          */
         SCLogDebug("IPFWSetVerdict writing to socket %d, %p, %u", nq->fd, GET_PKT_DATA(p),GET_PKT_LEN(p));
 
-
-        while ( (poll(&IPFWpoll,1,IPFW_SOCKET_POLL_MSEC)) < 1) {
+#if 0
+        while ((poll(&IPFWpoll,1,IPFW_SOCKET_POLL_MSEC)) < 1) {
             /* Did we receive a signal to shutdown */
             if (TmThreadsCheckFlag(tv, THV_KILL) || TmThreadsCheckFlag(tv, THV_PAUSE)) {
                 SCLogInfo("Received ThreadShutdown: IPFW divert socket writing interrupted");
                 SCReturnInt(TM_ECODE_OK);
             }
         }
+#endif
 
-        SCMutexLock(&nq->socket_lock);
+        IPFWMutexLock(nq);
         if (sendto(nq->fd, GET_PKT_DATA(p), GET_PKT_LEN(p), 0,(struct sockaddr *)&nq->ipfw_sin, nq->ipfw_sinlen) == -1) {
             SCLogWarning(SC_WARN_IPFW_XMIT,"Write to ipfw divert socket failed: %s",strerror(errno));
-            SCMutexUnlock(&nq->socket_lock);
+            IPFWMutexUnlock(&nq->socket_lock);
             SCReturnInt(TM_ECODE_FAILED);
         }
 
-        SCMutexUnlock(&nq->socket_lock);
+        IPFWMutexUnlock(nq);
 
         SCLogDebug("Sent Packet back into IPFW Len: %d",GET_PKT_LEN(p));
 
