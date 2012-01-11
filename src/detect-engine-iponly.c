@@ -449,6 +449,7 @@ static void IPOnlyCIDRListSetSigNum(IPOnlyCIDRItem *tmphead, SigIntId i) {
     }
 }
 
+#ifdef UNITTESTS
 /**
  * \brief This function print a IPOnlyCIDRItem list
  * \param tmphead Pointer to the head of IPOnlyCIDRItems list
@@ -466,6 +467,7 @@ static void IPOnlyCIDRListPrint(IPOnlyCIDRItem *tmphead) {
         tmphead = tmphead->next;
     }
 }
+#endif
 
 /**
  * \brief This function print a SigNumArray, it's used with the
@@ -624,7 +626,7 @@ static IPOnlyCIDRItem *IPOnlyCIDRListParse2(char *s, int negate)
                 o_set = 0;
             } else if (d_set == 1) {
                 address[x - 1] = '\0';
-                x = 0;
+
                 rule_var_address = SCRuleVarsGetConfVar(address,
                                                   SC_RULE_VARS_ADDRESS_GROUPS);
                 if (rule_var_address == NULL)
@@ -1057,6 +1059,15 @@ void IPOnlyMatchPacket(ThreadVars *tv,
                     SCLogDebug("Signum %"PRIu16" match (sid: %"PRIu16", msg: %s)",
                                u * 8 + i, s->id, s->msg);
 
+                    if (s->sm_lists[DETECT_SM_LIST_POSTMATCH] != NULL) {
+                        SigMatch *sm = s->sm_lists[DETECT_SM_LIST_POSTMATCH];
+
+                        SCLogDebug("running match functions, sm %p", sm);
+
+                        for ( ; sm != NULL; sm = sm->next) {
+                            (void)sigmatch_table[sm->type].Match(tv, det_ctx, p, s, sm);
+                        }
+                    }
                     if ( !(s->flags & SIG_FLAG_NOALERT)) {
                         if (s->action & ACTION_DROP)
                             PacketAlertAppend(det_ctx, s, p, PACKET_ALERT_FLAG_DROP_FLOW, NULL);

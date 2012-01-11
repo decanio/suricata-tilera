@@ -303,7 +303,6 @@ TmEcode ReceivePcapLoop(ThreadVars *tv, void *data, void *slot)
                 r = PcapTryReopen(ptv);
             } while (r < 0);
             if (dbreak) {
-                r = 0;
                 break;
             }
         } else if (ptv->cb_result == TM_ECODE_FAILED) {

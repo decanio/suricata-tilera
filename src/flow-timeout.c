@@ -280,12 +280,21 @@ int FlowForceReassemblyForFlowV2(Flow *f)
     client_ok = StreamHasUnprocessedSegments(ssn, 0);
     server_ok = StreamHasUnprocessedSegments(ssn, 1);
 
+    /* if state is not fully closed we assume that we haven't fully
+     * inspected the app layer state yet */
+    if (ssn->state != TCP_CLOSED) {
+        if (client_ok != 1)
+            client_ok = 2;
+        if (server_ok != 1)
+            server_ok = 2;
+    }
+
     /* nothing to do */
     if (client_ok == 0 && server_ok == 0) {
         return 0;
     }
 
-    /* move this unlock after the strream reassemble call */
+    /* move this unlock after the stream reassemble call */
     SCSpinUnlock(&f->fb->s);
 
     Packet *p1 = NULL, *p2 = NULL, *p3 = NULL;
@@ -430,9 +439,6 @@ static inline void FlowForceReassemblyForQ(FlowQueue *q)
     while (f != NULL) {
         PACKET_RECYCLE(reassemble_p);
 
-        client_ok = 0;
-        server_ok = 0;
-
         /* Get the tcp session for the flow */
         ssn = (TcpSession *)f->protoctx;
 
@@ -470,7 +476,7 @@ static inline void FlowForceReassemblyForQ(FlowQueue *q)
         }
 
         /* insert a pseudo packet in the toserver direction */
-        if (client_ok) {
+        if (client_ok || ssn->state != TCP_CLOSED) {
             Packet *p = FlowForceReassemblyPseudoPacketGet(0, f, ssn, 1);
             if (p == NULL) {
                 TmqhOutputPacketpool(NULL, reassemble_p);
@@ -494,7 +500,7 @@ static inline void FlowForceReassemblyForQ(FlowQueue *q)
                 }
             }
         } /* if (ssn->client.seg_list != NULL) */
-        if (server_ok) {
+        if (server_ok  || ssn->state != TCP_CLOSED) {
             Packet *p = FlowForceReassemblyPseudoPacketGet(1, f, ssn, 1);
             if (p == NULL) {
                 TmqhOutputPacketpool(NULL, reassemble_p);

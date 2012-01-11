@@ -1104,7 +1104,6 @@ static int HandleSegmentStartsBeforeListSegment(ThreadVars *tv, TcpReassemblyThr
                     if (end_after == TRUE || end_same == TRUE) {
                         StreamTcpSegmentDataReplace(list_seg, seg, overlap_point,
                                 overlap);
-                        end_after = FALSE;
                     } else {
                         SCLogDebug("using old data in starts before list case, "
                                 "list_seg->seq %" PRIu32 " policy %" PRIu32 " "
@@ -1297,7 +1296,6 @@ static int HandleSegmentStartsAtSameListSegment(ThreadVars *tv, TcpReassemblyThr
                 case OS_POLICY_HPUX11:
                     if (end_after == TRUE || end_same == TRUE) {
                         StreamTcpSegmentDataReplace(list_seg, seg, seg->seq, overlap);
-                        end_after = FALSE;
                     } else {
                         SCLogDebug("using old data in starts at list case, "
                                 "list_seg->seq %" PRIu32 " policy %" PRIu32 " "
@@ -1498,7 +1496,6 @@ static int HandleSegmentStartsAfterListSegment(ThreadVars *tv, TcpReassemblyThre
                 case OS_POLICY_HPUX11:
                     if (end_after == TRUE) {
                         StreamTcpSegmentDataReplace(list_seg, seg, seg->seq, overlap);
-                        end_after = FALSE;
                     } else {
                         SCLogDebug("using old data in starts beyond list case, "
                                 "list_seg->seq %" PRIu32 " policy %" PRIu32 " "
@@ -1733,6 +1730,12 @@ static int StreamTcpReassembleRawCheckLimit(TcpSession *ssn, TcpStream *stream,
 {
     SCEnter();
 
+    if (ssn->flags & STREAMTCP_FLAG_TRIGGER_RAW_REASSEMBLY) {
+        SCLogDebug("reassembling now as STREAMTCP_FLAG_TRIGGER_RAW_REASSEMBLY is set");
+        ssn->flags &= ~STREAMTCP_FLAG_TRIGGER_RAW_REASSEMBLY;
+        SCReturnInt(1);
+    }
+
     /* some states mean we reassemble no matter how much data we have */
     if (ssn->state >= TCP_TIME_WAIT)
         SCReturnInt(1);
@@ -1964,8 +1967,6 @@ static int StreamTcpReassembleInlineAppLayer (ThreadVars *tv,
                         next_seq, seg->seq, stream->last_ack, gap_len);
 #endif
 
-                next_seq = seg->seq;
-
                 /* We have missed the packet and end host has ack'd it, so
                  * IDS should advance it's ra_base_seq and should not consider this
                  * packet any longer, even if it is retransmitted, as end host will
@@ -2122,8 +2123,6 @@ static int StreamTcpReassembleInlineAppLayer (ThreadVars *tv,
                         segment_done = TRUE;
                     }
                 }
-            } else {
-                payload_offset = 0;
             }
         }
 
@@ -2454,8 +2453,6 @@ static int StreamTcpReassembleInlineRaw (TcpReassemblyThreadCtx *ra_ctx,
                         segment_done = TRUE;
                     }
                 }
-            } else {
-                payload_offset = 0;
             }
         }
 
@@ -2659,9 +2656,6 @@ static int StreamTcpReassembleAppLayer (ThreadVars *tv,
                         "stream->last_ack %" PRIu32 ". Seq gap %" PRIu32"",
                         next_seq, seg->seq, stream->last_ack, gap_len);
 #endif
-
-                next_seq = seg->seq;
-
                 /* We have missed the packet and end host has ack'd it, so
                  * IDS should advance it's ra_base_seq and should not consider this
                  * packet any longer, even if it is retransmitted, as end host will
@@ -2855,8 +2849,6 @@ static int StreamTcpReassembleAppLayer (ThreadVars *tv,
                         segment_done = TRUE;
                     }
                 }
-            } else {
-                payload_offset = 0;
             }
         }
 
@@ -3036,8 +3028,6 @@ static int StreamTcpReassembleRaw (TcpReassemblyThreadCtx *ra_ctx,
                 SCLogDebug("expected next_seq %" PRIu32 ", got %" PRIu32 " , "
                         "stream->last_ack %" PRIu32 ". Seq gap %" PRIu32"",
                         next_seq, seg->seq, stream->last_ack, gap_len);
-
-                next_seq = seg->seq;
 
                 if (smsg == NULL) {
                     smsg = StreamMsgGetFromPool();
@@ -3224,8 +3214,6 @@ static int StreamTcpReassembleRaw (TcpReassemblyThreadCtx *ra_ctx,
                         segment_done = TRUE;
                     }
                 }
-            } else {
-                payload_offset = 0;
             }
         }
 
@@ -3503,6 +3491,30 @@ TcpSegment* StreamTcpGetSegment(ThreadVars *tv, TcpReassemblyThreadCtx *ra_ctx, 
 #endif
 
     return seg;
+}
+
+/**
+ *  \brief Trigger RAW stream reassembly
+ *
+ *  Used by AppLayerTriggerRawStreamReassembly to trigger RAW stream
+ *  reassembly from the applayer, for example upon completion of a
+ *  HTTP request.
+ *
+ *  Works by setting a flag in the TcpSession that is unset as soon
+ *  as it's checked. Since everything happens when operating under
+ *  a single lock period, no side effects are expected.
+ *
+ *  \param ssn TcpSession
+ */
+void StreamTcpReassembleTriggerRawReassembly(TcpSession *ssn) {
+#ifdef DEBUG
+    BUG_ON(ssn == NULL);
+#endif
+
+    if (ssn != NULL) {
+        SCLogDebug("flagged ssn %p for immediate raw reassembly", ssn);
+        ssn->flags |= STREAMTCP_FLAG_TRIGGER_RAW_REASSEMBLY;
+    }
 }
 
 #ifdef UNITTESTS
@@ -6011,9 +6023,10 @@ static int StreamTcpReassembleTest38 (void) {
         goto end;
     }
 
-    /* Check if we have stream smsgs in queue */
-    if (ra_ctx->stream_q->len != 0) {
-        printf("there should be no stream smsgs in the queue (6): ");
+    /* we should now have a smsg as the http request is complete and triggered
+     * reassembly */
+    if (ra_ctx->stream_q->len != 1) {
+        printf("there should one stream smsg in the queue (6): ");
         goto end;
     }
 

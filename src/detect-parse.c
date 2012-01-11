@@ -327,6 +327,32 @@ void SigMatchAppendPacket(Signature *s, SigMatch *new) {
     s->sm_cnt++;
 }
 
+/** \brief Append a sig match to the signatures post-match list
+ *
+ *  \param s signature
+ *  \param new sigmatch to append
+ */
+void SigMatchAppendPostMatch(Signature *s, SigMatch *new) {
+    if (s->sm_lists[DETECT_SM_LIST_POSTMATCH] == NULL) {
+        s->sm_lists[DETECT_SM_LIST_POSTMATCH] = new;
+        s->sm_lists_tail[DETECT_SM_LIST_POSTMATCH] = new;
+        new->next = NULL;
+        new->prev = NULL;
+    } else {
+        SigMatch *cur = s->sm_lists[DETECT_SM_LIST_POSTMATCH];
+
+        for ( ; cur->next != NULL; cur = cur->next);
+
+        cur->next = new;
+        new->next = NULL;
+        new->prev = cur;
+        s->sm_lists_tail[DETECT_SM_LIST_POSTMATCH] = new;
+    }
+
+    new->idx = s->sm_cnt;
+    s->sm_cnt++;
+}
+
 /** \brief Pull a content 'old' from the pmatch list, append 'new' to amatch list.
   * Used for replacing contents that have http_cookie, etc modifiers.
   */
@@ -912,22 +938,22 @@ int SigParseAction(Signature *s, const char *action) {
     } else if (strcasecmp(action, "reject") == 0) {
         if (!(SigParseActionRejectValidate(action)))
             return -1;
-        s->action = ACTION_REJECT;
+        s->action = ACTION_REJECT|ACTION_DROP;
         return 0;
     } else if (strcasecmp(action, "rejectsrc") == 0) {
         if (!(SigParseActionRejectValidate(action)))
             return -1;
-        s->action = ACTION_REJECT;
+        s->action = ACTION_REJECT|ACTION_DROP;
         return 0;
     } else if (strcasecmp(action, "rejectdst") == 0) {
         if (!(SigParseActionRejectValidate(action)))
             return -1;
-        s->action = ACTION_REJECT_DST;
+        s->action = ACTION_REJECT_DST|ACTION_DROP;
         return 0;
     } else if (strcasecmp(action, "rejectboth") == 0) {
         if (!(SigParseActionRejectValidate(action)))
             return -1;
-        s->action = ACTION_REJECT_BOTH;
+        s->action = ACTION_REJECT_BOTH|ACTION_DROP;
         return 0;
     } else {
         SCLogError(SC_ERR_INVALID_ACTION,"An invalid action \"%s\" was given",action);

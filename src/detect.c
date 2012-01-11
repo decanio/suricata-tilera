@@ -946,6 +946,28 @@ static void SigMatchSignaturesBuildMatchArray(DetectEngineThreadCtx *det_ctx,
 #endif
 }
 
+static int SigMatchSignaturesRunPostMatch(ThreadVars *tv,
+        DetectEngineCtx *de_ctx, DetectEngineThreadCtx *det_ctx, Packet *p,
+        Signature *s)
+{
+    /* run the packet match functions */
+    if (s->sm_lists[DETECT_SM_LIST_POSTMATCH] != NULL) {
+        SigMatch *sm = s->sm_lists[DETECT_SM_LIST_POSTMATCH];
+
+        SCLogDebug("running match functions, sm %p", sm);
+
+        for ( ; sm != NULL; sm = sm->next) {
+            (void)sigmatch_table[sm->type].Match(tv, det_ctx, p, s, sm);
+        }
+    }
+
+    DetectReplaceExecute(p, det_ctx->replist);
+    det_ctx->replist = NULL;
+    DetectFilestorePostMatch(tv, det_ctx,p);
+
+    return 1;
+}
+
 /**
  *  \brief Get the SigGroupHead for a packet.
  *
@@ -1193,6 +1215,22 @@ static inline void DetectMpmPrefilter(DetectEngineCtx *de_ctx,
     }
 }
 
+#ifdef DEBUG
+static void DebugInspectIds(Packet *p, Flow *f, StreamMsg *smsg)
+{
+    AppLayerParserStateStore *parser_state_store = f->alparser;
+    if (parser_state_store != NULL) {
+        SCLogDebug("pcap_cnt %02"PRIu64", %s, %12s, avail_id %u, inspect_id %u, inspecting %u, smsg %s",
+            p->pcap_cnt, p->flowflags & FLOW_PKT_TOSERVER ? "toserver" : "toclient",
+            p->flags & PKT_STREAM_EST ? "established" : "stateless",
+            parser_state_store->avail_id, parser_state_store->inspect_id,
+            parser_state_store->inspect_id+1, smsg?"yes":"no");
+
+        //if (smsg)
+        //    PrintRawDataFp(stdout,smsg->data.data, smsg->data.data_len);
+    }
+}
+#endif
 
 /**
  *  \brief Signature match function
@@ -1295,6 +1333,22 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
         }
         SCLogDebug("p->flowflags 0x%02x", p->flowflags);
 
+        /* see if we need to increment the inspect_id and reset the de_state */
+        if (alstate != NULL && alproto == ALPROTO_HTTP) {
+            PACKET_PROFILING_DETECT_START(p, PROF_DETECT_STATEFUL);
+            SCLogDebug("getting de_state_status");
+            int de_state_status = DeStateUpdateInspectTransactionId(p->flow,
+                    (flags & STREAM_TOSERVER) ? STREAM_TOSERVER : STREAM_TOCLIENT);
+            SCLogDebug("de_state_status %d", de_state_status);
+
+            if (de_state_status == 2) {
+                SCMutexLock(&p->flow->de_state_m);
+                DetectEngineStateReset(p->flow->de_state);
+                SCMutexUnlock(&p->flow->de_state_m);
+            }
+            PACKET_PROFILING_DETECT_END(p, PROF_DETECT_STATEFUL);
+        }
+
         if ((p->flowflags & FLOW_PKT_TOSERVER && !(p->flowflags & FLOW_PKT_TOSERVER_IPONLY_SET)) ||
             (p->flowflags & FLOW_PKT_TOCLIENT && !(p->flowflags & FLOW_PKT_TOCLIENT_IPONLY_SET)))
         {
@@ -1333,6 +1387,14 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
             det_ctx->sgh = SigMatchSignaturesGetSgh(de_ctx, det_ctx, p);
             PACKET_PROFILING_DETECT_END(p, PROF_DETECT_GETSGH);
         }
+
+#ifdef DEBUG
+        if (p->flow) {
+            SCMutexLock(&p->flow->m);
+            DebugInspectIds(p, p->flow, smsg);
+            SCMutexUnlock(&p->flow->m);
+        }
+#endif
     } else { /* p->flags & PKT_HAS_FLOW */
         /* no flow */
 
@@ -1485,7 +1547,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                                 pmatch = 1;
                                 /* Tell the engine that this reassembled stream can drop the
                                  * rest of the pkts with no further inspection */
-                                if (s->action == ACTION_DROP)
+                                if (s->action & ACTION_DROP)
                                     alert_flags |= PACKET_ALERT_FLAG_DROP_FLOW;
 
                                 /* store ptr to current smsg */
@@ -1592,7 +1654,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
             }
 
             /* match */
-            if (s->action == ACTION_DROP)
+            if (s->action & ACTION_DROP)
                 alert_flags |= PACKET_ALERT_FLAG_DROP_FLOW;
 
             alert_flags |= PACKET_ALERT_FLAG_STATE_MATCH;
@@ -1600,9 +1662,8 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
         /* match! */
         fmatch = 1;
-        DetectReplaceExecute(p, det_ctx->replist);
-        det_ctx->replist = NULL;
-        DetectFilestorePostMatch(th_v, det_ctx,p);
+
+        SigMatchSignaturesRunPostMatch(th_v, de_ctx, det_ctx, p, s);
 
         if (!(s->flags & SIG_FLAG_NOALERT)) {
             PacketAlertAppend(det_ctx, s, p, alert_flags, alert_msg);
@@ -1616,7 +1677,8 @@ next:
     PACKET_PROFILING_DETECT_END(p, PROF_DETECT_RULES);
 
 end:
-    if (alstate != NULL) {
+    /* see if we need to increment the inspect_id and reset the de_state */
+    if (alstate != NULL && alproto != ALPROTO_HTTP) {
         PACKET_PROFILING_DETECT_START(p, PROF_DETECT_STATEFUL);
         SCLogDebug("getting de_state_status");
         int de_state_status = DeStateUpdateInspectTransactionId(p->flow,
