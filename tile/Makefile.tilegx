@@ -78,14 +78,6 @@ $(IMAGE_FILE):
 	  --create-image $@.tmp $(BOOT_ARGS)
 	mv $@.tmp $@
 
-#  --upload ./libhtp/htp/.libs/libhtp-0.2.so.1 /lib/libhtp-0.2.so.1 \
-#  --upload ./libhtp/htp/.libs/libhtp.so /lib/libhtp.so \
-
-#  --upload ../pcre-8.12/.libs/libpcre.so.0.0.1 /lib/libpcre.so.0.0.1 \
-#  --upload ../pcre-8.12/.libs/libpcre.so.0 /lib/libpcre.so.0 \
-#  --upload ../pcre-8.12/.libs/libpcre.so /lib/libpcre.so \
-
-#--upload $(TILERA_ROOT)/tile/lib/libgxio.so.1 /lib/libgxio.so.1 \
 
 TILE_MONITOR_ARGS = \
   --hvx "dataplane=1-35" \
@@ -168,12 +160,9 @@ TILE_MONITOR_WILDCAT_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
   --huge-pages 800 \
+  --mount-tile /usr/lib \
+  --mount-tile /lib \
   --mount $(RULES_DIR) /opt \
-  --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
-  --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
-  --upload $(TILERA_ROOT)/tile/lib/libz.so.1.2.3 /lib/libz.so.1 \
-  --upload $(TILERA_ROOT)/tile/lib/libnl.so.1.1 /lib/libnl.so.1 \
-  --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
   --upload $(TILERA_ROOT)/tile/usr/bin/strace /usr/bin/strace \
   --upload ./src/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
@@ -183,13 +172,9 @@ TILE_MONITOR_WILDCAT_FEEDBACK_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
   --huge-pages 800 \
+  --mount-tile /usr/lib \
+  --mount-tile /lib \
   --mount $(RULES_DIR) /opt \
-  --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
-  --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
-  --upload $(TILERA_ROOT)/tile/lib/libz.so.1.2.3 /lib/libz.so.1 \
-  --upload $(TILERA_ROOT)/tile/lib/libnl.so.1.1 /lib/libnl.so.1 \
-  --upload $(TILERA_ROOT)/tile/lib/libinstr.so.1 /lib/libinstr.so.1 \
-  --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
   --upload ./libhtp/htp/.libs/libhtp-0.2.so.1.0.2 /lib/libhtp-0.2.so.1.0.2 \
   --upload ./libhtp/htp/.libs/libhtp-0.2.so.1 /lib/libhtp-0.2.so.1 \
   --upload ./libhtp/htp/.libs/libhtp.so /lib/libhtp.so \
@@ -205,13 +190,9 @@ TILE_MONITOR_WILDCAT_FEEDBACK_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
   --huge-pages 800 \
+  --mount-tile /usr/lib \
+  --mount-tile /lib \
   --mount $(RULES_DIR) /opt \
-  --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
-  --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
-  --upload $(TILERA_ROOT)/tile/lib/libz.so.1.2.3 /lib/libz.so.1 \
-  --upload $(TILERA_ROOT)/tile/lib/libnl.so.1.1 /lib/libnl.so.1 \
-  --upload $(TILERA_ROOT)/tile/lib/libinstr.so.1 /lib/libinstr.so.1 \
-  --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
   --upload ./libhtp/htp/.libs/libhtp-0.2.so.1.0.2 /lib/libhtp-0.2.so.1.0.2 \
   --upload ./libhtp/htp/.libs/libhtp-0.2.so.1 /lib/libhtp-0.2.so.1 \
   --upload ./libhtp/htp/.libs/libhtp.so /lib/libhtp.so \
@@ -223,18 +204,21 @@ TILE_MONITOR_WILDCAT_FEEDBACK_STATIC_ARGS = \
   --run -+- suricata -c $(RULES_CONFIG) -i xgbe3 -+- \
   --download /tmp/raw_feedback raw_feedback
 
+#  --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
+#  --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
+#  --upload $(TILERA_ROOT)/tile/lib/libz.so.1.2.3 /lib/libz.so.1 \
+#  --upload $(TILERA_ROOT)/tile/lib/libnl.so.1.1 /lib/libnl.so.1 \
+#  --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
+
 TILE_MONITOR_WILDCAT_PROFILE_ARGS = \
   $(WILDCAT_CPU) \
   $(WILDCAT_SPEED) \
   --hvx "dataplane=1-35" \
   --hvx "TLR_NETWORK=gbe1" \
   --huge-pages 800 \
+  --mount-tile /usr/lib \
+  --mount-tile /lib \
   --mount $(RULES_DIR) /opt \
-  --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
-  --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
-  --upload $(TILERA_ROOT)/tile/lib/libz.so.1.2.3 /lib/libz.so.1 \
-  --upload $(TILERA_ROOT)/tile/lib/libnl.so.1.1 /lib/libnl.so.1 \
-  --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
   --upload ./libhtp/htp/.libs/libhtp-0.2.so.1.0.2 /lib/libhtp-0.2.so.1.0.2 \
   --upload ./libhtp/htp/.libs/libhtp-0.2.so.1 /lib/libhtp-0.2.so.1 \
   --upload ./libhtp/htp/.libs/libhtp.so /lib/libhtp.so \
@@ -261,12 +245,9 @@ TILE_MONITOR_WILDCAT_PROFILE_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   $(WILDCAT_SPEED) \
   --huge-pages 800 \
+  --mount-tile /usr/lib \
+  --mount-tile /lib \
   --mount $(RULES_DIR) /opt \
-  --upload $(TILERA_ROOT)/tile/lib/libcap-ng.so.0.0.0 /lib/libcap-ng.so.0 \
-  --upload $(TILERA_ROOT)/tile/lib/libpcre.so.0.0.1 /lib/libpcre.so.0 \
-  --upload $(TILERA_ROOT)/tile/lib/libz.so.1.2.3 /lib/libz.so.1 \
-  --upload $(TILERA_ROOT)/tile/lib/libnl.so.1.1 /lib/libnl.so.1 \
-  --upload $(TILERA_ROOT)/tile/usr/lib/libpcap.so.1.0.0 /usr/lib/libpcap.so.1 \
   --upload ./src/suricata suricata \
   --run -+- mkdir -p /var/log/suricata -+- \
   --launch -+- suricata -c $(RULES_CONFIG) -i xgbe3 -+- \
