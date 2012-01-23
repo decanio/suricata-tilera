@@ -67,7 +67,7 @@
 #define DEFAULT_MATCH_LIMIT 10000000
 #define DEFAULT_MATCH_LIMIT_RECURSION 10000000
 
-#define SC_MATCH_LIMIT_DEFAULT 1500
+#define SC_MATCH_LIMIT_DEFAULT 3500
 #define SC_MATCH_LIMIT_RECURSION_DEFAULT 1500
 
 static int pcre_match_limit = 0;
@@ -121,21 +121,31 @@ void DetectPcreRegister (void) {
 
     if (!ConfGetInt("pcre.match-limit", &val)) {
         pcre_match_limit = SC_MATCH_LIMIT_DEFAULT;
+        SCLogDebug("Using PCRE match-limit setting of: %i", pcre_match_limit);
     }
     else    {
         pcre_match_limit = val;
+        if (pcre_match_limit != SC_MATCH_LIMIT_DEFAULT) {
+            SCLogInfo("Using PCRE match-limit setting of: %i", pcre_match_limit);
+        } else {
+            SCLogDebug("Using PCRE match-limit setting of: %i", pcre_match_limit);
+        }
     }
-    SCLogInfo("Using PCRE match-limit setting of: %i", pcre_match_limit);
 
     val = 0;
 
     if (!ConfGetInt("pcre.match-limit-recursion", &val)) {
         pcre_match_limit_recursion = SC_MATCH_LIMIT_RECURSION_DEFAULT;
+        SCLogDebug("Using PCRE match-limit-recursion setting of: %i", pcre_match_limit_recursion);
     }
     else    {
         pcre_match_limit_recursion = val;
+        if (pcre_match_limit_recursion != SC_MATCH_LIMIT_RECURSION_DEFAULT) {
+            SCLogInfo("Using PCRE match-limit-recursion setting of: %i", pcre_match_limit_recursion);
+        } else {
+            SCLogDebug("Using PCRE match-limit-recursion setting of: %i", pcre_match_limit_recursion);
+        }
     }
-    SCLogInfo("Using PCRE match-limit-recursion setting of: %i", pcre_match_limit_recursion);
 
     parse_regex = pcre_compile(PARSE_REGEX, opts, &eb, &eo, NULL);
     if(parse_regex == NULL)

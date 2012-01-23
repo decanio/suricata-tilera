@@ -3989,7 +3989,7 @@ void StreamTcpExitPrintStats(ThreadVars *tv, void *data)
         return;
     }
 
-    SCLogInfo("(%s) Packets %" PRIu64 "", tv->name, stt->pkts);
+    SCLogInfo("Stream TCP processed %" PRIu64 " TCP packets", stt->pkts);
 }
 
 /**

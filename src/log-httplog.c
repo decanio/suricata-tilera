@@ -70,6 +70,9 @@ void TmModuleLogHttpLogRegister (void) {
     tmm_modules[TMM_LOGHTTPLOG].cap_flags = 0;
 
     OutputRegisterModule(MODULE_NAME, "http-log", LogHttpLogInitCtx);
+
+    /* enable the logger for the app layer */
+    AppLayerRegisterLogger(ALPROTO_HTTP);
 }
 
 void TmModuleLogHttpLogIPv4Register (void) {
@@ -367,9 +370,6 @@ TmEcode LogHttpLogThreadInit(ThreadVars *t, void *initdata, void **data)
     /* Use the Ouptut Context (file pointer and mutex) */
     aft->httplog_ctx= ((OutputCtx *)initdata)->data;
 
-    /* enable the logger for the app layer */
-    AppLayerRegisterLogger(ALPROTO_HTTP);
-
     *data = (void *)aft;
     return TM_ECODE_OK;
 }
@@ -394,7 +394,7 @@ void LogHttpLogExitPrintStats(ThreadVars *tv, void *data) {
         return;
     }
 
-    SCLogInfo("(%s) HTTP requests %" PRIu32 "", tv->name, aft->uri_cnt);
+    SCLogInfo("HTTP logger logged %" PRIu32 " requests", aft->uri_cnt);
 }
 
 /** \brief Create a new http log LogFileCtx.
@@ -436,7 +436,7 @@ OutputCtx *LogHttpLogInitCtx(ConfNode *conf)
     output_ctx->data = httplog_ctx;
     output_ctx->DeInit = LogHttpLogDeInitCtx;
 
-    SCLogInfo("HTTP log output initialized");
+    SCLogDebug("HTTP log output initialized");
 
     return output_ctx;
 }
