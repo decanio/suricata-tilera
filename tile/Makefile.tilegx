@@ -312,6 +312,13 @@ run_wc: $(SIM_DEPS) $(IMAGE_FILE)
      --debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_ARGS)
 
+reimage_net:
+	$(TILE_MONITOR) \
+        $(NET_ARGS) \
+	--hvx "dataplane=1-35" \
+	--huge-pages 800 \
+	--rootfs /dev/sda1 -- mount
+
 run_net: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
         $(NET_ARGS) \
