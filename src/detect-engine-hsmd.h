@@ -15,27 +15,20 @@
  * 02110-1301, USA.
  */
 
-/**
- * \file
+/** \file
  *
- * \author  Victor Julien <victor@inliniac.net>
- * \author Gurvinder Singh <gurvindersinghdahiya@gmail.com>
+ * \author Anoop Saldanha <anoopsaldanha@gmail.com>
  */
 
-#ifndef __DETECT_URICONTENT_H__
-#define __DETECT_URICONTENT_H__
+#ifndef __DETECT_ENGINE_HSMD_H__
+#define __DETECT_ENGINE_HSMD_H__
 
-#include "detect-content.h"
-
-#include "util-spm-bm.h"
 #include "app-layer-htp.h"
 
-/* prototypes */
-void DetectUricontentRegister (void);
-uint32_t DetectUricontentMaxId(DetectEngineCtx *);
-//uint32_t DetectUricontentInspectMpm(DetectEngineThreadCtx *det_ctx, void *alstate);
-void DetectUricontentPrint(DetectContentData *);
+int DetectEngineRunHttpStatMsgMpm(DetectEngineThreadCtx *,
+                                  Flow *f, HtpState *, uint8_t);
+int DetectEngineInspectHttpStatMsg(DetectEngineCtx *, DetectEngineThreadCtx *,
+                                   Signature *, Flow *, uint8_t, void *);
+void DetectEngineHttpStatMsgRegisterTests(void);
 
-uint32_t DetectUricontentInspectMpm(DetectEngineThreadCtx *, Flow *, HtpState *, uint8_t);
-
-#endif /* __DETECT_URICONTENT_H__ */
+#endif /* __DETECT_ENGINE_HSMD_H__ */

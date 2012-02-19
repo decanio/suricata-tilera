@@ -21,15 +21,10 @@
  * @{
  */
 
-
-/** \file
+/**
+ * \file
  *
  * \author Anoop Saldanha <anoopsaldanha@gmail.com>
- * \author Victor Julien <victor@inliniac.net>
- *
- * \brief Handle HTTP response body match corresponding to http_server_body
- * keyword.
- *
  */
 
 #include "suricata-common.h"
@@ -39,6 +34,7 @@
 #include "detect.h"
 #include "detect-engine.h"
 #include "detect-engine-mpm.h"
+#include "detect-engine-hsmd.h"
 #include "detect-parse.h"
 #include "detect-engine-state.h"
 #include "detect-engine-content-inspection.h"
@@ -57,170 +53,55 @@
 #include "app-layer-protos.h"
 
 /**
- * \brief Helps buffer response bodies for different transactions and stores them
- *        away in detection code.
+ * \brief Run the mpm against http stat msg.
  *
- * \param de_ctx    Detection Engine ctx.
- * \param det_ctx   Detection engine thread ctx.
- * \param f         Pointer to the flow.
- * \param htp_state http state.
- *
- * \warning Make sure flow is locked.
+ * \retval cnt Number of matches reported by the mpm algo.
  */
-static void DetectEngineBufferHttpServerBodies(DetectEngineCtx *de_ctx,
-        DetectEngineThreadCtx *det_ctx, Flow *f, HtpState *htp_state)
+int DetectEngineRunHttpStatMsgMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
+                                  HtpState *htp_state, uint8_t flags)
 {
-    int idx = 0;
-    htp_tx_t *tx = NULL;
-    int i = 0;
+    SCEnter();
 
-    if (det_ctx->hsbd_buffers_list_len > 0) {
-        SCReturn;
-    }
+    uint32_t cnt = 0;
 
     if (htp_state == NULL) {
         SCLogDebug("no HTTP state");
-        goto end;
+        SCReturnInt(0);
     }
+
+    /* locking the flow, we will inspect the htp state */
+    SCMutexLock(&f->m);
 
     if (htp_state->connp == NULL || htp_state->connp->conn == NULL) {
         SCLogDebug("HTP state has no conn(p)");
         goto end;
     }
 
-    /* get the transaction id */
-    int tmp_idx = AppLayerTransactionGetInspectId(f);
-    /* error!  get out of here */
-    if (tmp_idx == -1)
-        goto end;
-
-    /* let's get the transaction count.  We need this to hold the server body
-     * buffer for each transaction */
-    det_ctx->hsbd_buffers_list_len = list_size(htp_state->connp->conn->transactions) - tmp_idx;
-    /* no transactions?!  cool.  get out of here */
-    if (det_ctx->hsbd_buffers_list_len == 0)
-        goto end;
-
-    /* assign space to hold buffers.  Each per transaction */
-    det_ctx->hsbd_buffers = SCMalloc(det_ctx->hsbd_buffers_list_len * sizeof(uint8_t *));
-    if (det_ctx->hsbd_buffers == NULL) {
-        goto end;
-    }
-    memset(det_ctx->hsbd_buffers, 0, det_ctx->hsbd_buffers_list_len * sizeof(uint8_t *));
-
-    det_ctx->hsbd_buffers_len = SCMalloc(det_ctx->hsbd_buffers_list_len * sizeof(uint32_t));
-    if (det_ctx->hsbd_buffers_len == NULL) {
-        goto end;
-    }
-    memset(det_ctx->hsbd_buffers_len, 0, det_ctx->hsbd_buffers_list_len * sizeof(uint32_t));
-
-    idx = AppLayerTransactionGetInspectId(f);
+    int idx = AppLayerTransactionGetInspectId(f);
     if (idx == -1) {
         goto end;
     }
+    htp_tx_t *tx = NULL;
 
     int size = (int)list_size(htp_state->connp->conn->transactions);
-    for (; idx < size; idx++, i++) {
-
+    for ( ; idx < size; idx++)
+    {
         tx = list_get(htp_state->connp->conn->transactions, idx);
-        if (tx == NULL)
+        if (tx == NULL || tx->response_message == NULL)
             continue;
 
-        HtpTxUserData *htud = (HtpTxUserData *)htp_tx_get_user_data(tx);
-        if (htud == NULL)
-            continue;
-
-        HtpBodyChunk *cur = htud->response_body.first;
-
-        if (htud->response_body.nchunks == 0) {
-            SCLogDebug("No http chunks to inspect for this transacation");
-            continue;
-        } else {
-            /* no chunks?!! move on to the next transaction */
-            if (cur == NULL) {
-                SCLogDebug("No http chunks to inspect");
-                continue;
-            }
-
-            /* in case of chunked transfer encoding, we don't have the length
-             * of the response body until we see a chunk with length 0.  This
-             * doesn't let us use the response body callback function to
-             * figure out the end of response body.  Instead we do it here.  If
-             * the length is 0, and we have already seen content, it indicates
-             * chunked transfer.  We also check if the parser has truly seen
-             * the last chunk by checking the progress state for the
-             * transaction.  If we are done parsing all the chunks, we would
-             * have it set to something other than TX_PROGRESS_REQ_BODY.
-             * Either ways we should be moving away from buffering in the end
-             * and running content validation on this buffer type of architecture
-             * to a stateful inspection, where we can inspect body chunks as and
-             * when they come */
-            if (htud->response_body.content_len == 0) {
-                if ((htud->response_body.content_len_so_far > 0) &&
-                    tx->progress != TX_PROGRESS_REQ_BODY) {
-                    /* final length of the body */
-                    htud->flags |= HTP_BODY_COMPLETE;
-                }
-            }
-
-            /* inspect the body if the transfer is complete or we have hit
-             * our body size limit */
-            if (!(htud->flags & HTP_BODY_COMPLETE)) {
-                SCLogDebug("we still haven't seen the entire response body.  "
-                        "Let's defer body inspection till we see the "
-                        "entire body.");
-                continue;
-            }
-
-            uint8_t *chunks_buffer = NULL;
-            int32_t chunks_buffer_len = 0;
-            while (cur != NULL) {
-                chunks_buffer_len += cur->len;
-                if ( (chunks_buffer = SCRealloc(chunks_buffer, chunks_buffer_len)) == NULL) {
-                    goto end;
-                }
-
-                memcpy(chunks_buffer + chunks_buffer_len - cur->len, cur->data, cur->len);
-                cur = cur->next;
-            }
-            /* store the buffers.  We will need it for further inspection */
-            det_ctx->hsbd_buffers[i] = chunks_buffer;
-            det_ctx->hsbd_buffers_len[i] = chunks_buffer_len;
-
-        } /* else - if (htud->body.nchunks == 0) */
-    } /* for (idx = AppLayerTransactionGetInspectId(f); .. */
+        cnt += HttpStatMsgPatternSearch(det_ctx,
+                                        (uint8_t *)bstr_ptr(tx->response_message),
+                                        bstr_len(tx->response_message), flags);
+    }
 
 end:
-    return;
+    SCMutexUnlock(&f->m);
+    SCReturnInt(cnt);
 }
-
-int DetectEngineRunHttpServerBodyMpm(DetectEngineCtx *de_ctx,
-                                     DetectEngineThreadCtx *det_ctx, Flow *f,
-                                     HtpState *htp_state, uint8_t flags)
-{
-    int i;
-    uint32_t cnt = 0;
-
-    /* bail before locking if we have nothing to do */
-    if (det_ctx->hsbd_buffers_list_len == 0) {
-        SCMutexLock(&f->m);
-        DetectEngineBufferHttpServerBodies(de_ctx, det_ctx, f, htp_state);
-        SCMutexUnlock(&f->m);
-    }
-
-    for (i = 0; i < det_ctx->hsbd_buffers_list_len; i++) {
-        cnt += HttpServerBodyPatternSearch(det_ctx,
-                                           det_ctx->hsbd_buffers[i],
-                                           det_ctx->hsbd_buffers_len[i],
-                                           flags);
-    }
-
-    return cnt;
-}
-
 
 /**
- * \brief Do the http_server_body content inspection for a signature.
+ * \brief Do the http_stat_msg content inspection for a signature.
  *
  * \param de_ctx  Detection engine context.
  * \param det_ctx Detection engine thread context.
@@ -232,81 +113,75 @@ int DetectEngineRunHttpServerBodyMpm(DetectEngineCtx *de_ctx,
  * \retval 0 No match.
  * \retval 1 Match.
  */
-int DetectEngineInspectHttpServerBody(DetectEngineCtx *de_ctx,
-        DetectEngineThreadCtx *det_ctx, Signature *s, Flow *f, uint8_t flags,
-        void *alstate)
+int DetectEngineInspectHttpStatMsg(DetectEngineCtx *de_ctx,
+                                  DetectEngineThreadCtx *det_ctx,
+                                  Signature *s, Flow *f, uint8_t flags,
+                                  void *alstate)
 {
     SCEnter();
-    int r = 0;
-    int i = 0;
 
-    /* bail before locking if we have nothing to do */
-    if (det_ctx->hsbd_buffers_list_len == 0) {
-        SCMutexLock(&f->m);
-        DetectEngineBufferHttpServerBodies(de_ctx, det_ctx, f, alstate);
-        SCMutexUnlock(&f->m);
+    int r = 0;
+
+    HtpState *htp_state = (HtpState *)alstate;
+    if (htp_state == NULL) {
+        SCLogDebug("no HTTP state");
+        SCReturnInt(0);
     }
 
-    for (i = 0; i < det_ctx->hsbd_buffers_list_len; i++) {
-        uint8_t *hsbd_buffer = det_ctx->hsbd_buffers[i];
-        uint32_t hsbd_buffer_len = det_ctx->hsbd_buffers_len[i];
+    /* locking the flow, we will inspect the htp state */
+    SCMutexLock(&f->m);
 
-        if (hsbd_buffer == NULL)
+    if (htp_state->connp == NULL || htp_state->connp->conn == NULL) {
+        SCLogDebug("HTP state has no conn(p)");
+        goto end;
+    }
+
+#ifdef DEBUG
+    SigMatch *sm = s->sm_lists[DETECT_SM_LIST_HSMDMATCH];
+    DetectContentData *co = (DetectContentData *)sm->ctx;
+    SCLogDebug("co->id %"PRIu32, co->id);
+#endif
+
+    int idx = AppLayerTransactionGetInspectId(f);
+    if (idx == -1) {
+        goto end;
+    }
+
+    htp_tx_t *tx = NULL;
+
+    int size = (int)list_size(htp_state->connp->conn->transactions);
+    for ( ; idx < size; idx++)
+    {
+        tx = list_get(htp_state->connp->conn->transactions, idx);
+        if (tx == NULL || tx->response_message == NULL)
             continue;
 
-        det_ctx->buffer_offset = 0;
         det_ctx->discontinue_matching = 0;
+        det_ctx->buffer_offset = 0;
         det_ctx->inspection_recursion_counter = 0;
 
-        r = DetectEngineContentInspection(de_ctx, det_ctx, s, s->sm_lists[DETECT_SM_LIST_HSBDMATCH],
+        r = DetectEngineContentInspection(de_ctx, det_ctx, s,
+                                          s->sm_lists[DETECT_SM_LIST_HSMDMATCH],
                                           f,
-                                          hsbd_buffer,
-                                          hsbd_buffer_len,
-                                          DETECT_ENGINE_CONTENT_INSPECTION_MODE_HSBD, NULL);
-        //r = DoInspectHttpServerBody(de_ctx, det_ctx, s, s->sm_lists[DETECT_SM_LIST_HSBDMATCH],
-        //hsbd_buffer, hsbd_buffer_len);
+                                          (uint8_t *)bstr_ptr(tx->response_message),
+                                          bstr_len(tx->response_message),
+                                          DETECT_ENGINE_CONTENT_INSPECTION_MODE_HSMD, NULL);
         if (r == 1) {
-            break;
+            goto end;
         }
     }
 
+end:
+    SCMutexUnlock(&f->m);
     SCReturnInt(r);
 }
-
-/**
- * \brief Clean the hsbd buffers.
- *
- * \param det_ctx Pointer to the detection engine thread ctx.
- */
-void DetectEngineCleanHSBDBuffers(DetectEngineThreadCtx *det_ctx)
-{
-    if (det_ctx->hsbd_buffers_list_len != 0) {
-        int i;
-        for (i = 0; i < det_ctx->hsbd_buffers_list_len; i++) {
-            if (det_ctx->hsbd_buffers[i] != NULL)
-                SCFree(det_ctx->hsbd_buffers[i]);
-        }
-        if (det_ctx->hsbd_buffers != NULL) {
-            SCFree(det_ctx->hsbd_buffers);
-            det_ctx->hsbd_buffers = NULL;
-        }
-        if (det_ctx->hsbd_buffers_len != NULL) {
-            SCFree(det_ctx->hsbd_buffers_len);
-            det_ctx->hsbd_buffers_len = NULL;
-        }
-        det_ctx->hsbd_buffers_list_len = 0;
-    }
-
-    return;
-}
-
 
 /***********************************Unittests**********************************/
 
 #ifdef UNITTESTS
 
-static int DetectEngineHttpServerBodyTest01(void)
-{
+static int DetectEngineHttpStatMsgTest01(void)
+ {
     TcpSession ssn;
     Packet *p1 = NULL;
     Packet *p2 = NULL;
@@ -322,7 +197,7 @@ static int DetectEngineHttpServerBodyTest01(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 message\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 7\r\n"
         "\r\n"
@@ -360,8 +235,8 @@ static int DetectEngineHttpServerBodyTest01(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:\"message\"; http_server_body; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:\"message\"; http_stat_msg; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -423,7 +298,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest02(void)
+static int DetectEngineHttpStatMsgTest02(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -439,7 +314,7 @@ static int DetectEngineHttpServerBodyTest02(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 xxxxABC\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 7\r\n"
         "\r\n"
@@ -472,8 +347,8 @@ static int DetectEngineHttpServerBodyTest02(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:\"ABC\"; http_server_body; offset:4; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:\"ABC\"; http_stat_msg; offset:4; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -526,7 +401,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest03(void)
+static int DetectEngineHttpStatMsgTest03(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -544,14 +419,14 @@ static int DetectEngineHttpServerBodyTest03(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 1234567";
+    uint32_t http_len2 = sizeof(http_buf2) - 1;
+    uint8_t http_buf3[] =
+        "8901234ABC\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 17\r\n"
         "\r\n"
-        "1234567";
-    uint32_t http_len2 = sizeof(http_buf2) - 1;
-    uint8_t http_buf3[] =
-        "8901234ABC";
+        "12345678901234ABC";
     uint32_t http_len3 = sizeof(http_buf3) - 1;
 
     memset(&th_v, 0, sizeof(th_v));
@@ -584,8 +459,8 @@ static int DetectEngineHttpServerBodyTest03(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:\"ABC\"; http_server_body; offset:14; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:\"ABC\"; http_stat_msg; offset:14; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -654,7 +529,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest04(void)
+static int DetectEngineHttpStatMsgTest04(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -671,7 +546,7 @@ static int DetectEngineHttpServerBodyTest04(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -709,8 +584,8 @@ static int DetectEngineHttpServerBodyTest04(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:!\"abc\"; http_server_body; offset:3; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:!\"abc\"; http_stat_msg; offset:3; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -772,7 +647,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest05(void)
+static int DetectEngineHttpStatMsgTest05(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -789,7 +664,7 @@ static int DetectEngineHttpServerBodyTest05(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -827,8 +702,8 @@ static int DetectEngineHttpServerBodyTest05(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:\"abc\"; http_server_body; depth:3; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:\"abc\"; http_stat_msg; depth:3; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -890,7 +765,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest06(void)
+static int DetectEngineHttpStatMsgTest06(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -907,7 +782,7 @@ static int DetectEngineHttpServerBodyTest06(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -945,8 +820,8 @@ static int DetectEngineHttpServerBodyTest06(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:!\"def\"; http_server_body; depth:3; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:!\"def\"; http_stat_msg; depth:3; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1008,7 +883,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest07(void)
+static int DetectEngineHttpStatMsgTest07(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -1025,7 +900,7 @@ static int DetectEngineHttpServerBodyTest07(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -1063,8 +938,8 @@ static int DetectEngineHttpServerBodyTest07(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:!\"def\"; http_server_body; offset:3; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:!\"def\"; http_stat_msg; offset:3; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1126,7 +1001,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest08(void)
+static int DetectEngineHttpStatMsgTest08(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -1143,7 +1018,7 @@ static int DetectEngineHttpServerBodyTest08(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -1181,8 +1056,8 @@ static int DetectEngineHttpServerBodyTest08(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:!\"abc\"; http_server_body; depth:3; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:!\"abc\"; http_stat_msg; depth:3; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1244,7 +1119,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest09(void)
+static int DetectEngineHttpStatMsgTest09(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -1261,7 +1136,7 @@ static int DetectEngineHttpServerBodyTest09(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -1299,9 +1174,9 @@ static int DetectEngineHttpServerBodyTest09(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:\"abc\"; http_server_body; depth:3; "
-                               "content:\"def\"; http_server_body; within:3; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:\"abc\"; http_stat_msg; depth:3; "
+                               "content:\"def\"; http_stat_msg; within:3; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1363,7 +1238,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest10(void)
+static int DetectEngineHttpStatMsgTest10(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -1380,7 +1255,7 @@ static int DetectEngineHttpServerBodyTest10(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -1418,9 +1293,9 @@ static int DetectEngineHttpServerBodyTest10(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:\"abc\"; http_server_body; depth:3; "
-                               "content:!\"xyz\"; http_server_body; within:3; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:\"abc\"; http_stat_msg; depth:3; "
+                               "content:!\"xyz\"; http_stat_msg; within:3; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1482,7 +1357,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest11(void)
+static int DetectEngineHttpStatMsgTest11(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -1499,7 +1374,7 @@ static int DetectEngineHttpServerBodyTest11(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -1537,9 +1412,9 @@ static int DetectEngineHttpServerBodyTest11(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:\"abc\"; http_server_body; depth:3; "
-                               "content:\"xyz\"; http_server_body; within:3; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:\"abc\"; http_stat_msg; depth:3; "
+                               "content:\"xyz\"; http_stat_msg; within:3; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1601,7 +1476,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest12(void)
+static int DetectEngineHttpStatMsgTest12(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -1618,7 +1493,7 @@ static int DetectEngineHttpServerBodyTest12(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -1656,9 +1531,9 @@ static int DetectEngineHttpServerBodyTest12(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:\"ab\"; http_server_body; depth:2; "
-                               "content:\"ef\"; http_server_body; distance:2; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:\"ab\"; http_stat_msg; depth:2; "
+                               "content:\"ef\"; http_stat_msg; distance:2; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1720,7 +1595,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest13(void)
+static int DetectEngineHttpStatMsgTest13(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -1737,7 +1612,7 @@ static int DetectEngineHttpServerBodyTest13(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -1775,9 +1650,9 @@ static int DetectEngineHttpServerBodyTest13(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "content:\"ab\"; http_server_body; depth:3; "
-                               "content:!\"yz\"; http_server_body; distance:2; "
+                               "(msg:\"http stat msg test\"; "
+                               "content:\"ab\"; http_stat_msg; depth:3; "
+                               "content:!\"yz\"; http_stat_msg; distance:2; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1839,7 +1714,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest14(void)
+static int DetectEngineHttpStatMsgTest14(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -1856,7 +1731,7 @@ static int DetectEngineHttpServerBodyTest14(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -1894,9 +1769,9 @@ static int DetectEngineHttpServerBodyTest14(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "pcre:/ab/Q; "
-                               "content:\"ef\"; http_server_body; distance:2; "
+                               "(msg:\"http stat msg test\"; "
+                               "pcre:/ab/Y; "
+                               "content:\"ef\"; http_stat_msg; distance:2; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1958,7 +1833,7 @@ end:
     return result;
 }
 
-static int DetectEngineHttpServerBodyTest15(void)
+static int DetectEngineHttpStatMsgTest15(void)
 {
     TcpSession ssn;
     Packet *p1 = NULL;
@@ -1975,7 +1850,7 @@ static int DetectEngineHttpServerBodyTest15(void)
         "\r\n";
     uint32_t http_len1 = sizeof(http_buf1) - 1;
     uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
+        "HTTP/1.0 200 abcdef\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: 6\r\n"
         "\r\n"
@@ -2013,247 +1888,9 @@ static int DetectEngineHttpServerBodyTest15(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "pcre:/abc/Q; "
-                               "content:!\"xyz\"; http_server_body; distance:0; within:3; "
-                               "sid:1;)");
-    if (de_ctx->sig_list == NULL)
-        goto end;
-
-    SigGroupBuild(de_ctx);
-    DetectEngineThreadCtxInit(&th_v, (void *)de_ctx, (void *)&det_ctx);
-
-    int r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER, http_buf1, http_len1);
-    if (r != 0) {
-        printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
-        result = 0;
-        goto end;
-    }
-
-    http_state = f.alstate;
-    if (http_state == NULL) {
-        printf("no http state: \n");
-        result = 0;
-        goto end;
-    }
-
-    /* do detect */
-    SigMatchSignatures(&th_v, de_ctx, det_ctx, p1);
-
-    if (PacketAlertCheck(p1, 1)) {
-        printf("sid 1 matched but shouldn't have: ");
-        goto end;
-    }
-
-    r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOCLIENT, http_buf2, http_len2);
-    if (r != 0) {
-        printf("toserver chunk 1 returned %" PRId32 ", expected 0: \n", r);
-        result = 0;
-        goto end;
-    }
-
-    /* do detect */
-    SigMatchSignatures(&th_v, de_ctx, det_ctx, p2);
-
-    if (!PacketAlertCheck(p2, 1)) {
-        printf("sid 1 did not match but should have: ");
-        goto end;
-    }
-
-    result = 1;
-
-end:
-    if (de_ctx != NULL)
-        SigGroupCleanup(de_ctx);
-    if (de_ctx != NULL)
-        SigCleanSignatures(de_ctx);
-    if (de_ctx != NULL)
-        DetectEngineCtxFree(de_ctx);
-
-    StreamTcpFreeConfig(TRUE);
-    FLOW_DESTROY(&f);
-    UTHFreePackets(&p1, 1);
-    UTHFreePackets(&p2, 1);
-    return result;
-}
-
-static int DetectEngineHttpServerBodyFileDataTest01(void)
-{
-    TcpSession ssn;
-    Packet *p1 = NULL;
-    Packet *p2 = NULL;
-    ThreadVars th_v;
-    DetectEngineCtx *de_ctx = NULL;
-    DetectEngineThreadCtx *det_ctx = NULL;
-    HtpState *http_state = NULL;
-    Flow f;
-    uint8_t http_buf1[] =
-        "GET /index.html HTTP/1.0\r\n"
-        "Host: www.openinfosecfoundation.org\r\n"
-        "User-Agent: Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.1.7) Gecko/20091221 Firefox/3.5.7\r\n"
-        "\r\n";
-    uint32_t http_len1 = sizeof(http_buf1) - 1;
-    uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
-        "Content-Type: text/html\r\n"
-        "Content-Length: 6\r\n"
-        "\r\n"
-        "abcdef";
-    uint32_t http_len2 = sizeof(http_buf2) - 1;
-    int result = 0;
-
-    memset(&th_v, 0, sizeof(th_v));
-    memset(&f, 0, sizeof(f));
-    memset(&ssn, 0, sizeof(ssn));
-
-    p1 = UTHBuildPacket(NULL, 0, IPPROTO_TCP);
-    p2 = UTHBuildPacket(NULL, 0, IPPROTO_TCP);
-
-    FLOW_INITIALIZE(&f);
-    f.protoctx = (void *)&ssn;
-    f.flags |= FLOW_IPV4;
-
-    p1->flow = &f;
-    p1->flowflags |= FLOW_PKT_TOSERVER;
-    p1->flowflags |= FLOW_PKT_ESTABLISHED;
-    p1->flags |= PKT_HAS_FLOW|PKT_STREAM_EST;
-    p2->flow = &f;
-    p2->flowflags |= FLOW_PKT_TOCLIENT;
-    p2->flowflags |= FLOW_PKT_ESTABLISHED;
-    p2->flags |= PKT_HAS_FLOW|PKT_STREAM_EST;
-    f.alproto = ALPROTO_HTTP;
-
-    StreamTcpInitConfig(TRUE);
-
-    de_ctx = DetectEngineCtxInit();
-    if (de_ctx == NULL)
-        goto end;
-
-    de_ctx->flags |= DE_QUIET;
-
-    de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "file_data; pcre:/ab/; "
-                               "content:\"ef\"; distance:2; "
-                               "sid:1;)");
-    if (de_ctx->sig_list == NULL)
-        goto end;
-
-    SigGroupBuild(de_ctx);
-    DetectEngineThreadCtxInit(&th_v, (void *)de_ctx, (void *)&det_ctx);
-
-    int r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER, http_buf1, http_len1);
-    if (r != 0) {
-        printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
-        result = 0;
-        goto end;
-    }
-
-    http_state = f.alstate;
-    if (http_state == NULL) {
-        printf("no http state: \n");
-        result = 0;
-        goto end;
-    }
-
-    /* do detect */
-    SigMatchSignatures(&th_v, de_ctx, det_ctx, p1);
-
-    if (PacketAlertCheck(p1, 1)) {
-        printf("sid 1 matched but shouldn't have: ");
-        goto end;
-    }
-
-    r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOCLIENT, http_buf2, http_len2);
-    if (r != 0) {
-        printf("toserver chunk 1 returned %" PRId32 ", expected 0: \n", r);
-        result = 0;
-        goto end;
-    }
-
-    /* do detect */
-    SigMatchSignatures(&th_v, de_ctx, det_ctx, p2);
-
-    if (!PacketAlertCheck(p2, 1)) {
-        printf("sid 1 did not match but should have: ");
-        goto end;
-    }
-
-    result = 1;
-
-end:
-    if (de_ctx != NULL)
-        SigGroupCleanup(de_ctx);
-    if (de_ctx != NULL)
-        SigCleanSignatures(de_ctx);
-    if (de_ctx != NULL)
-        DetectEngineCtxFree(de_ctx);
-
-    StreamTcpFreeConfig(TRUE);
-    FLOW_DESTROY(&f);
-    UTHFreePackets(&p1, 1);
-    UTHFreePackets(&p2, 1);
-    return result;
-}
-
-static int DetectEngineHttpServerBodyFileDataTest02(void)
-{
-    TcpSession ssn;
-    Packet *p1 = NULL;
-    Packet *p2 = NULL;
-    ThreadVars th_v;
-    DetectEngineCtx *de_ctx = NULL;
-    DetectEngineThreadCtx *det_ctx = NULL;
-    HtpState *http_state = NULL;
-    Flow f;
-    uint8_t http_buf1[] =
-        "GET /index.html HTTP/1.0\r\n"
-        "Host: www.openinfosecfoundation.org\r\n"
-        "User-Agent: Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.1.7) Gecko/20091221 Firefox/3.5.7\r\n"
-        "\r\n";
-    uint32_t http_len1 = sizeof(http_buf1) - 1;
-    uint8_t http_buf2[] =
-        "HTTP/1.0 200 ok\r\n"
-        "Content-Type: text/html\r\n"
-        "Content-Length: 6\r\n"
-        "\r\n"
-        "abcdef";
-    uint32_t http_len2 = sizeof(http_buf2) - 1;
-    int result = 0;
-
-    memset(&th_v, 0, sizeof(th_v));
-    memset(&f, 0, sizeof(f));
-    memset(&ssn, 0, sizeof(ssn));
-
-    p1 = UTHBuildPacket(NULL, 0, IPPROTO_TCP);
-    p2 = UTHBuildPacket(NULL, 0, IPPROTO_TCP);
-
-    FLOW_INITIALIZE(&f);
-    f.protoctx = (void *)&ssn;
-    f.flags |= FLOW_IPV4;
-
-    p1->flow = &f;
-    p1->flowflags |= FLOW_PKT_TOSERVER;
-    p1->flowflags |= FLOW_PKT_ESTABLISHED;
-    p1->flags |= PKT_HAS_FLOW|PKT_STREAM_EST;
-    p2->flow = &f;
-    p2->flowflags |= FLOW_PKT_TOCLIENT;
-    p2->flowflags |= FLOW_PKT_ESTABLISHED;
-    p2->flags |= PKT_HAS_FLOW|PKT_STREAM_EST;
-    f.alproto = ALPROTO_HTTP;
-
-    StreamTcpInitConfig(TRUE);
-
-    de_ctx = DetectEngineCtxInit();
-    if (de_ctx == NULL)
-        goto end;
-
-    de_ctx->flags |= DE_QUIET;
-
-    de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http server body test\"; "
-                               "file_data; pcre:/abc/; "
-                               "content:!\"xyz\"; distance:0; within:3; "
+                               "(msg:\"http stat msg test\"; "
+                               "pcre:/abc/Y; "
+                               "content:!\"xyz\"; http_stat_msg; distance:0; within:3; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -2317,49 +1954,45 @@ end:
 
 #endif /* UNITTESTS */
 
-void DetectEngineHttpServerBodyRegisterTests(void)
+void DetectEngineHttpStatMsgRegisterTests(void)
 {
 
 #ifdef UNITTESTS
-    UtRegisterTest("DetectEngineHttpServerBodyTest01",
-                   DetectEngineHttpServerBodyTest01, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest02",
-                   DetectEngineHttpServerBodyTest02, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest03",
-                   DetectEngineHttpServerBodyTest03, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest04",
-                   DetectEngineHttpServerBodyTest04, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest05",
-                   DetectEngineHttpServerBodyTest05, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest06",
-                   DetectEngineHttpServerBodyTest06, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest07",
-                   DetectEngineHttpServerBodyTest07, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest08",
-                   DetectEngineHttpServerBodyTest08, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest09",
-                   DetectEngineHttpServerBodyTest09, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest10",
-                   DetectEngineHttpServerBodyTest10, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest11",
-                   DetectEngineHttpServerBodyTest11, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest12",
-                   DetectEngineHttpServerBodyTest12, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest13",
-                   DetectEngineHttpServerBodyTest13, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest14",
-                   DetectEngineHttpServerBodyTest14, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyTest15",
-                   DetectEngineHttpServerBodyTest15, 1);
-
-    UtRegisterTest("DetectEngineHttpServerBodyFileDataTest01",
-                   DetectEngineHttpServerBodyFileDataTest01, 1);
-    UtRegisterTest("DetectEngineHttpServerBodyFileDataTest02",
-                   DetectEngineHttpServerBodyFileDataTest02, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest01",
+                   DetectEngineHttpStatMsgTest01, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest02",
+                   DetectEngineHttpStatMsgTest02, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest03",
+                   DetectEngineHttpStatMsgTest03, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest04",
+                   DetectEngineHttpStatMsgTest04, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest05",
+                   DetectEngineHttpStatMsgTest05, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest06",
+                   DetectEngineHttpStatMsgTest06, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest07",
+                   DetectEngineHttpStatMsgTest07, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest08",
+                   DetectEngineHttpStatMsgTest08, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest09",
+                   DetectEngineHttpStatMsgTest09, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest10",
+                   DetectEngineHttpStatMsgTest10, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest11",
+                   DetectEngineHttpStatMsgTest11, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest12",
+                   DetectEngineHttpStatMsgTest12, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest13",
+                   DetectEngineHttpStatMsgTest13, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest14",
+                   DetectEngineHttpStatMsgTest14, 1);
+    UtRegisterTest("DetectEngineHttpStatMsgTest15",
+                   DetectEngineHttpStatMsgTest15, 1);
 #endif /* UNITTESTS */
 
     return;
 }
+
 /**
  * @}
  */

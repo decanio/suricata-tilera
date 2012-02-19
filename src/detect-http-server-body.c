@@ -102,7 +102,8 @@ int DetectHttpServerBodySetup(DetectEngineCtx *de_ctx, Signature *s, char *arg)
         return -1;
     }
 
-    sm = DetectContentGetLastPattern(s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
+    sm =  SigMatchGetLastSMFromLists(s, 2,
+                                     DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
     /* if still we are unable to find any content previous keywords, it is an
      * invalid rule */
     if (sm == NULL) {
@@ -163,7 +164,7 @@ int DetectHttpServerBodySetup(DetectEngineCtx *de_ctx, Signature *s, char *arg)
             tmp_cd->flags |= DETECT_CONTENT_RELATIVE_NEXT;
         }
     }
-    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_AL_HTTP_SERVER_BODY);
+    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_SM_LIST_HSBDMATCH);
     sm->type = DETECT_AL_HTTP_SERVER_BODY;
 
     /* transfer the sm from the pmatch list to hsbdmatch list */
@@ -2460,7 +2461,7 @@ int DetectHttpServerBodyTest34(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(pcre:/one/S; "
+                               "(pcre:/one/Q; "
                                "content:\"two\"; within:5; http_server_body; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
@@ -2512,7 +2513,7 @@ int DetectHttpServerBodyTest35(void)
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
                                "(content:\"two\"; http_server_body; "
-                               "pcre:/one/SR; sid:1;)");
+                               "pcre:/one/QR; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");
         goto end;
@@ -2562,7 +2563,7 @@ int DetectHttpServerBodyTest36(void)
 
     de_ctx->flags |= DE_QUIET;
     de_ctx->sig_list = SigInit(de_ctx, "alert icmp any any -> any any "
-                               "(pcre:/one/S; "
+                               "(pcre:/one/Q; "
                                "content:\"two\"; distance:5; http_server_body; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         printf("de_ctx->sig_list == NULL\n");

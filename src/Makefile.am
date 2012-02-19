@@ -77,6 +77,7 @@ detect-engine-port.c detect-engine-port.h \
 detect-engine-siggroup.c detect-engine-siggroup.h \
 detect-engine-mpm.c detect-engine-mpm.h \
 detect-engine-iponly.c detect-engine-iponly.h \
+detect-engine-content-inspection.c detect-engine-content-inspection.h \
 detect-engine-payload.c detect-engine-payload.h \
 detect-engine-dcepayload.c detect-engine-dcepayload.h \
 detect-engine-uri.c detect-engine-uri.h \
@@ -87,6 +88,8 @@ detect-engine-hrhd.c detect-engine-hrhd.h \
 detect-engine-hmd.c detect-engine-hmd.h \
 detect-engine-hcd.c detect-engine-hcd.h \
 detect-engine-hrud.c detect-engine-hrud.h \
+detect-engine-hsmd.c detect-engine-hsmd.h \
+detect-engine-hscd.c detect-engine-hscd.h \
 detect-engine-state.c detect-engine-state.h \
 detect-engine-file.c detect-engine-file.h \
 detect-parse.c detect-parse.h \
@@ -102,7 +105,6 @@ detect-pcre.c detect-pcre.h \
 detect-depth.c detect-depth.h \
 detect-nocase.c detect-nocase.h \
 detect-fast-pattern.c detect-fast-pattern.h \
-detect-recursive.c detect-recursive.h \
 detect-rawbytes.c detect-rawbytes.h \
 detect-bytetest.c detect-bytetest.h \
 detect-bytejump.c detect-bytejump.h \

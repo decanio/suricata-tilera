@@ -15,17 +15,20 @@
  * 02110-1301, USA.
  */
 
-/**
- * \file
+/** \file
  *
- * \author Victor Julien <victor@inliniac.net>
+ * \author Anoop Saldanha <anoopsaldanha@gmail.com>
  */
 
-#ifndef __DETECT_RECURSIVE_H__
-#define __DETECT_RECURSIVE_H__
+#ifndef __DETECT_ENGINE_HSCD_H__
+#define __DETECT_ENGINE_HSCD_H__
 
-/* prototypes */
-void DetectRecursiveRegister (void);
+#include "app-layer-htp.h"
 
-#endif /* __DETECT_RECURSIVE_H__ */
+int DetectEngineRunHttpStatCodeMpm(DetectEngineThreadCtx *,
+                                   Flow *f, HtpState *, uint8_t);
+int DetectEngineInspectHttpStatCode(DetectEngineCtx *, DetectEngineThreadCtx *,
+                                    Signature *, Flow *, uint8_t, void *);
+void DetectEngineHttpStatCodeRegisterTests(void);
 
+#endif /* __DETECT_ENGINE_HSCD_H__ */

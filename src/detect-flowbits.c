@@ -257,14 +257,14 @@ int DetectFlowbitSetup (DetectEngineCtx *de_ctx, Signature *s, char *rawstr)
         case DETECT_FLOWBITS_CMD_ISNOTSET:
         case DETECT_FLOWBITS_CMD_ISSET:
             /* checks, so packet list */
-            SigMatchAppendPacket(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_MATCH);
             break;
 
         case DETECT_FLOWBITS_CMD_SET:
         case DETECT_FLOWBITS_CMD_UNSET:
         case DETECT_FLOWBITS_CMD_TOGGLE:
             /* modifiers, only run when entire sig has matched */
-            SigMatchAppendPostMatch(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_POSTMATCH);
             break;
     }
 

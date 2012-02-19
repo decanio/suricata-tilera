@@ -93,24 +93,6 @@ void DetectPcreRegister (void) {
 
     sigmatch_table[DETECT_PCRE].flags |= SIGMATCH_PAYLOAD;
 
-    sigmatch_table[DETECT_PCRE_HTTPCOOKIE].name = "__pcre_http_cookie__"; /* not a real keyword */
-    sigmatch_table[DETECT_PCRE_HTTPCOOKIE].Match = NULL;
-    sigmatch_table[DETECT_PCRE_HTTPCOOKIE].AppLayerMatch = DetectPcreALMatchCookie;
-    sigmatch_table[DETECT_PCRE_HTTPCOOKIE].alproto = ALPROTO_HTTP;
-    sigmatch_table[DETECT_PCRE_HTTPCOOKIE].Setup = NULL;
-    sigmatch_table[DETECT_PCRE_HTTPCOOKIE].Free  = DetectPcreFree;
-    sigmatch_table[DETECT_PCRE_HTTPCOOKIE].RegisterTests  = NULL;
-    sigmatch_table[DETECT_PCRE_HTTPCOOKIE].flags |= SIGMATCH_PAYLOAD;
-
-    sigmatch_table[DETECT_PCRE_HTTPMETHOD].name = "__pcre_http_method__"; /* not a real keyword */
-    sigmatch_table[DETECT_PCRE_HTTPMETHOD].Match = NULL;
-    sigmatch_table[DETECT_PCRE_HTTPMETHOD].AppLayerMatch = DetectPcreALMatchMethod;
-    sigmatch_table[DETECT_PCRE_HTTPMETHOD].alproto = ALPROTO_HTTP;
-    sigmatch_table[DETECT_PCRE_HTTPMETHOD].Setup = NULL;
-    sigmatch_table[DETECT_PCRE_HTTPMETHOD].Free  = DetectPcreFree;
-    sigmatch_table[DETECT_PCRE_HTTPMETHOD].RegisterTests  = NULL;
-    sigmatch_table[DETECT_PCRE_HTTPMETHOD].flags |= SIGMATCH_PAYLOAD;
-
     const char *eb;
     int eo;
     int opts = 0;
@@ -490,12 +472,9 @@ int DetectPcrePayloadMatch(DetectEngineThreadCtx *det_ctx, Signature *s,
     //if (pe->flags & DETECT_PCRE_HTTP_BODY_AL)
     //    SCReturnInt(0);
 
-    if (s->flags & SIG_FLAG_RECURSIVE) {
-        ptr = payload + det_ctx->payload_offset;
-        len = payload_len - det_ctx->payload_offset;
-    } else if (pe->flags & DETECT_PCRE_RELATIVE) {
-        ptr = payload + det_ctx->payload_offset;
-        len = payload_len - det_ctx->payload_offset;
+    if (pe->flags & DETECT_PCRE_RELATIVE) {
+        ptr = payload + det_ctx->buffer_offset;
+        len = payload_len - det_ctx->buffer_offset;
     } else {
         ptr = payload;
         len = payload_len;
@@ -546,7 +525,7 @@ int DetectPcrePayloadMatch(DetectEngineThreadCtx *det_ctx, Signature *s,
             }
 
             /* update offset for pcre RELATIVE */
-            det_ctx->payload_offset = (ptr + ov[1]) - payload;
+            det_ctx->buffer_offset = (ptr + ov[1]) - payload;
             det_ctx->pcre_match_start_offset = (ptr + ov[0] + 1) - payload;
 
             ret = 1;
@@ -587,12 +566,9 @@ int DetectPcrePacketPayloadMatch(DetectEngineThreadCtx *det_ctx, Packet *p, Sign
     if (pe->flags & DETECT_PCRE_HTTP_CLIENT_BODY)
         SCReturnInt(0);
 
-    if (s->flags & SIG_FLAG_RECURSIVE) {
-        ptr = p->payload + det_ctx->payload_offset;
-        len = p->payload_len - det_ctx->payload_offset;
-    } else if (pe->flags & DETECT_PCRE_RELATIVE) {
-        ptr = p->payload + det_ctx->payload_offset;
-        len = p->payload_len - det_ctx->payload_offset;
+    if (pe->flags & DETECT_PCRE_RELATIVE) {
+        ptr = p->payload + det_ctx->buffer_offset;
+        len = p->payload_len - det_ctx->buffer_offset;
         if (ptr == NULL || len == 0)
             SCReturnInt(0);
     } else {
@@ -635,7 +611,7 @@ int DetectPcrePacketPayloadMatch(DetectEngineThreadCtx *det_ctx, Packet *p, Sign
             }
 
             /* update offset for pcre RELATIVE */
-            det_ctx->payload_offset = (ptr+ov[1]) - p->payload;
+            det_ctx->buffer_offset = (ptr+ov[1]) - p->payload;
 
             ret = 1;
         }
@@ -680,12 +656,9 @@ int DetectPcrePayloadDoMatch(DetectEngineThreadCtx *det_ctx, Signature *s,
     if (pe->flags & DETECT_PCRE_HTTP_CLIENT_BODY)
         SCReturnInt(0);
 
-    if (s->flags & SIG_FLAG_RECURSIVE) {
-        ptr = data + det_ctx->payload_offset;
-        len = data_len - det_ctx->payload_offset;
-    } else if (pe->flags & DETECT_PCRE_RELATIVE) {
-        ptr = data + det_ctx->payload_offset;
-        len = data_len - det_ctx->payload_offset;
+    if (pe->flags & DETECT_PCRE_RELATIVE) {
+        ptr = data + det_ctx->buffer_offset;
+        len = data_len - det_ctx->buffer_offset;
         if (ptr == NULL || len == 0)
             SCReturnInt(0);
     } else {
@@ -728,7 +701,7 @@ int DetectPcrePayloadDoMatch(DetectEngineThreadCtx *det_ctx, Signature *s,
             }
 
             /* update offset for pcre RELATIVE */
-            det_ctx->payload_offset = (ptr + ov[1]) - data;
+            det_ctx->buffer_offset = (ptr + ov[1]) - data;
 
             ret = 1;
         }
@@ -898,9 +871,17 @@ DetectPcreData *DetectPcreParse (char *regexstr)
                     /* snort's option (http request body inspection) */
                     pd->flags |= DETECT_PCRE_HTTP_CLIENT_BODY;
                     break;
-                case 'S':
+                case 'Q':
                     /* suricata extension (http response body inspection) */
                     pd->flags |= DETECT_PCRE_HTTP_SERVER_BODY;
+                    break;
+                case 'Y':
+                    /* snort's option */
+                    pd->flags |= DETECT_PCRE_HTTP_STAT_MSG;
+                    break;
+                case 'S':
+                    /* snort's option */
+                    pd->flags |= DETECT_PCRE_HTTP_STAT_CODE;
                     break;
                 default:
                     SCLogError(SC_ERR_UNKNOWN_REGEX_MOD, "unknown regex modifier '%c'", *op);
@@ -1070,6 +1051,8 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
                  (pd->flags & DETECT_PCRE_HEADER) ||
                  (pd->flags & DETECT_PCRE_RAW_HEADER) ||
                  (pd->flags & DETECT_PCRE_COOKIE) ||
+                 (pd->flags & DETECT_PCRE_HTTP_STAT_MSG) ||
+                 (pd->flags & DETECT_PCRE_HTTP_STAT_CODE) ||
                  (pd->flags & DETECT_PCRE_HTTP_CLIENT_BODY) ||
                  (pd->flags & DETECT_PCRE_HTTP_SERVER_BODY) ||
                  (pd->flags & DETECT_PCRE_HTTP_RAW_URI) ) {
@@ -1097,36 +1080,42 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
     if (pd->flags & DETECT_PCRE_HEADER) {
         SCLogDebug("Header inspection modifier set");
         s->flags |= SIG_FLAG_APPLAYER;
+        s->alproto = ALPROTO_HTTP;
 
         SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HHDMATCH);
     } else if (pd->flags & DETECT_PCRE_RAW_HEADER) {
         SCLogDebug("Raw header inspection modifier set");
         s->flags |= SIG_FLAG_APPLAYER;
+        s->alproto = ALPROTO_HTTP;
 
         SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HRHDMATCH);
     } else if (pd->flags & DETECT_PCRE_COOKIE) {
-        sm->type = DETECT_PCRE_HTTPCOOKIE;
+        //sm->type = DETECT_PCRE_HTTPCOOKIE;
 
         SCLogDebug("Cookie inspection modifier set");
         s->flags |= SIG_FLAG_APPLAYER;
+        s->alproto = ALPROTO_HTTP;
 
         SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HCDMATCH);
     } else if (pd->flags & DETECT_PCRE_METHOD) {
-        sm->type = DETECT_PCRE_HTTPMETHOD;
+        //sm->type = DETECT_PCRE_HTTPMETHOD;
 
         SCLogDebug("Method inspection modifier set");
         s->flags |= SIG_FLAG_APPLAYER;
+        s->alproto = ALPROTO_HTTP;
 
         SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HMDMATCH);
     } else if (pd->flags & DETECT_PCRE_HTTP_CLIENT_BODY) {
         SCLogDebug("Request body inspection modifier set");
         s->flags |= SIG_FLAG_APPLAYER;
+        s->alproto = ALPROTO_HTTP;
         AppLayerHtpEnableRequestBodyCallback();
 
         SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HCBDMATCH);
     } else if (pd->flags & DETECT_PCRE_HTTP_SERVER_BODY) {
         SCLogDebug("Response body inspection modifier set");
         s->flags |= SIG_FLAG_APPLAYER;
+        s->alproto = ALPROTO_HTTP;
         AppLayerHtpEnableResponseBodyCallback();
 
         SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HSBDMATCH);
@@ -1141,7 +1130,7 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
 
         s->alproto = ALPROTO_HTTP;
 
-        SigMatchAppendUricontent(s, sm);
+        SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_UMATCH);
     } else if (pd->flags & DETECT_PCRE_HTTP_RAW_URI) {
         s->flags |= SIG_FLAG_APPLAYER;
         if (s->alproto != ALPROTO_UNKNOWN && s->alproto != ALPROTO_HTTP) {
@@ -1152,6 +1141,26 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
         s->alproto = ALPROTO_HTTP;
 
         SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HRUDMATCH);
+    } else if (pd->flags & DETECT_PCRE_HTTP_STAT_MSG) {
+        s->flags |= SIG_FLAG_APPLAYER;
+        if (s->alproto != ALPROTO_UNKNOWN && s->alproto != ALPROTO_HTTP) {
+            SCLogError(SC_ERR_CONFLICTING_RULE_KEYWORDS, "rule contains conflicting"
+                       " keywords.");
+            goto error;
+        }
+        s->alproto = ALPROTO_HTTP;
+
+        SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HSMDMATCH);
+    } else if (pd->flags & DETECT_PCRE_HTTP_STAT_CODE) {
+        s->flags |= SIG_FLAG_APPLAYER;
+        if (s->alproto != ALPROTO_UNKNOWN && s->alproto != ALPROTO_HTTP) {
+            SCLogError(SC_ERR_CONFLICTING_RULE_KEYWORDS, "rule contains conflicting"
+                       " keywords.");
+            goto error;
+        }
+        s->alproto = ALPROTO_HTTP;
+
+        SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HSCDMATCH);
     } else {
         if (s->alproto == ALPROTO_DCERPC && pd->flags & DETECT_PCRE_RELATIVE) {
             SigMatch *pm = NULL;
@@ -1167,13 +1176,13 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
                     DETECT_BYTEJUMP, s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
 
             if (pm == NULL) {
-                SigMatchAppendDcePayload(s, sm);
+                SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
             } else if (dm == NULL) {
-                SigMatchAppendDcePayload(s, sm);
+                SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
             } else if (pm->idx > dm->idx) {
-                SigMatchAppendPayload(s, sm);
+                SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_PMATCH);
             } else {
-                SigMatchAppendDcePayload(s, sm);
+                SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
             }
         } else {
             if (s->init_flags & SIG_FLAG_INIT_FILE_DATA) {
@@ -1183,7 +1192,7 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
 
                 SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HSBDMATCH);
             } else {
-                SigMatchAppendPayload(s, sm);
+                SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_PMATCH);
             }
         }
     }
@@ -1203,8 +1212,8 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
             DETECT_AL_HTTP_COOKIE, sm->prev,
             DETECT_AL_HTTP_METHOD, sm->prev,
             DETECT_PCRE, sm->prev,
-            DETECT_PCRE_HTTPCOOKIE, sm->prev,
-            DETECT_PCRE_HTTPMETHOD, sm->prev);
+            DETECT_AL_HTTP_STAT_MSG, sm->prev,
+            DETECT_AL_HTTP_STAT_CODE, sm->prev);
     if (prev_sm == NULL) {
         if (s->alproto == ALPROTO_DCERPC) {
             SCLogDebug("No preceding content or pcre keyword.  Possible "
@@ -1233,6 +1242,8 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
         case DETECT_AL_HTTP_SERVER_BODY:
         case DETECT_AL_HTTP_HEADER:
         case DETECT_AL_HTTP_RAW_HEADER:
+        case DETECT_AL_HTTP_STAT_MSG:
+        case DETECT_AL_HTTP_STAT_CODE:
         case DETECT_AL_HTTP_RAW_URI:
         case DETECT_AL_HTTP_COOKIE:
         case DETECT_AL_HTTP_METHOD:
@@ -1247,8 +1258,6 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
             break;
 
         case DETECT_PCRE:
-        case DETECT_PCRE_HTTPCOOKIE:
-        case DETECT_PCRE_HTTPMETHOD:
             pe = (DetectPcreData *) prev_sm->ctx;
             if (pe == NULL) {
                 SCLogError(SC_ERR_INVALID_SIGNATURE, "pcre not setup properly");

@@ -148,29 +148,6 @@ SigTableElmt *SigTableGet(char *name) {
 }
 
 /**
- * \brief append a app layer SigMatch to the Signature structure
- * \param s pointer to the Signature
- * \param new pointer to the SigMatch of type uricontent to be appended
- */
-void SigMatchAppendAppLayer(Signature *s, SigMatch *new) {
-    if (s->sm_lists[DETECT_SM_LIST_AMATCH] == NULL) {
-        s->sm_lists[DETECT_SM_LIST_AMATCH] = new;
-        s->sm_lists_tail[DETECT_SM_LIST_AMATCH] = new;
-        new->next = NULL;
-        new->prev = NULL;
-    } else {
-        SigMatch *cur = s->sm_lists_tail[DETECT_SM_LIST_AMATCH];
-        cur->next = new;
-        new->prev = cur;
-        new->next = NULL;
-        s->sm_lists_tail[DETECT_SM_LIST_AMATCH] = new;
-    }
-
-    new->idx = s->sm_cnt;
-    s->sm_cnt++;
-}
-
-/**
  * \brief Append a SigMatch to the list type.
  *
  * \param s    Signature.
@@ -196,95 +173,6 @@ void SigMatchAppendSMToList(Signature *s, SigMatch *new, int list)
     s->sm_cnt++;
 }
 
-/**
- * \brief append a SigMatch of type uricontent to the Signature structure
- * \param s pointer to the Signature
- * \param new pointer to the SigMatch of type uricontent to be appended
- */
-void SigMatchAppendUricontent(Signature *s, SigMatch *new) {
-    if (s->sm_lists[DETECT_SM_LIST_UMATCH] == NULL) {
-        s->sm_lists[DETECT_SM_LIST_UMATCH] = new;
-        s->sm_lists_tail[DETECT_SM_LIST_UMATCH] = new;
-        new->next = NULL;
-        new->prev = NULL;
-    } else {
-        SigMatch *cur = s->sm_lists_tail[DETECT_SM_LIST_UMATCH];
-        cur->next = new;
-        new->prev = cur;
-        new->next = NULL;
-        s->sm_lists_tail[DETECT_SM_LIST_UMATCH] = new;
-    }
-
-    new->idx = s->sm_cnt;
-    s->sm_cnt++;
-}
-
-void SigMatchAppendPayload(Signature *s, SigMatch *new) {
-    if (s->sm_lists[DETECT_SM_LIST_PMATCH] == NULL) {
-        s->sm_lists[DETECT_SM_LIST_PMATCH] = new;
-        s->sm_lists_tail[DETECT_SM_LIST_PMATCH] = new;
-        new->next = NULL;
-        new->prev = NULL;
-    } else {
-        SigMatch *cur = s->sm_lists_tail[DETECT_SM_LIST_PMATCH];
-        cur->next = new;
-        new->prev = cur;
-        new->next = NULL;
-        s->sm_lists_tail[DETECT_SM_LIST_PMATCH] = new;
-    }
-
-    new->idx = s->sm_cnt;
-    s->sm_cnt++;
-}
-
-void SigMatchAppendDcePayload(Signature *s, SigMatch *new) {
-    SCLogDebug("Append SigMatch against s->sm_lists[DETECT_SM_LIST_DMATCH](dce) list");
-    if (s->sm_lists[DETECT_SM_LIST_DMATCH] == NULL) {
-        s->sm_lists[DETECT_SM_LIST_DMATCH] = new;
-        s->sm_lists_tail[DETECT_SM_LIST_DMATCH] = new;
-        new->next = NULL;
-        new->prev = NULL;
-    } else {
-        SigMatch *cur = s->sm_lists_tail[DETECT_SM_LIST_DMATCH];
-        cur->next = new;
-        new->prev = cur;
-        new->next = NULL;
-        s->sm_lists_tail[DETECT_SM_LIST_DMATCH] = new;
-    }
-
-    new->idx = s->sm_cnt;
-    s->sm_cnt++;
-
-    return;
-}
-
-/** \brief Append a sig match to the signatures tag match list
- *         This is done on other list because the tag keyword
- *         should be always the last inspected (never ordered)
- *
- *  \param s signature
- *  \param new sigmatch to append
- */
-void SigMatchAppendTag(Signature *s, SigMatch *new) {
-    if (s->sm_lists[DETECT_SM_LIST_TMATCH] == NULL) {
-        s->sm_lists[DETECT_SM_LIST_TMATCH] = new;
-        s->sm_lists_tail[DETECT_SM_LIST_TMATCH] = new;
-        new->next = NULL;
-        new->prev = NULL;
-    } else {
-        SigMatch *cur = s->sm_lists_tail[DETECT_SM_LIST_TMATCH];
-        cur->next = new;
-        new->prev = cur;
-        new->next = NULL;
-        s->sm_lists_tail[DETECT_SM_LIST_TMATCH] = new;
-    }
-
-    new->idx = s->sm_cnt;
-    s->sm_cnt++;
-
-    return;
-}
-
 void SigMatchRemoveSMFromList(Signature *s, SigMatch *sm, int sm_list)
 {
     if (sm == s->sm_lists[sm_list]) {
@@ -301,224 +189,6 @@ void SigMatchRemoveSMFromList(Signature *s, SigMatch *sm, int sm_list)
     return;
 }
 
-/** \brief Append a sig match to the signatures non-payload match list
- *
- *  \param s signature
- *  \param new sigmatch to append
- */
-void SigMatchAppendPacket(Signature *s, SigMatch *new) {
-    if (s->sm_lists[DETECT_SM_LIST_MATCH] == NULL) {
-        s->sm_lists[DETECT_SM_LIST_MATCH] = new;
-        s->sm_lists_tail[DETECT_SM_LIST_MATCH] = new;
-        new->next = NULL;
-        new->prev = NULL;
-    } else {
-        SigMatch *cur = s->sm_lists[DETECT_SM_LIST_MATCH];
-
-        for ( ; cur->next != NULL; cur = cur->next);
-
-        cur->next = new;
-        new->next = NULL;
-        new->prev = cur;
-        s->sm_lists_tail[DETECT_SM_LIST_MATCH] = new;
-    }
-
-    new->idx = s->sm_cnt;
-    s->sm_cnt++;
-}
-
-/** \brief Append a sig match to the signatures threshold list
- *
- *  \param s signature
- *  \param new sigmatch to append
- */
-void SigMatchAppendThreshold(Signature *s, SigMatch *new) {
-    SigMatchAppendSMToList(s, new, DETECT_SM_LIST_THRESHOLD);
-}
-
-/** \brief Append a sig match to the signatures post-match list
- *
- *  \param s signature
- *  \param new sigmatch to append
- */
-void SigMatchAppendPostMatch(Signature *s, SigMatch *new) {
-    if (s->sm_lists[DETECT_SM_LIST_POSTMATCH] == NULL) {
-        s->sm_lists[DETECT_SM_LIST_POSTMATCH] = new;
-        s->sm_lists_tail[DETECT_SM_LIST_POSTMATCH] = new;
-        new->next = NULL;
-        new->prev = NULL;
-    } else {
-        SigMatch *cur = s->sm_lists[DETECT_SM_LIST_POSTMATCH];
-
-        for ( ; cur->next != NULL; cur = cur->next);
-
-        cur->next = new;
-        new->next = NULL;
-        new->prev = cur;
-        s->sm_lists_tail[DETECT_SM_LIST_POSTMATCH] = new;
-    }
-
-    new->idx = s->sm_cnt;
-    s->sm_cnt++;
-}
-
-/** \brief Pull a content 'old' from the pmatch list, append 'new' to amatch list.
-  * Used for replacing contents that have http_cookie, etc modifiers.
-  */
-void SigMatchReplaceContent(Signature *s, SigMatch *old, SigMatch *new) {
-    BUG_ON(old == NULL);
-
-    SigMatch *m = s->sm_lists[DETECT_SM_LIST_PMATCH];
-    SigMatch *pm = m;
-
-    for ( ; m != NULL; m = m->next) {
-        if (m == old) {
-            if (m == s->sm_lists[DETECT_SM_LIST_PMATCH]) {
-                s->sm_lists[DETECT_SM_LIST_PMATCH] = m->next;
-                if (m->next != NULL) {
-                    m->next->prev = NULL;
-                }
-            } else {
-                pm->next = m->next;
-                if (m->next != NULL) {
-                    m->next->prev = pm;
-                }
-            }
-
-            if (m == s->sm_lists_tail[DETECT_SM_LIST_PMATCH]) {
-                if (pm == m) {
-                    s->sm_lists_tail[DETECT_SM_LIST_PMATCH] = NULL;
-                } else {
-                    s->sm_lists_tail[DETECT_SM_LIST_PMATCH] = pm;
-                }
-            }
-
-            //printf("m %p  s->sm_lists[DETECT_SM_LIST_PMATCH] %p s->sm_lists_tail[DETECT_SM_LIST_PMATCH] %p\n", m, s->sm_lists[DETECT_SM_LIST_PMATCH], s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
-            break;
-        }
-
-        pm = m;
-    }
-
-    /* finally append the "new" sig match to the app layer list */
-    /** \todo if the app layer gets it's own list, adapt this code */
-    if (s->sm_lists[DETECT_SM_LIST_AMATCH] == NULL) {
-        s->sm_lists[DETECT_SM_LIST_AMATCH] = new;
-        s->sm_lists_tail[DETECT_SM_LIST_AMATCH] = new;
-        new->next = NULL;
-        new->prev = NULL;
-    } else {
-        SigMatch *cur = s->sm_lists[DETECT_SM_LIST_AMATCH];
-
-        for ( ; cur->next != NULL; cur = cur->next);
-
-        cur->next = new;
-        new->next = NULL;
-        new->prev = cur;
-        s->sm_lists_tail[DETECT_SM_LIST_AMATCH] = new;
-    }
-
-    /* move over the idx */
-    if (pm != NULL)
-        new->idx = pm->idx;
-}
-
-/**
- *  \brief Pull a content 'old' from the pmatch list, append 'new' to umatch list.
- *
- *  Used for replacing contents that have the http_uri modifier that need to be
- *  moved to the uri inspection list.
- */
-void SigMatchReplaceContentToUricontent(Signature *s, SigMatch *old, SigMatch *new) {
-    BUG_ON(old == NULL);
-
-    SigMatch *m = s->sm_lists[DETECT_SM_LIST_PMATCH];
-    SigMatch *pm = m;
-
-    for ( ; m != NULL; m = m->next) {
-        if (m == old) {
-            if (m == s->sm_lists[DETECT_SM_LIST_PMATCH]) {
-                s->sm_lists[DETECT_SM_LIST_PMATCH] = m->next;
-                if (m->next != NULL) {
-                    m->next->prev = NULL;
-                }
-            } else {
-                pm->next = m->next;
-                if (m->next != NULL) {
-                    m->next->prev = pm;
-                }
-            }
-
-            if (m == s->sm_lists_tail[DETECT_SM_LIST_PMATCH]) {
-                if (pm == m) {
-                    s->sm_lists_tail[DETECT_SM_LIST_PMATCH] = NULL;
-                } else {
-                    s->sm_lists_tail[DETECT_SM_LIST_PMATCH] = pm;
-                }
-            }
-
-            //printf("m %p  s->sm_lists[DETECT_SM_LIST_PMATCH] %p s->sm_lists_tail[DETECT_SM_LIST_PMATCH] %p\n", m, s->sm_lists[DETECT_SM_LIST_PMATCH], s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
-            break;
-        }
-
-        pm = m;
-    }
-
-    /* finally append the "new" sig match to the app layer list */
-    /** \todo if the app layer gets it's own list, adapt this code */
-    if (s->sm_lists[DETECT_SM_LIST_UMATCH] == NULL) {
-        s->sm_lists[DETECT_SM_LIST_UMATCH] = new;
-        s->sm_lists_tail[DETECT_SM_LIST_UMATCH] = new;
-        new->next = NULL;
-        new->prev = NULL;
-    } else {
-        SigMatch *cur = s->sm_lists[DETECT_SM_LIST_UMATCH];
-
-        for ( ; cur->next != NULL; cur = cur->next);
-
-        cur->next = new;
-        new->next = NULL;
-        new->prev = cur;
-        s->sm_lists_tail[DETECT_SM_LIST_UMATCH] = new;
-    }
-
-    /* move over the idx */
-    if (pm != NULL)
-        new->idx = pm->idx;
-}
-
-/**
- * \brief Replaces the old sigmatch with the new sigmatch in the current
- *        signature.
- *
- * \param s     pointer to the current signature
- * \param m     pointer to the old sigmatch
- * \param new   pointer to the new sigmatch, which will replace m
- */
-void SigMatchReplace(Signature *s, SigMatch *m, SigMatch *new) {
-    if (s->sm_lists[DETECT_SM_LIST_MATCH] == NULL) {
-        s->sm_lists[DETECT_SM_LIST_MATCH] = new;
-        return;
-    }
-
-    if (m == NULL) {
-        s->sm_lists[DETECT_SM_LIST_MATCH] = new;
-    } else if (m->prev == NULL) {
-        if (m->next != NULL) {
-            m->next->prev = new;
-            new->next = m->next;
-        }
-        s->sm_lists[DETECT_SM_LIST_MATCH] = new;
-    } else {
-        m->prev->next = new;
-        new->prev = m->prev;
-        if (m->next != NULL) {
-            m->next->prev = new;
-            new->next = m->next;
-        }
-    }
-}
-
 /**
  * \brief Returns a pointer to the last SigMatch instance of a particular type
  *        in a Signature of the payload list.
@@ -528,7 +198,7 @@ void SigMatchReplace(Signature *s, SigMatch *m, SigMatch *new) {
  *
  * \retval match Pointer to the last SigMatch instance of type 'type'.
  */
-SigMatch *SigMatchGetLastSM(SigMatch *sm, uint8_t type)
+static inline SigMatch *SigMatchGetLastSM(SigMatch *sm, uint8_t type)
 {
     while (sm != NULL) {
         if (sm->type == type) {
@@ -1425,6 +1095,8 @@ static int SigValidate(Signature *s) {
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HHDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HRHDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH],
+                DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HSMDMATCH],
+                DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HSCDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH]);
         if (pm != NULL) {
             SCLogError(SC_ERR_INVALID_SIGNATURE, "Signature has"
@@ -1441,6 +1113,8 @@ static int SigValidate(Signature *s) {
                 s->sm_lists_tail[DETECT_SM_LIST_HHDMATCH]  ||
                 s->sm_lists_tail[DETECT_SM_LIST_HRHDMATCH] ||
                 s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH]  ||
+                s->sm_lists_tail[DETECT_SM_LIST_HSMDMATCH] ||
+                s->sm_lists_tail[DETECT_SM_LIST_HSCDMATCH] ||
                 s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH])
         {
             SCLogError(SC_ERR_INVALID_SIGNATURE, "Signature combines packet "
@@ -1566,6 +1240,10 @@ static Signature *SigInitHelper(DetectEngineCtx *de_ctx, char *sigstr,
     if (sig->sm_lists[DETECT_SM_LIST_HRUDMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
     if (sig->sm_lists[DETECT_SM_LIST_FILEMATCH])
+        sig->flags |= SIG_FLAG_STATE_MATCH;
+    if (sig->sm_lists[DETECT_SM_LIST_HSMDMATCH])
+        sig->flags |= SIG_FLAG_STATE_MATCH;
+    if (sig->sm_lists[DETECT_SM_LIST_HSCDMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
 
     if (!(sig->init_flags & SIG_FLAG_INIT_FLOW)) {

@@ -152,11 +152,11 @@ int DetectByteExtractDoMatch(DetectEngineThreadCtx *det_ctx, SigMatch *sm,
      * the packet from that point.
      */
     if (data->flags & DETECT_BYTE_EXTRACT_FLAG_RELATIVE) {
-        SCLogDebug("relative, working with det_ctx->payload_offset %"PRIu32", "
-                   "data->offset %"PRIu32"", det_ctx->payload_offset, data->offset);
+        SCLogDebug("relative, working with det_ctx->buffer_offset %"PRIu32", "
+                   "data->offset %"PRIu32"", det_ctx->buffer_offset, data->offset);
 
-        ptr = payload + det_ctx->payload_offset;
-        len = payload_len - det_ctx->payload_offset;
+        ptr = payload + det_ctx->buffer_offset;
+        len = payload_len - det_ctx->buffer_offset;
 
         /* No match if there is no relative base */
         if (len == 0) {
@@ -217,7 +217,7 @@ int DetectByteExtractDoMatch(DetectEngineThreadCtx *det_ctx, SigMatch *sm,
 
     ptr += extbytes;
 
-    det_ctx->payload_offset = ptr - payload;
+    det_ctx->buffer_offset = ptr - payload;
 
     *value = val;
 
@@ -615,13 +615,13 @@ int DetectByteExtractSetup(DetectEngineCtx *de_ctx, Signature *s, char *arg)
                                         DETECT_BYTEJUMP, s->sm_lists_tail[DETECT_SM_LIST_DMATCH]);
 
         if (pm == NULL) {
-            SigMatchAppendDcePayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
         } else if (dm == NULL) {
-            SigMatchAppendDcePayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
         } else if (pm->idx > dm->idx) {
-            SigMatchAppendPayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_PMATCH);
         } else {
-            SigMatchAppendDcePayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
         }
     } else {
         if (data->flags & DETECT_BYTE_EXTRACT_FLAG_RELATIVE) {
@@ -649,11 +649,11 @@ int DetectByteExtractSetup(DetectEngineCtx *de_ctx, Signature *s, char *arg)
             }
             int list = SigMatchListSMBelongsTo(s, pm);
             if (list == DETECT_SM_LIST_UMATCH)
-                SigMatchAppendUricontent(s,sm);
+                SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_UMATCH);
             else
-                SigMatchAppendPayload(s, sm);
+                SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_PMATCH);
         } else {
-            SigMatchAppendPayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_PMATCH);
         }
     }
 

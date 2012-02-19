@@ -97,7 +97,8 @@ static int DetectHttpUriSetup (DetectEngineCtx *de_ctx, Signature *s, char *str)
         return -1;
     }
 
-    sm = DetectContentGetLastPattern(s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
+    sm =  SigMatchGetLastSMFromLists(s, 2,
+                                     DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
     if (sm == NULL) {
         SCLogError(SC_ERR_INVALID_SIGNATURE, "\"http_uri\" keyword "
                    "found inside the rule without a content context.  "
@@ -149,7 +150,7 @@ static int DetectHttpUriSetup (DetectEngineCtx *de_ctx, Signature *s, char *str)
         DetectContentData *tmp_cd = (DetectContentData *)pm->ctx;
         tmp_cd->flags |= DETECT_CONTENT_RELATIVE_NEXT;
     }
-    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_URICONTENT);
+    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_SM_LIST_UMATCH);
     sm->type = DETECT_URICONTENT;
 
     /* transfer the sm from the pmatch list to hcbdmatch list */

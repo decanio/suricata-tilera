@@ -122,7 +122,8 @@ static int DetectHttpCookieSetup (DetectEngineCtx *de_ctx, Signature *s, char *s
         return -1;
     }
 
-    sm = DetectContentGetLastPattern(s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
+    sm =  SigMatchGetLastSMFromLists(s, 2,
+                                     DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
     if (sm == NULL) {
         SCLogWarning(SC_ERR_HTTP_COOKIE_NEEDS_PRECEEDING_CONTENT, "http_cookie "
                 "found inside the rule, without a content context.  Please use a "
@@ -148,7 +149,7 @@ static int DetectHttpCookieSetup (DetectEngineCtx *de_ctx, Signature *s, char *s
     if (cd->flags & DETECT_CONTENT_WITHIN || cd->flags & DETECT_CONTENT_DISTANCE) {
         SigMatch *pm =  SigMatchGetLastSMFromLists(s, 4,
                                                    DETECT_CONTENT, sm->prev,
-                                                   DETECT_PCRE_HTTPCOOKIE, sm->prev);
+                                                   DETECT_PCRE, sm->prev);
         if (pm != NULL) {
             /* pm is never NULL.  So no NULL check */
             if (pm->type == DETECT_CONTENT) {
@@ -164,7 +165,7 @@ static int DetectHttpCookieSetup (DetectEngineCtx *de_ctx, Signature *s, char *s
         pm = SigMatchGetLastSMFromLists(s, 4,
                                         DETECT_AL_HTTP_COOKIE,
                                         s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH],
-                                        DETECT_PCRE_HTTPCOOKIE,
+                                        DETECT_PCRE,
                                         s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH]);
         if (pm == NULL) {
             SCLogError(SC_ERR_HTTP_COOKIE_RELATIVE_MISSING, "http_cookie with "
@@ -180,7 +181,7 @@ static int DetectHttpCookieSetup (DetectEngineCtx *de_ctx, Signature *s, char *s
             tmp_cd->flags |= DETECT_CONTENT_RELATIVE_NEXT;
         }
     }
-    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_AL_HTTP_COOKIE);
+    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_SM_LIST_HCDMATCH);
     sm->type = DETECT_AL_HTTP_COOKIE;
 
     /* transfer the sm from the pmatch list to hcdmatch list */

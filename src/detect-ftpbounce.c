@@ -208,7 +208,8 @@ int DetectFtpbounceMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
     if (!(PKT_IS_TCP(p)))
         return 0;
 
-    SigMatch *sm = SigMatchGetLastSM(s->sm_lists_tail[DETECT_SM_LIST_PMATCH], DETECT_CONTENT);
+    SigMatch *sm = SigMatchGetLastSMFromLists(s, 2,
+                                              DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
     if (sm == NULL)
         return 0;
 
@@ -265,7 +266,7 @@ int DetectFtpbounceSetup(DetectEngineCtx *de_ctx, Signature *s, char *ftpbounces
     */
     sm->ctx = NULL;
 
-    SigMatchAppendAppLayer(s, sm);
+    SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_AMATCH);
 
     if (s->alproto != ALPROTO_UNKNOWN && s->alproto != ALPROTO_FTP) {
         SCLogError(SC_ERR_CONFLICTING_RULE_KEYWORDS, "rule contains conflicting keywords.");

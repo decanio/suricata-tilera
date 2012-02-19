@@ -126,8 +126,8 @@ int DetectBytejumpDoMatch(DetectEngineThreadCtx *det_ctx, Signature *s,
      * the packet from that point.
      */
     if (flags & DETECT_BYTEJUMP_RELATIVE) {
-        ptr = payload + det_ctx->payload_offset;
-        len = payload_len - det_ctx->payload_offset;
+        ptr = payload + det_ctx->buffer_offset;
+        len = payload_len - det_ctx->buffer_offset;
 
         /* No match if there is no relative base */
         if (ptr == NULL || len == 0) {
@@ -211,7 +211,7 @@ int DetectBytejumpDoMatch(DetectEngineThreadCtx *det_ctx, Signature *s,
 #endif /* DEBUG */
 
     /* Adjust the detection context to the jump location. */
-    det_ctx->payload_offset = jumpptr - payload;
+    det_ctx->buffer_offset = jumpptr - payload;
 
     SCReturnInt(1);
 }
@@ -234,8 +234,8 @@ int DetectBytejumpMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
      * the packet from that point.
      */
     if (data->flags & DETECT_BYTEJUMP_RELATIVE) {
-        ptr = p->payload + det_ctx->payload_offset;
-        len = p->payload_len - det_ctx->payload_offset;
+        ptr = p->payload + det_ctx->buffer_offset;
+        len = p->payload_len - det_ctx->buffer_offset;
 
         /* No match if there is no relative base */
         if (ptr == NULL || len == 0) {
@@ -320,7 +320,7 @@ int DetectBytejumpMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 #endif /* DEBUG */
 
     /* Adjust the detection context to the jump location. */
-    det_ctx->payload_offset = jumpptr - p->payload;
+    det_ctx->buffer_offset = jumpptr - p->payload;
 
     return 1;
 }
@@ -596,16 +596,16 @@ int DetectBytejumpSetup(DetectEngineCtx *de_ctx, Signature *s, char *optstr)
                                         DETECT_BYTEJUMP, s->sm_lists_tail[DETECT_SM_LIST_DMATCH]);
 
         if (pm == NULL) {
-            SigMatchAppendDcePayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
         } else if (dm == NULL) {
-            SigMatchAppendDcePayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
         } else if (pm->idx > dm->idx) {
-            SigMatchAppendPayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_PMATCH);
         } else {
-            SigMatchAppendDcePayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
         }
     } else {
-        SigMatchAppendPayload(s, sm);
+        SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_PMATCH);
     }
 
     if (offset != NULL) {

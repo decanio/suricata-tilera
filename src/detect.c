@@ -65,7 +65,6 @@
 #include "detect-pcre.h"
 #include "detect-depth.h"
 #include "detect-nocase.h"
-#include "detect-recursive.h"
 #include "detect-rawbytes.h"
 #include "detect-bytetest.h"
 #include "detect-bytejump.h"
@@ -128,6 +127,8 @@
 #include "detect-engine-hmd.h"
 #include "detect-engine-hcd.h"
 #include "detect-engine-hrud.h"
+#include "detect-engine-hsmd.h"
+#include "detect-engine-hscd.h"
 #include "detect-byte-extract.h"
 #include "detect-file-data.h"
 #include "detect-replace.h"
@@ -173,6 +174,7 @@
 #include "util-validate.h"
 #include "util-optimize.h"
 #include "util-vector.h"
+#include "util-path.h"
 
 extern uint8_t engine_mode;
 
@@ -210,17 +212,18 @@ void DetectExitPrintStats(ThreadVars *tv, void *data) {
         return;
 }
 
-/** \brief Create the path if default-rule-path was specified
+/**
+ *  \brief Create the path if default-rule-path was specified
  *  \param sig_file The name of the file
  *  \retval str Pointer to the string path + sig_file
- *  \retval 0 ok
  */
 char *DetectLoadCompleteSigPath(char *sig_file)
 {
     char *defaultpath = NULL;
     char *path = NULL;
+
     /* Path not specified */
-    if (index(sig_file, '/') == NULL) {
+    if (PathIsRelative(sig_file)) {
         if (ConfGet("default-rule-path", &defaultpath) == 1) {
             SCLogDebug("Default path: %s", defaultpath);
             size_t path_len = sizeof(char) * (strlen(defaultpath) +
@@ -1208,6 +1211,16 @@ static inline void DetectMpmPrefilter(DetectEngineCtx *de_ctx,
                 DetectEngineRunHttpRawUriMpm(det_ctx, p->flow, alstate, flags);
                 PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HRUD);
             }
+            if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSMD) {
+                PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HSMD);
+                DetectEngineRunHttpStatMsgMpm(det_ctx, p->flow, alstate, flags);
+                PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HSMD);
+            }
+            if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSCD) {
+                PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HSCD);
+                DetectEngineRunHttpStatCodeMpm(det_ctx, p->flow, alstate, flags);
+                PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HSCD);
+            }
         }
     } else {
         SCLogDebug("NOT p->flowflags & FLOW_PKT_ESTABLISHED");
@@ -1944,6 +1957,12 @@ int SignatureIsIPOnly(DetectEngineCtx *de_ctx, Signature *s) {
     if (s->sm_lists[DETECT_SM_LIST_HRUDMATCH] != NULL)
         return 0;
 
+    if (s->sm_lists[DETECT_SM_LIST_HSMDMATCH] != NULL)
+        return 0;
+
+    if (s->sm_lists[DETECT_SM_LIST_HSCDMATCH] != NULL)
+        return 0;
+
     if (s->sm_lists[DETECT_SM_LIST_AMATCH] != NULL)
         return 0;
 
@@ -2022,6 +2041,8 @@ static int SignatureIsDEOnly(DetectEngineCtx *de_ctx, Signature *s) {
         s->sm_lists[DETECT_SM_LIST_HRHDMATCH] != NULL ||
         s->sm_lists[DETECT_SM_LIST_HMDMATCH]  != NULL ||
         s->sm_lists[DETECT_SM_LIST_HCDMATCH]  != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HSMDMATCH] != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HSCDMATCH] != NULL ||
         s->sm_lists[DETECT_SM_LIST_HRUDMATCH] != NULL)
     {
         SCReturnInt(0);
@@ -2163,6 +2184,16 @@ static int SignatureCreateMask(Signature *s) {
         SCLogDebug("sig requires http app state");
     }
 
+    if (s->sm_lists[DETECT_SM_LIST_HSMDMATCH] != NULL) {
+        s->mask |= SIG_MASK_REQUIRE_HTTP_STATE;
+        SCLogDebug("sig requires http app state");
+    }
+
+    if (s->sm_lists[DETECT_SM_LIST_HSCDMATCH] != NULL) {
+        s->mask |= SIG_MASK_REQUIRE_HTTP_STATE;
+        SCLogDebug("sig requires http app state");
+    }
+
     SigMatch *sm;
     for (sm = s->sm_lists[DETECT_SM_LIST_AMATCH] ; sm != NULL; sm = sm->next) {
         switch(sm->type) {
@@ -2174,10 +2205,6 @@ static int SignatureCreateMask(Signature *s) {
             case DETECT_AL_HTTP_RAW_HEADER:
             case DETECT_AL_HTTP_URI:
             case DETECT_AL_HTTP_RAW_URI:
-            case DETECT_PCRE_HTTPBODY:
-            case DETECT_PCRE_HTTPCOOKIE:
-            case DETECT_PCRE_HTTPHEADER:
-            case DETECT_PCRE_HTTPMETHOD:
                 s->mask |= SIG_MASK_REQUIRE_HTTP_STATE;
                 SCLogDebug("sig requires dce http state");
                 break;
@@ -2323,6 +2350,12 @@ static void SigInitStandardMpmFactoryContexts(DetectEngineCtx *de_ctx)
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_hrud =
         MpmFactoryRegisterMpmCtxProfile("hrud",
+                                        MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
+    de_ctx->sgh_mpm_context_hsmd =
+        MpmFactoryRegisterMpmCtxProfile("hsmd",
+                                        MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
+    de_ctx->sgh_mpm_context_hscd =
+        MpmFactoryRegisterMpmCtxProfile("hscd",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_app_proto_detect =
         MpmFactoryRegisterMpmCtxProfile("app_proto_detect", 0);
@@ -4359,6 +4392,30 @@ int SigGroupBuild (DetectEngineCtx *de_ctx) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("stream- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hsmd, 0);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("hsmd- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hsmd, 1);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("hsmd- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hscd, 0);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("hscd- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hscd, 1);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("hscd- %d\n", mpm_ctx->pattern_cnt);
     }
 
 //    SigAddressPrepareStage5(de_ctx);
@@ -4375,12 +4432,22 @@ int SigGroupCleanup (DetectEngineCtx *de_ctx) {
     return 0;
 }
 
+void SigTableList(void)
+{
+    size_t size = sizeof(sigmatch_table) / sizeof(SigTableElmt);
+
+    size_t i;
+    printf("=====Supported keywords=====\n");
+    for (i = 0; i < size; i++) {
+        if (sigmatch_table[i].name != NULL)
+            printf("- %s\n", sigmatch_table[i].name);
+    }
+
+    return;
+}
+
 void SigTableSetup(void) {
     memset(sigmatch_table, 0, sizeof(sigmatch_table));
-
-    DetectAddressRegister();
-    DetectProtoRegister();
-    DetectPortRegister();
 
     DetectSidRegister();
     DetectPriorityRegister();
@@ -4398,7 +4465,6 @@ void SigTableSetup(void) {
     DetectPcreRegister();
     DetectDepthRegister();
     DetectNocaseRegister();
-    DetectRecursiveRegister();
     DetectRawbytesRegister();
     DetectBytetestRegister();
     DetectBytejumpRegister();
@@ -4571,7 +4637,7 @@ static int SigTest01Real (int mpm_type) {
     Packet *p = UTHBuildPacket( buf, buflen, IPPROTO_TCP);
     int result = 0;
 
-    char sig[] = "alert tcp any any -> any any (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; recursive; sid:1;)";
+    char sig[] = "alert tcp any any -> any any (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; sid:1;)";
     if (UTHPacketMatchSigMpm(p, sig, mpm_type) == 0) {
         result = 0;
         goto end;
@@ -4857,7 +4923,7 @@ static int SigTest06Real (int mpm_type) {
     de_ctx->mpm_matcher = mpm_type;
     de_ctx->flags |= DE_QUIET;
 
-    de_ctx->sig_list = SigInit(de_ctx,"alert tcp any any -> any any (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; recursive; sid:1;)");
+    de_ctx->sig_list = SigInit(de_ctx,"alert tcp any any -> any any (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         result = 0;
         goto end;
@@ -4950,7 +5016,7 @@ static int SigTest07Real (int mpm_type) {
     de_ctx->mpm_matcher = mpm_type;
     de_ctx->flags |= DE_QUIET;
 
-    de_ctx->sig_list = SigInit(de_ctx,"alert tcp any any -> any any (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; recursive; sid:1;)");
+    de_ctx->sig_list = SigInit(de_ctx,"alert tcp any any -> any any (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         result = 0;
         goto end;
@@ -8593,7 +8659,7 @@ static int SigTestMemory01 (void) {
 
     de_ctx->flags |= DE_QUIET;
 
-    de_ctx->sig_list = SigInit(de_ctx,"alert tcp any any -> any any (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; recursive; sid:1;)");
+    de_ctx->sig_list = SigInit(de_ctx,"alert tcp any any -> any any (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         result = 0;
         goto end;
@@ -8634,12 +8700,12 @@ static int SigTestMemory02 (void) {
     }
     de_ctx->flags |= DE_QUIET;
 
-    de_ctx->sig_list = SigInit(de_ctx,"alert tcp any any -> any 456 (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; recursive; sid:1;)");
+    de_ctx->sig_list = SigInit(de_ctx,"alert tcp any any -> any 456 (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         result = 0;
         goto end;
     }
-    de_ctx->sig_list->next = SigInit(de_ctx,"alert tcp any any -> any 1:1000 (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; recursive; sid:2;)");
+    de_ctx->sig_list->next = SigInit(de_ctx,"alert tcp any any -> any 1:1000 (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; sid:2;)");
     if (de_ctx->sig_list->next == NULL) {
         result = 0;
         goto end;
@@ -8677,17 +8743,17 @@ static int SigTestMemory03 (void) {
     }
     de_ctx->flags |= DE_QUIET;
 
-    de_ctx->sig_list = SigInit(de_ctx,"alert tcp any any -> 1.2.3.4 456 (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; recursive; sid:1;)");
+    de_ctx->sig_list = SigInit(de_ctx,"alert tcp any any -> 1.2.3.4 456 (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; sid:1;)");
     if (de_ctx->sig_list == NULL) {
         result = 0;
         goto end;
     }
-    de_ctx->sig_list->next = SigInit(de_ctx,"alert tcp any any -> 1.2.3.3-1.2.3.6 1:1000 (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; recursive; sid:2;)");
+    de_ctx->sig_list->next = SigInit(de_ctx,"alert tcp any any -> 1.2.3.3-1.2.3.6 1:1000 (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; sid:2;)");
     if (de_ctx->sig_list->next == NULL) {
         result = 0;
         goto end;
     }
-    de_ctx->sig_list->next->next = SigInit(de_ctx,"alert tcp any any -> !1.2.3.5 1:990 (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; recursive; sid:3;)");
+    de_ctx->sig_list->next->next = SigInit(de_ctx,"alert tcp any any -> !1.2.3.5 1:990 (msg:\"HTTP URI cap\"; content:\"GET \"; depth:4; pcre:\"/GET (?P<pkt_http_uri>.*) HTTP\\/\\d\\.\\d\\r\\n/G\"; sid:3;)");
     if (de_ctx->sig_list->next->next == NULL) {
         result = 0;
         goto end;

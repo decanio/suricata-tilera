@@ -107,7 +107,8 @@ static int DetectHttpMethodSetup(DetectEngineCtx *de_ctx, Signature *s, char *st
         SCReturnInt(-1);
     }
 
-    SigMatch *sm = DetectContentGetLastPattern(s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
+    SigMatch *sm =  SigMatchGetLastSMFromLists(s, 2,
+                                               DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
     if (sm == NULL) {
         SCLogError(SC_ERR_HTTP_METHOD_NEEDS_PRECEEDING_CONTENT, "http_method "
                 "modifies preceeding \"content\", but none was found");
@@ -131,7 +132,7 @@ static int DetectHttpMethodSetup(DetectEngineCtx *de_ctx, Signature *s, char *st
     if (cd->flags & DETECT_CONTENT_WITHIN || cd->flags & DETECT_CONTENT_DISTANCE) {
         SigMatch *pm =  SigMatchGetLastSMFromLists(s, 4,
                                                    DETECT_CONTENT, sm->prev,
-                                                   DETECT_PCRE_HTTPMETHOD, sm->prev);
+                                                   DETECT_PCRE, sm->prev);
         if (pm != NULL) {
             /* pm is never NULL.  So no NULL check */
             if (pm->type == DETECT_CONTENT) {
@@ -147,7 +148,7 @@ static int DetectHttpMethodSetup(DetectEngineCtx *de_ctx, Signature *s, char *st
         pm = SigMatchGetLastSMFromLists(s, 4,
                                         DETECT_AL_HTTP_METHOD,
                                         s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH],
-                                        DETECT_PCRE_HTTPMETHOD,
+                                        DETECT_PCRE,
                                         s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH]);
         if (pm == NULL) {
             SCLogError(SC_ERR_HTTP_METHOD_RELATIVE_MISSING, "http_method with "
@@ -155,7 +156,7 @@ static int DetectHttpMethodSetup(DetectEngineCtx *de_ctx, Signature *s, char *st
                     "content, but none was found");
             goto error;
         }
-        if (pm->type == DETECT_PCRE_HTTPMETHOD) {
+        if (pm->type == DETECT_PCRE) {
             DetectPcreData *tmp_pd = (DetectPcreData *)pm->ctx;
             tmp_pd->flags |= DETECT_PCRE_RELATIVE_NEXT;
         } else {
@@ -163,7 +164,7 @@ static int DetectHttpMethodSetup(DetectEngineCtx *de_ctx, Signature *s, char *st
             tmp_cd->flags |= DETECT_CONTENT_RELATIVE_NEXT;
         }
     }
-    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_AL_HTTP_METHOD);
+    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_SM_LIST_HMDMATCH);
     sm->type = DETECT_AL_HTTP_METHOD;
 
     /* transfer the sm from the pmatch list to hmdmatch list */

@@ -123,7 +123,8 @@ int DetectHttpRawHeaderSetup(DetectEngineCtx *de_ctx, Signature *s, char *arg)
         return -1;
     }
 
-    sm = DetectContentGetLastPattern(s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
+    sm =  SigMatchGetLastSMFromLists(s, 2,
+                                     DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
     /* if still we are unable to find any previous content keywords, it is an
      * invalid rule */
     if (sm == NULL) {
@@ -184,7 +185,7 @@ int DetectHttpRawHeaderSetup(DetectEngineCtx *de_ctx, Signature *s, char *arg)
             tmp_cd->flags |= DETECT_CONTENT_RELATIVE_NEXT;
         }
     }
-    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_AL_HTTP_RAW_HEADER);
+    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_SM_LIST_HRUDMATCH);
     sm->type = DETECT_AL_HTTP_RAW_HEADER;
 
     /* transfer the sm from the pmatch list to hrhdmatch list */

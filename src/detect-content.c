@@ -352,105 +352,6 @@ void DetectContentPrint(DetectContentData *cd)
 }
 
 /**
- * \brief Search the next applicable DETECT_CONTENT SigMatch
-          (includes the current sm)
- *
- * \param sm pointer to the current SigMatch of a parsing process
- *
- * \retval null if no applicable DetectContent was found
- * \retval pointer to the SigMatch next DETECT_CONTENT SigMatch
- */
-SigMatch *DetectContentFindNextApplicableSM(SigMatch *sm)
-{
-    if (sm == NULL)
-        return NULL;
-    while ( sm != NULL && sm->type != DETECT_CONTENT)
-        sm = sm->next;
-
-    return sm;
-}
-
-/**
- * \brief Helper function to determine if there are patterns before this one,
- *        this is used before installing a new within or distance modifier
- *        because if this return NULL, it will never match!
- *
- * \param sm pointer to the current SigMatch of a parsing process
- *
- * \retval null if no applicable SigMatch pattern was found
- * \retval pointer to the SigMatch that has the previous SigMatch
- *                 of type DetectContent
- *
- * \todo: should we add here DETECT_PCRE, DETECT_URI_CONTENT, etc?
- */
-SigMatch *DetectContentHasPrevSMPattern(SigMatch *sm)
-{
-    if (sm == NULL)
-        return NULL;
-
-    /* the current SM doesn't apply */
-    sm = sm->prev;
-    while (sm != NULL && sm->type != DETECT_CONTENT)
-        sm = sm->prev;
-    return sm;
-}
-
-/**
- * \brief Search the first DETECT_CONTENT
- * \retval pointer to the SigMatch holding the DetectContent
- * \param sm pointer to the current SigMatch of a parsing process
- * \retval null if no applicable DetectContent was found
- * \retval pointer to the SigMatch that has the previous SigMatch
- *                 of type DetectContent
- */
-SigMatch *DetectContentGetLastPattern(SigMatch *sm)
-{
-    if (sm == NULL)
-        return NULL;
-    while (sm != NULL && sm->type != DETECT_CONTENT)
-        sm = sm->prev;
-
-    if (sm == NULL)
-        return NULL;
-
-    DetectContentData *cd = (DetectContentData*) sm->ctx;
-    if (cd == NULL)
-        return NULL;
-
-    return sm;
-}
-
-/** \brief get the last pattern sigmatch, content or uricontent
- *
- *  \param s signature
- *
- *  \retval sm sigmatch of either content or uricontent that is the last
- *             or NULL if none was found
- */
-SigMatch *SigMatchGetLastPattern(Signature *s) {
-    SCEnter();
-
-    BUG_ON(s == NULL);
-
-    SigMatch *co_sm = DetectContentGetLastPattern(s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
-    SigMatch *ur_sm = SigMatchGetLastSM(s->sm_lists_tail[DETECT_SM_LIST_UMATCH], DETECT_URICONTENT);
-    SigMatch *sm = NULL;
-
-    if (co_sm != NULL && ur_sm != NULL) {
-        if (co_sm->idx > ur_sm->idx)
-            sm = co_sm;
-        else
-            sm = ur_sm;
-    } else if (co_sm != NULL) {
-        sm = co_sm;
-    } else if (ur_sm != NULL) {
-        sm = ur_sm;
-    }
-
-    SCReturnPtr(sm, "SigMatch");
-}
-
-/**
  * \brief Print list of DETECT_CONTENT SigMatch's allocated in a
  * SigMatch list, from the current sm to the end
  * \param sm pointer to the current SigMatch to start printing from
@@ -501,14 +402,14 @@ static int DetectContentSetup (DetectEngineCtx *de_ctx, Signature *s, char *cont
 
     sm->type = DETECT_CONTENT;
     sm->ctx = (void *)cd;
-    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_CONTENT);
+    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_SM_LIST_PMATCH);
 
     DetectContentPrint(cd);
 
-    SigMatchAppendPayload(s, sm);
+    SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_PMATCH);
 
     if (s->init_flags & SIG_FLAG_INIT_FILE_DATA) {
-        cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_AL_HTTP_SERVER_BODY);
+        cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_SM_LIST_HSBDMATCH);
         sm->type = DETECT_AL_HTTP_SERVER_BODY;
 
         /* transfer the sm from the pmatch list to hsbdmatch list */

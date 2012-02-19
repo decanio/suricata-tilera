@@ -130,11 +130,11 @@ int DetectBytetestDoMatch(DetectEngineThreadCtx *det_ctx, Signature *s, SigMatch
      * the packet from that point.
      */
     if (flags & DETECT_BYTETEST_RELATIVE) {
-        SCLogDebug("relative, working with det_ctx->payload_offset %"PRIu32", "
-                   "data->offset %"PRIu32"", det_ctx->payload_offset, data->offset);
+        SCLogDebug("relative, working with det_ctx->buffer_offset %"PRIu32", "
+                   "data->offset %"PRIu32"", det_ctx->buffer_offset, data->offset);
 
-        ptr = payload + det_ctx->payload_offset;
-        len = payload_len - det_ctx->payload_offset;
+        ptr = payload + det_ctx->buffer_offset;
+        len = payload_len - det_ctx->buffer_offset;
 
         /* No match if there is no relative base */
         if (ptr == NULL || len == 0) {
@@ -520,16 +520,16 @@ int DetectBytetestSetup(DetectEngineCtx *de_ctx, Signature *s, char *optstr)
                 DETECT_BYTEJUMP, s->sm_lists_tail[DETECT_SM_LIST_DMATCH]);
 
         if (pm == NULL) {
-            SigMatchAppendDcePayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
         } else if (dm == NULL) {
-            SigMatchAppendDcePayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
         } else if (pm->idx > dm->idx) {
-            SigMatchAppendPayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_PMATCH);
         } else {
-            SigMatchAppendDcePayload(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_DMATCH);
         }
     } else {
-        SigMatchAppendPayload(s, sm);
+        SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_PMATCH);
     }
 
     if (value != NULL) {

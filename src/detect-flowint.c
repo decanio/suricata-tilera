@@ -379,7 +379,7 @@ static int DetectFlowintSetup(DetectEngineCtx *de_ctx, Signature *s, char *rawst
         case FLOWINT_MODIFIER_SET:
         case FLOWINT_MODIFIER_ADD:
         case FLOWINT_MODIFIER_SUB:
-            SigMatchAppendPostMatch(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_POSTMATCH);
             break;
 
         case FLOWINT_MODIFIER_LT:
@@ -390,7 +390,7 @@ static int DetectFlowintSetup(DetectEngineCtx *de_ctx, Signature *s, char *rawst
         case FLOWINT_MODIFIER_GT:
         case FLOWINT_MODIFIER_ISSET:
         case FLOWINT_MODIFIER_NOTSET:
-            SigMatchAppendPacket(s, sm);
+            SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_MATCH);
             break;
     }
 
