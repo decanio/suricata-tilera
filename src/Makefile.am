@@ -14,6 +14,7 @@ runmode-nfq.c runmode-nfq.h \
 runmode-ipfw.c runmode-ipfw.h \
 runmode-erf-file.c runmode-erf-file.h \
 runmode-erf-dag.c runmode-erf-dag.h \
+runmode-napatech.c runmode-napatech.h \
 runmode-af-packet.c runmode-af-packet.h \
 runmode-tile.c runmode-tile.h \
 packet-queue.c packet-queue.h \
@@ -26,6 +27,7 @@ source-pfring.c source-pfring.h \
 source-ipfw.c source-ipfw.h \
 source-erf-file.c source-erf-file.h \
 source-erf-dag.c source-erf-dag.h \
+source-napatech.c source-napatech.h \
 source-af-packet.c source-af-packet.h \
 source-mpipe.c source-mpipe.h \
 source-netio.c source-netio.h \
@@ -188,6 +190,7 @@ util-mpm-b2gm.c util-mpm-b2gm.h \
 util-mpm-ac.c util-mpm-ac.h \
 util-mpm-acc.c util-mpm-acch \
 util-mpm-ac-gfbs.c util-mpm-ac-gfbs.h \
+util-mpm-ac-bs.c util-mpm-ac-bs.h \
 util-cidr.c util-cidr.h \
 util-unittest.c util-unittest.h \
 util-unittest-helper.c util-unittest-helper.h \

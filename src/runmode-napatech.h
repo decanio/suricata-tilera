@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2010 Open Information Security Foundation
+/* Copyright (C) 2011 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -15,21 +15,20 @@
  * 02110-1301, USA.
  */
 
-/**
- * \file
+/** \file
  *
- * \author Anoop Saldanha <anoopsaldanha@gmail.com>
+ *  \author Randy Caldejon <randy@packetchaser.org>
  */
 
-#ifndef __DETECT_ENGINE_HRUD_H__
-#define __DETECT_ENGINE_HRUD_H__
+#ifndef __RUNMODE_NAPATECH_H__
+#define __RUNMODE_NAPATECH_H__
 
-#include "app-layer-htp.h"
+#ifdef HAVE_NAPATECH
+#include "ntfeeds.h"
+#endif
 
-int DetectEngineRunHttpRawUriMpm(DetectEngineThreadCtx *,
-                                 Flow *f, HtpState *, uint8_t);
-int DetectEngineInspectHttpRawUri(DetectEngineCtx *, DetectEngineThreadCtx *,
-                                  Signature *, Flow *, uint8_t, void *);
-void DetectEngineHttpRawUriRegisterTests(void);
+int RunModeNapatechAuto(DetectEngineCtx *);
+void RunModeNapatechRegister(void);
+const char *RunModeNapatechGetDefaultMode(void);
 
-#endif /* __DETECT_ENGINE_HRUD_H__ */
+#endif /* __RUNMODE_NAPATECH_H__ */

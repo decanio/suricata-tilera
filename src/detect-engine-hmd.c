@@ -246,7 +246,7 @@ static int DoInspectHttpMethod(DetectEngineCtx *de_ctx,
 
         } while(1);
 
-    } else if (sm->type == DETECT_PCRE) {
+    } else if (sm->type == DETECT_PCRE_HTTPMETHOD) {
         SCLogDebug("inspecting pcre");
         DetectPcreData *pe = (DetectPcreData *)sm->ctx;
         uint32_t prev_payload_offset = det_ctx->payload_offset;
@@ -309,7 +309,7 @@ match:
 }
 
 int DetectEngineRunHttpMethodMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
-                                 HtpState *htp_state)
+                                 HtpState *htp_state, uint8_t flags)
 {
     htp_tx_t *tx = NULL;
     uint32_t cnt = 0;
@@ -343,7 +343,8 @@ int DetectEngineRunHttpMethodMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
 
         cnt += HttpMethodPatternSearch(det_ctx,
                                        (uint8_t *)bstr_ptr(tx->request_method),
-                                       bstr_len(tx->request_method));
+                                       bstr_len(tx->request_method),
+                                       flags);
     }
 
  end:

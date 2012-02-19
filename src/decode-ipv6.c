@@ -467,6 +467,9 @@ void DecodeIPV6(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt, 
         case IPPROTO_ESP:
             DecodeIPV6ExtHdrs(tv, dtv, p, pkt + IPV6_HEADER_LEN, IPV6_GET_PLEN(p), pq);
             break;
+        default:
+            p->proto = IPV6_GET_NH(p);
+            break;
     }
 
     /* Pass to defragger if a fragment. */

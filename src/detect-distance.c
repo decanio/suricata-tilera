@@ -171,7 +171,7 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 DETECT_AL_HTTP_METHOD, s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH],
                 DETECT_AL_HTTP_COOKIE, s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH]);
         if (pm == NULL) {
-            SCLogError(SC_ERR_WITHIN_MISSING_CONTENT, "within needs"
+            SCLogError(SC_ERR_WITHIN_MISSING_CONTENT, "within needs "
                        "preceeding content, uricontent option, http_client_body, "
                        "http_server_body, http_header, http_raw_header, http_method, "
                        "http_cookie or http_raw_uri option");
@@ -221,11 +221,6 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 ud->flags |= DETECT_CONTENT_DISTANCE_BE;
             } else {
                 ud->distance = strtol(str, NULL, 10);
-                if (ud->flags & DETECT_CONTENT_WITHIN) {
-                    if ((ud->distance + ud->content_len) > ud->within) {
-                        ud->within = ud->distance + ud->content_len;
-                    }
-                }
             }
 
             ud->flags |= DETECT_CONTENT_DISTANCE;
@@ -235,7 +230,7 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                                             DETECT_PCRE, pm->prev,
                                             DETECT_BYTEJUMP, pm->prev);
             if (pm == NULL) {
-                SCLogError(SC_ERR_DISTANCE_MISSING_CONTENT, "within needs two "
+                SCLogError(SC_ERR_DISTANCE_MISSING_CONTENT, "distance needs two "
                            "preceeding content or uricontent options");
                 goto error;
             }
@@ -322,11 +317,6 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 cd->flags |= DETECT_CONTENT_DISTANCE_BE;
             } else {
                 cd->distance = strtol(str, NULL, 10);
-                if (cd->flags & DETECT_CONTENT_WITHIN) {
-                    if ((cd->distance + cd->content_len) > cd->within) {
-                        cd->within = cd->distance + cd->content_len;
-                    }
-                }
             }
 
             cd->flags |= DETECT_CONTENT_DISTANCE;
@@ -411,11 +401,6 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 cd->flags |= DETECT_CONTENT_DISTANCE_BE;
             } else {
                 cd->distance = strtol(str, NULL, 10);
-                if (cd->flags & DETECT_CONTENT_WITHIN) {
-                    if ((cd->distance + cd->content_len) > cd->within) {
-                        cd->within = cd->distance + cd->content_len;
-                    }
-                }
             }
 
             if (cd->flags & DETECT_CONTENT_NEGATED) {
@@ -478,11 +463,6 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 cd->flags |= DETECT_CONTENT_DISTANCE_BE;
             } else {
                 cd->distance = strtol(str, NULL, 10);
-                if (cd->flags & DETECT_CONTENT_WITHIN) {
-                    if ((cd->distance + cd->content_len) > cd->within) {
-                        cd->within = cd->distance + cd->content_len;
-                    }
-                }
             }
 
             if (cd->flags & DETECT_CONTENT_NEGATED) {
@@ -572,11 +552,6 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 cd->flags |= DETECT_CONTENT_DISTANCE_BE;
             } else {
                 cd->distance = strtol(str, NULL, 10);
-                if (cd->flags & DETECT_CONTENT_WITHIN) {
-                    if ((cd->distance + cd->content_len) > cd->within) {
-                        cd->within = cd->distance + cd->content_len;
-                    }
-                }
             }
 
             cd->flags |= DETECT_CONTENT_DISTANCE;
@@ -638,11 +613,6 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 cd->flags |= DETECT_CONTENT_DISTANCE_BE;
             } else {
                 cd->distance = strtol(str, NULL, 10);
-                if (cd->flags & DETECT_CONTENT_WITHIN) {
-                    if ((cd->distance + cd->content_len) > cd->within) {
-                        cd->within = cd->distance + cd->content_len;
-                    }
-                }
             }
 
             cd->flags |= DETECT_CONTENT_DISTANCE;
@@ -705,11 +675,6 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 cd->flags |= DETECT_CONTENT_DISTANCE_BE;
             } else {
                 cd->distance = strtol(str, NULL, 10);
-                if (cd->flags & DETECT_CONTENT_WITHIN) {
-                    if ((cd->distance + cd->content_len) > cd->within) {
-                        cd->within = cd->distance + cd->content_len;
-                    }
-                }
             }
 
             cd->flags |= DETECT_CONTENT_DISTANCE;
@@ -717,7 +682,7 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
             /* reassigning pm */
             pm = SigMatchGetLastSMFromLists(s, 4,
                                             DETECT_AL_HTTP_METHOD, pm->prev,
-                                            DETECT_PCRE, pm->prev);
+                                            DETECT_PCRE_HTTPMETHOD, pm->prev);
             if (pm == NULL) {
                 SCLogError(SC_ERR_DISTANCE_MISSING_CONTENT, "distance for "
                            "http_method needs preceeding http_method "
@@ -725,7 +690,7 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 goto error;
             }
 
-            if (pm->type == DETECT_PCRE) {
+            if (pm->type == DETECT_PCRE_HTTPMETHOD) {
                 DetectPcreData *tmp_pd = (DetectPcreData *)pm->ctx;
                 tmp_pd->flags |=  DETECT_PCRE_RELATIVE_NEXT;
             } else {
@@ -772,11 +737,6 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 cd->flags |= DETECT_CONTENT_DISTANCE_BE;
             } else {
                 cd->distance = strtol(str, NULL, 10);
-                if (cd->flags & DETECT_CONTENT_WITHIN) {
-                    if ((cd->distance + cd->content_len) > cd->within) {
-                        cd->within = cd->distance + cd->content_len;
-                    }
-                }
             }
 
             cd->flags |= DETECT_CONTENT_DISTANCE;
@@ -784,7 +744,7 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
             /* reassigning pm */
             pm = SigMatchGetLastSMFromLists(s, 4,
                                             DETECT_AL_HTTP_COOKIE, pm->prev,
-                                            DETECT_PCRE, pm->prev);
+                                            DETECT_PCRE_HTTPCOOKIE, pm->prev);
             if (pm == NULL) {
                 SCLogError(SC_ERR_DISTANCE_MISSING_CONTENT, "distance for "
                            "http_cookie needs preceeding http_cookie "
@@ -792,7 +752,7 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 goto error;
             }
 
-            if (pm->type == DETECT_PCRE) {
+            if (pm->type == DETECT_PCRE_HTTPCOOKIE) {
                 DetectPcreData *tmp_pd = (DetectPcreData *)pm->ctx;
                 tmp_pd->flags |=  DETECT_PCRE_RELATIVE_NEXT;
             } else {
@@ -839,11 +799,6 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 cd->flags |= DETECT_CONTENT_DISTANCE_BE;
             } else {
                 cd->distance = strtol(str, NULL, 10);
-                if (cd->flags & DETECT_CONTENT_WITHIN) {
-                    if ((cd->distance + cd->content_len) > cd->within) {
-                        cd->within = cd->distance + cd->content_len;
-                    }
-                }
             }
 
             cd->flags |= DETECT_CONTENT_DISTANCE;
@@ -938,7 +893,7 @@ static int DetectDistanceTest01(void)
     }
 
     /* within needs to be 23: distance + content_len as Snort auto fixes this */
-    if (co->within != 23) {
+    if (co->within != 19) {
         printf("within %"PRIi32", expected 23: ", co->within);
         goto end;
     }

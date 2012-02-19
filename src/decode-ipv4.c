@@ -597,6 +597,9 @@ void DecodeIPV4(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt, 
                           IPV4_GET_IPLEN(p) -  IPV4_GET_HLEN(p), pq);
             }
             break;
+        default:
+            p->proto = IPV4_GET_IPPROTO(p);
+            break;
     }
 
     return;

@@ -234,12 +234,6 @@ static int DetectWithinSetup (DetectEngineCtx *de_ctx, Signature *s, char *withi
 
             ud->flags |= DETECT_CONTENT_WITHIN;
 
-            if (ud->flags & DETECT_CONTENT_DISTANCE) {
-                if ((ud->distance + ud->content_len) > ud->within) {
-                    ud->within = ud->distance + ud->content_len;
-                }
-            }
-
             pm = SigMatchGetLastSMFromLists(s, 6,
                                             DETECT_URICONTENT, pm->prev,
                                             DETECT_PCRE, pm->prev,
@@ -343,12 +337,6 @@ static int DetectWithinSetup (DetectEngineCtx *de_ctx, Signature *s, char *withi
             }
 
             cd->flags |= DETECT_CONTENT_WITHIN;
-
-            if (cd->flags & DETECT_CONTENT_DISTANCE) {
-                if ((cd->distance + cd->content_len) > cd->within) {
-                    cd->within = cd->distance + cd->content_len;
-                }
-            }
 
             pm = SigMatchGetLastSMFromLists(s, 6,
                                             DETECT_CONTENT, pm->prev,
@@ -739,14 +727,14 @@ static int DetectWithinSetup (DetectEngineCtx *de_ctx, Signature *s, char *withi
             /* reassigning pm */
             pm = SigMatchGetLastSMFromLists(s, 4,
                                             DETECT_AL_HTTP_METHOD, pm->prev,
-                                            DETECT_PCRE, pm->prev);
+                                            DETECT_PCRE_HTTPMETHOD, pm->prev);
             if (pm == NULL) {
                 SCLogError(SC_ERR_DISTANCE_MISSING_CONTENT, "distance for http_method "
                            "needs preceeding http_method content");
                 goto error;
             }
 
-            if (pm->type == DETECT_PCRE) {
+            if (pm->type == DETECT_PCRE_HTTPMETHOD) {
                 DetectPcreData *tmp_pd = (DetectPcreData *)pm->ctx;
                 tmp_pd->flags |=  DETECT_PCRE_RELATIVE_NEXT;
             } else {
@@ -807,14 +795,14 @@ static int DetectWithinSetup (DetectEngineCtx *de_ctx, Signature *s, char *withi
             /* reassigning pm */
             pm = SigMatchGetLastSMFromLists(s, 4,
                                             DETECT_AL_HTTP_COOKIE, pm->prev,
-                                            DETECT_PCRE, pm->prev);
+                                            DETECT_PCRE_HTTPCOOKIE, pm->prev);
             if (pm == NULL) {
                 SCLogError(SC_ERR_DISTANCE_MISSING_CONTENT, "distance for http_cookie "
                            "needs preceeding http_cookie content");
                 goto error;
             }
 
-            if (pm->type == DETECT_PCRE) {
+            if (pm->type == DETECT_PCRE_HTTPCOOKIE) {
                 DetectPcreData *tmp_pd = (DetectPcreData *)pm->ctx;
                 tmp_pd->flags |=  DETECT_PCRE_RELATIVE_NEXT;
             } else {
@@ -878,7 +866,7 @@ static int DetectWithinSetup (DetectEngineCtx *de_ctx, Signature *s, char *withi
                                             DETECT_PCRE, pm->prev);
             if (pm == NULL) {
                 SCLogError(SC_ERR_DISTANCE_MISSING_CONTENT, "distance for http_raw_uri "
-                           "needs preceeding http_cookie content");
+                           "needs preceeding http_raw_uri content");
                 goto error;
             }
 
