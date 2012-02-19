@@ -57,7 +57,7 @@
 #include "util-memcmp.h"
 
 void SCACBSInitCtx(MpmCtx *, int);
-void SCACBSInitThreadCtx(MpmCtx *, MpmThreadCtx *, uint32_t);
+void SCACBSInitThreadCtx(ThreadVars *tv, MpmCtx *, MpmThreadCtx *, uint32_t);
 void SCACBSDestroyCtx(MpmCtx *);
 void SCACBSDestroyThreadCtx(MpmCtx *, MpmThreadCtx *);
 int SCACBSAddPatternCI(MpmCtx *, uint8_t *, uint16_t, uint16_t, uint16_t,
@@ -1260,10 +1260,11 @@ error:
  * \param mpm_thread_ctx Pointer to the mpm thread context.
  * \param matchsize      We don't need this.
  */
-void SCACBSInitThreadCtx(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize)
+void SCACBSInitThreadCtx(ThreadVars *tv, MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, uint32_t matchsize)
 {
     memset(mpm_thread_ctx, 0, sizeof(MpmThreadCtx));
 
+    //mpm_thread_ctx->ctx = SCThreadMalloc(tv, sizeof(SCACBSThreadCtx));
     mpm_thread_ctx->ctx = SCMalloc(sizeof(SCACBSThreadCtx));
     if (mpm_thread_ctx->ctx == NULL) {
         exit(EXIT_FAILURE);
