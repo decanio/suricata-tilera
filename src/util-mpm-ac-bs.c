@@ -887,13 +887,15 @@ static inline void SCACBSInsertCaseSensitiveEntriesForPatterns(MpmCtx *mpm_ctx)
     return;
 }
 
-#if 0
+#if 1
 static void SCACBSPrintDeltaTable(MpmCtx *mpm_ctx)
 {
     SCACBSCtx *ctx = (SCACBSCtx *)mpm_ctx->ctx;
+
+    printf("##############Delta Table (state count %d)##############\n", ctx->state_count);
+#if 0
     int i = 0, j = 0;
 
-    printf("##############Delta Table##############\n");
     for (i = 0; i < ctx->state_count; i++) {
         printf("%d: \n", i);
         for (j = 0; j < 256; j++) {
@@ -902,6 +904,7 @@ static void SCACBSPrintDeltaTable(MpmCtx *mpm_ctx)
             }
         }
     }
+#endif
 
     return;
 }
@@ -1136,7 +1139,7 @@ static inline void SCACBSPrepareStateTable(MpmCtx *mpm_ctx)
 //        }
 //    }
 
-#if 0
+#if 1
     SCACBSPrintDeltaTable(mpm_ctx);
 #endif
 
