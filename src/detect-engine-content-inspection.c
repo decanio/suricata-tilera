@@ -107,17 +107,7 @@ int DetectEngineContentInspection(DetectEngineCtx *de_ctx, DetectEngineThreadCtx
     }
 
     /* \todo unify this which is phase 2 of payload inspection unification */
-    if (sm->type == DETECT_CONTENT ||
-        sm->type == DETECT_URICONTENT ||
-        sm->type == DETECT_AL_HTTP_RAW_URI ||
-        sm->type == DETECT_AL_HTTP_HEADER ||
-        sm->type == DETECT_AL_HTTP_RAW_HEADER ||
-        sm->type == DETECT_AL_HTTP_CLIENT_BODY ||
-        sm->type == DETECT_AL_HTTP_SERVER_BODY ||
-        sm->type == DETECT_AL_HTTP_COOKIE ||
-        sm->type == DETECT_AL_HTTP_METHOD ||
-        sm->type == DETECT_AL_HTTP_STAT_CODE ||
-        sm->type == DETECT_AL_HTTP_STAT_MSG) {
+    if (sm->type == DETECT_CONTENT) {
 
         DetectContentData *cd = (DetectContentData *)sm->ctx;
         SCLogDebug("inspecting content %"PRIu32" buffer_len %"PRIu32, cd->id, buffer_len);

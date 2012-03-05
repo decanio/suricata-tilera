@@ -34,12 +34,13 @@
 #include "util-debug.h"
 #include "util-print.h"
 #include "util-profiling.h"
+#include "util-validate.h"
 
 //#define PRINT
 extern uint8_t engine_mode;
 
 /** \brief Get the active app layer proto from the packet
- *  \param p packet pointer
+ *  \param p packet pointer with a LOCKED flow
  *  \retval alstate void pointer to the state
  *  \retval proto (ALPROTO_UNKNOWN if no proto yet) */
 uint16_t AppLayerGetProtoFromPacket(Packet *p) {
@@ -48,6 +49,8 @@ uint16_t AppLayerGetProtoFromPacket(Packet *p) {
     if (p == NULL || p->flow == NULL) {
         SCReturnUInt(ALPROTO_UNKNOWN);
     }
+
+    DEBUG_ASSERT_FLOW_LOCKED(p->flow);
 
     SCLogDebug("p->flow->alproto %"PRIu16"", p->flow->alproto);
 
@@ -65,6 +68,8 @@ void *AppLayerGetProtoStateFromPacket(Packet *p) {
         SCReturnPtr(NULL, "void");
     }
 
+    DEBUG_ASSERT_FLOW_LOCKED(p->flow);
+
     SCLogDebug("p->flow->alproto %"PRIu16"", p->flow->alproto);
 
     SCLogDebug("p->flow %p", p->flow);
@@ -77,6 +82,8 @@ void *AppLayerGetProtoStateFromPacket(Packet *p) {
  *  \retval NULL in case we have no state */
 void *AppLayerGetProtoStateFromFlow(Flow *f) {
     SCEnter();
+
+    DEBUG_ASSERT_FLOW_LOCKED(f);
 
     if (f == NULL) {
         SCReturnPtr(NULL, "void");
@@ -109,6 +116,8 @@ int AppLayerHandleTCPData(AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
         TcpSession *ssn, uint8_t *data, uint32_t data_len, uint8_t flags)
 {
     SCEnter();
+
+    DEBUG_ASSERT_FLOW_LOCKED(f);
 
     int r = 0;
 

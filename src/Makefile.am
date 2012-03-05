@@ -256,6 +256,7 @@ log-droplog.c log-droplog.h \
 log-httplog.c log-httplog.h \
 log-pcap.c log-pcap.h \
 log-file.c log-file.h \
+log-filestore.c log-filestore.h \
 stream.c stream.h \
 stream-tcp.c stream-tcp.h stream-tcp-private.h \
 stream-tcp-reassemble.c stream-tcp-reassemble.h \

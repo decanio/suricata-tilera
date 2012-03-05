@@ -106,7 +106,7 @@ typedef struct Address_ {
  * prevent using memset. */
 #define SET_IPV4_SRC_ADDR(p, a) do {                              \
         (a)->family = AF_INET;                                    \
-        (a)->addr_data32[0] = (uint32_t)(p)->ip4h->ip_src.s_addr; \
+        (a)->addr_data32[0] = (uint32_t)(p)->ip4h->s_ip_src.s_addr; \
         (a)->addr_data32[1] = 0;                                  \
         (a)->addr_data32[2] = 0;                                  \
         (a)->addr_data32[3] = 0;                                  \
@@ -114,7 +114,7 @@ typedef struct Address_ {
 
 #define SET_IPV4_DST_ADDR(p, a) do {                              \
         (a)->family = AF_INET;                                    \
-        (a)->addr_data32[0] = (uint32_t)(p)->ip4h->ip_dst.s_addr; \
+        (a)->addr_data32[0] = (uint32_t)(p)->ip4h->s_ip_dst.s_addr; \
         (a)->addr_data32[1] = 0;                                  \
         (a)->addr_data32[2] = 0;                                  \
         (a)->addr_data32[3] = 0;                                  \
@@ -131,20 +131,20 @@ typedef struct Address_ {
 
 /* Set the IPv6 addressesinto the Addrs of the Packet.
  * Make sure p->ip6h is initialized and validated. */
-#define SET_IPV6_SRC_ADDR(p, a) do {                 \
-        (a)->family = AF_INET6;                      \
-        (a)->addr_data32[0] = (p)->ip6h->ip6_src[0]; \
-        (a)->addr_data32[1] = (p)->ip6h->ip6_src[1]; \
-        (a)->addr_data32[2] = (p)->ip6h->ip6_src[2]; \
-        (a)->addr_data32[3] = (p)->ip6h->ip6_src[3]; \
+#define SET_IPV6_SRC_ADDR(p, a) do {                    \
+        (a)->family = AF_INET6;                         \
+        (a)->addr_data32[0] = (p)->ip6h->s_ip6_src[0];  \
+        (a)->addr_data32[1] = (p)->ip6h->s_ip6_src[1];  \
+        (a)->addr_data32[2] = (p)->ip6h->s_ip6_src[2];  \
+        (a)->addr_data32[3] = (p)->ip6h->s_ip6_src[3];  \
     } while (0)
 
-#define SET_IPV6_DST_ADDR(p, a) do {                 \
-        (a)->family = AF_INET6;                      \
-        (a)->addr_data32[0] = (p)->ip6h->ip6_dst[0]; \
-        (a)->addr_data32[1] = (p)->ip6h->ip6_dst[1]; \
-        (a)->addr_data32[2] = (p)->ip6h->ip6_dst[2]; \
-        (a)->addr_data32[3] = (p)->ip6h->ip6_dst[3]; \
+#define SET_IPV6_DST_ADDR(p, a) do {                    \
+        (a)->family = AF_INET6;                         \
+        (a)->addr_data32[0] = (p)->ip6h->s_ip6_dst[0];  \
+        (a)->addr_data32[1] = (p)->ip6h->s_ip6_dst[1];  \
+        (a)->addr_data32[2] = (p)->ip6h->s_ip6_dst[2];  \
+        (a)->addr_data32[3] = (p)->ip6h->s_ip6_dst[3];  \
     } while (0)
 
 /* Set the TCP ports into the Ports of the Packet.
@@ -355,7 +355,7 @@ typedef struct Packet_
     uint8_t recursion_level;
 
     /* Pkt Flags */
-    uint16_t flags;
+    uint32_t flags;
 #ifdef __tile__
     uint8_t pool; /* packetpool this was allocated from */   
 
@@ -820,6 +820,7 @@ Packet *PacketGetFromQueueOrAlloc(void);
 #endif
 Packet *PacketGetFromAlloc(void);
 int PacketCopyData(Packet *p, uint8_t *pktdata, int pktlen);
+int PacketSetData(Packet *p, uint8_t *pktdata, int pktlen);
 int PacketCopyDataOffset(Packet *p, int offset, uint8_t *data, int datalen);
 
 DecodeThreadVars *DecodeThreadVarsAlloc(ThreadVars *tv);
@@ -937,8 +938,9 @@ void AddressDebugPrint(Address *);
 #define PKT_TUNNEL_VERDICTED            0x2000
 
 #define PKT_IGNORE_CHECKSUM             0x4000    /**< Packet checksum is not computed (TX packet for example) */
-#define PKT_NETIO                       0x8000     /**< Packet payload from netio */
-#define PKT_MPIPE                       0x8000     /**< Packet payload from mpipe */
+#define PKT_ZERO_COPY                   0x8000    /**< Packet comes from zero copy (ext_pkt must not be freed) */
+#define PKT_NETIO                       0x10000   /**< Packet payload from netio */
+#define PKT_MPIPE                       0x10000   /**< Packet payload from mpipe */
 
 /** \brief return 1 if the packet is a pseudo packet */
 #define PKT_IS_PSEUDOPKT(p) ((p)->flags & PKT_PSEUDO_STREAM_END)

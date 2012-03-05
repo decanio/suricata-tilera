@@ -127,14 +127,14 @@
  * We set the rest of the struct to 0 so we can
  * prevent using memset. */
 #define FLOW_SET_IPV4_SRC_ADDR_FROM_PACKET(p, a) do {             \
-        (a)->addr_data32[0] = (uint32_t)(p)->ip4h->ip_src.s_addr; \
+        (a)->addr_data32[0] = (uint32_t)(p)->ip4h->s_ip_src.s_addr; \
         (a)->addr_data32[1] = 0;                                  \
         (a)->addr_data32[2] = 0;                                  \
         (a)->addr_data32[3] = 0;                                  \
     } while (0)
 
 #define FLOW_SET_IPV4_DST_ADDR_FROM_PACKET(p, a) do {             \
-        (a)->addr_data32[0] = (uint32_t)(p)->ip4h->ip_dst.s_addr; \
+        (a)->addr_data32[0] = (uint32_t)(p)->ip4h->s_ip_dst.s_addr; \
         (a)->addr_data32[1] = 0;                                  \
         (a)->addr_data32[2] = 0;                                  \
         (a)->addr_data32[3] = 0;                                  \
@@ -151,17 +151,17 @@
 /* Set the IPv6 addressesinto the Addrs of the Packet.
  * Make sure p->ip6h is initialized and validated. */
 #define FLOW_SET_IPV6_SRC_ADDR_FROM_PACKET(p, a) do {   \
-        (a)->addr_data32[0] = (p)->ip6h->ip6_src[0];    \
-        (a)->addr_data32[1] = (p)->ip6h->ip6_src[1];    \
-        (a)->addr_data32[2] = (p)->ip6h->ip6_src[2];    \
-        (a)->addr_data32[3] = (p)->ip6h->ip6_src[3];    \
+        (a)->addr_data32[0] = (p)->ip6h->s_ip6_src[0];  \
+        (a)->addr_data32[1] = (p)->ip6h->s_ip6_src[1];  \
+        (a)->addr_data32[2] = (p)->ip6h->s_ip6_src[2];  \
+        (a)->addr_data32[3] = (p)->ip6h->s_ip6_src[3];  \
     } while (0)
 
 #define FLOW_SET_IPV6_DST_ADDR_FROM_PACKET(p, a) do {   \
-        (a)->addr_data32[0] = (p)->ip6h->ip6_dst[0];    \
-        (a)->addr_data32[1] = (p)->ip6h->ip6_dst[1];    \
-        (a)->addr_data32[2] = (p)->ip6h->ip6_dst[2];    \
-        (a)->addr_data32[3] = (p)->ip6h->ip6_dst[3];    \
+        (a)->addr_data32[0] = (p)->ip6h->s_ip6_dst[0];  \
+        (a)->addr_data32[1] = (p)->ip6h->s_ip6_dst[1];  \
+        (a)->addr_data32[2] = (p)->ip6h->s_ip6_dst[2];  \
+        (a)->addr_data32[3] = (p)->ip6h->s_ip6_dst[3];  \
     } while (0)
 
 /* pkt flow flags */
@@ -309,12 +309,12 @@ typedef struct Flow_
 
     SCMutex de_state_m;          /**< mutex lock for the de_state object */
 
-    /* list flow ptrs
-     * NOTE!!! These are NOT protected by the
-     * above mutex, but by the FlowQ's */
+    /** hash list pointers, protected by fb->s */
     struct Flow_ *hnext; /* hash list */
     struct Flow_ *hprev;
     struct FlowBucket_ *fb;
+
+    /** queue list pointers, protected by queue mutex */
     struct Flow_ *lnext; /* list */
     struct Flow_ *lprev;
 

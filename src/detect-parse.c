@@ -1189,7 +1189,7 @@ static Signature *SigInitHelper(DetectEngineCtx *de_ctx, char *sigstr,
         sig->mpm_uricontent_maxlen = 0;
 
         for (sm = sig->sm_lists[DETECT_SM_LIST_UMATCH]; sm != NULL; sm = sm->next) {
-            if (sm->type == DETECT_URICONTENT) {
+            if (sm->type == DETECT_CONTENT) {
                 DetectContentData *ud = (DetectContentData *)sm->ctx;
                 if (ud == NULL)
                     continue;
@@ -1940,8 +1940,10 @@ int SigParseTest06 (void) {
     }
 
 end:
-    if (sig != NULL) SigFree(sig);
-    if (de_ctx != NULL) DetectEngineCtxFree(de_ctx);
+    if (sig != NULL)
+        SigFree(sig);
+    if (de_ctx != NULL)
+        DetectEngineCtxFree(de_ctx);
     return result;
 }
 

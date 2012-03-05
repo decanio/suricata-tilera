@@ -155,7 +155,6 @@ void *TmThreadsSlot1NoIn(void *td)
 {
     ThreadVars *tv = (ThreadVars *)td;
     TmSlot *s = (TmSlot *)tv->tm_slots;
-    Packet *p = NULL;
     char run = 1;
     TmEcode r = TM_ECODE_OK;
 
@@ -189,9 +188,7 @@ void *TmThreadsSlot1NoIn(void *td)
     while (run) {
         TmThreadTestThreadUnPaused(tv);
 
-        PACKET_PROFILING_TMM_START(p, s->tm_id);
-        r = s->SlotFunc(tv, p, s->slot_data, &s->slot_pre_pq, &s->slot_post_pq);
-        PACKET_PROFILING_TMM_END(p, s->tm_id);
+        r = s->SlotFunc(tv, NULL, s->slot_data, &s->slot_pre_pq, &s->slot_post_pq);
 
         /* handle error */
         if (r == TM_ECODE_FAILED) {
@@ -201,8 +198,6 @@ void *TmThreadsSlot1NoIn(void *td)
             TmqhReleasePacketsToPacketPool(&s->slot_post_pq);
             SCMutexUnlock(&s->slot_post_pq.mutex_q);
 
-            if (p != NULL)
-                TmqhOutputPacketpool(tv, p);
             TmThreadsSetFlag(tv, THV_FAILED);
             break;
         }
@@ -213,10 +208,6 @@ void *TmThreadsSlot1NoIn(void *td)
             if (extra_p != NULL)
                 tv->tmqh_out(tv, extra_p);
         }
-
-        tv->tmqh_out(tv, p);
-        if (p != NULL)
-            tv->tmqh_out(tv, p);
 
         /* handle post queue */
         if (s->slot_post_pq.top != NULL) {
@@ -620,7 +611,7 @@ void *TmThreadsSlotPktAcqLoop(void *td) {
         SCLogError(SC_ERR_FATAL, "TmSlot or ThreadVars badly setup: s=%p,"
                                  " PktAcqLoop=%p, tmqh_in=%p,"
                                  " tmqh_out=%p",
-                   s, s->PktAcqLoop, tv->tmqh_in, tv->tmqh_out);
+                   s, s ? s->PktAcqLoop : NULL, tv->tmqh_in, tv->tmqh_out);
         EngineKill();
 
         TmThreadsSetFlag(tv, THV_CLOSED);
@@ -1123,7 +1114,7 @@ TmEcode TmThreadSetCPU(ThreadVars *tv, uint8_t type)
 
 int TmThreadGetNbThreads(uint8_t type)
 {
-    if (type > MAX_CPU_SET) {
+    if (type >= MAX_CPU_SET) {
         SCLogError(SC_ERR_INVALID_ARGUMENT, "invalid cpu type family");
         return 0;
     }
@@ -1289,7 +1280,10 @@ ThreadVars *TmThreadCreate(char *name, char *inq_name, char *inqh_name,
     return tv;
 
 error:
-    printf("ERROR: failed to setup a thread.\n");
+    SCLogError(SC_ERR_THREAD_CREATE, "failed to setup a thread");
+
+    if (tv != NULL)
+        SCFree(tv);
     return NULL;
 }
 

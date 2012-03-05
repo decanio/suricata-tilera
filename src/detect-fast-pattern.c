@@ -122,34 +122,34 @@ void SupportFastPatternForSigMatchTypes(void)
     SupportFastPatternForSigMatchType(DETECT_CONTENT);
     SupportFastPatternForSigMatchList(DETECT_SM_LIST_PMATCH);
 
-    SupportFastPatternForSigMatchType(DETECT_URICONTENT);
+    SupportFastPatternForSigMatchType(DETECT_CONTENT);
     SupportFastPatternForSigMatchList(DETECT_SM_LIST_UMATCH);
 
-    SupportFastPatternForSigMatchType(DETECT_AL_HTTP_CLIENT_BODY);
+    SupportFastPatternForSigMatchType(DETECT_CONTENT);
     SupportFastPatternForSigMatchList(DETECT_SM_LIST_HCBDMATCH);
 
-    SupportFastPatternForSigMatchType(DETECT_AL_HTTP_SERVER_BODY);
+    SupportFastPatternForSigMatchType(DETECT_CONTENT);
     SupportFastPatternForSigMatchList(DETECT_SM_LIST_HSBDMATCH);
 
-    SupportFastPatternForSigMatchType(DETECT_AL_HTTP_HEADER);
+    SupportFastPatternForSigMatchType(DETECT_CONTENT);
     SupportFastPatternForSigMatchList(DETECT_SM_LIST_HHDMATCH);
 
-    SupportFastPatternForSigMatchType(DETECT_AL_HTTP_RAW_HEADER);
+    SupportFastPatternForSigMatchType(DETECT_CONTENT);
     SupportFastPatternForSigMatchList(DETECT_SM_LIST_HRHDMATCH);
 
-    SupportFastPatternForSigMatchType(DETECT_AL_HTTP_METHOD);
+    SupportFastPatternForSigMatchType(DETECT_CONTENT);
     SupportFastPatternForSigMatchList(DETECT_SM_LIST_HMDMATCH);
 
-    SupportFastPatternForSigMatchType(DETECT_AL_HTTP_COOKIE);
+    SupportFastPatternForSigMatchType(DETECT_CONTENT);
     SupportFastPatternForSigMatchList(DETECT_SM_LIST_HCDMATCH);
 
-    SupportFastPatternForSigMatchType(DETECT_AL_HTTP_RAW_URI);
+    SupportFastPatternForSigMatchType(DETECT_CONTENT);
     SupportFastPatternForSigMatchList(DETECT_SM_LIST_HRUDMATCH);
 
-    SupportFastPatternForSigMatchType(DETECT_AL_HTTP_STAT_MSG);
+    SupportFastPatternForSigMatchType(DETECT_CONTENT);
     SupportFastPatternForSigMatchList(DETECT_SM_LIST_HSMDMATCH);
 
-    SupportFastPatternForSigMatchType(DETECT_AL_HTTP_STAT_CODE);
+    SupportFastPatternForSigMatchType(DETECT_CONTENT);
     SupportFastPatternForSigMatchList(DETECT_SM_LIST_HSCDMATCH);
 
     return;
@@ -238,16 +238,16 @@ static int DetectFastPatternSetup(DetectEngineCtx *de_ctx, Signature *s, char *a
 
     SigMatch *pm = SigMatchGetLastSMFromLists(s, 22,
             DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_PMATCH],
-            DETECT_URICONTENT, s->sm_lists_tail[DETECT_SM_LIST_UMATCH],
-            DETECT_AL_HTTP_CLIENT_BODY, s->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH],
-            DETECT_AL_HTTP_SERVER_BODY, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
-            DETECT_AL_HTTP_HEADER, s->sm_lists_tail[DETECT_SM_LIST_HHDMATCH],
-            DETECT_AL_HTTP_RAW_HEADER, s->sm_lists_tail[DETECT_SM_LIST_HRHDMATCH],
-            DETECT_AL_HTTP_METHOD, s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH],
-            DETECT_AL_HTTP_COOKIE, s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH],
-            DETECT_AL_HTTP_STAT_MSG, s->sm_lists_tail[DETECT_SM_LIST_HSMDMATCH],
-            DETECT_AL_HTTP_STAT_CODE, s->sm_lists_tail[DETECT_SM_LIST_HSCDMATCH],
-            DETECT_AL_HTTP_RAW_URI, s->sm_lists_tail[DETECT_SM_LIST_HRUDMATCH]);
+            DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_UMATCH],
+            DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH],
+            DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
+            DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_HHDMATCH],
+            DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_HRHDMATCH],
+            DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH],
+            DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH],
+            DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_HSMDMATCH],
+            DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_HSCDMATCH],
+            DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_HRUDMATCH]);
     if (pm == NULL) {
         SCLogError(SC_ERR_INVALID_SIGNATURE, "fast_pattern found inside "
                    "the rule, without a content context. Please use a "
@@ -2135,7 +2135,7 @@ int DetectFastPatternTest54(void)
     result = 0;
     sm = de_ctx->sig_list->sm_lists[DETECT_SM_LIST_UMATCH];
     while (sm != NULL) {
-        if (sm->type == DETECT_URICONTENT) {
+        if (sm->type == DETECT_CONTENT) {
             if ( ((DetectContentData *)sm->ctx)->flags &
                  DETECT_CONTENT_FAST_PATTERN) {
                 result = 1;
@@ -2176,7 +2176,7 @@ int DetectFastPatternTest55(void)
     result = 0;
     sm = de_ctx->sig_list->sm_lists[DETECT_SM_LIST_UMATCH];
     while (sm != NULL) {
-        if (sm->type == DETECT_URICONTENT) {
+        if (sm->type == DETECT_CONTENT) {
             if ( ((DetectContentData *)sm->ctx)->flags &
                  DETECT_CONTENT_FAST_PATTERN) {
                 result = 1;
@@ -2213,7 +2213,7 @@ int DetectFastPatternTest56(void)
     result = 0;
     sm = de_ctx->sig_list->sm_lists[DETECT_SM_LIST_UMATCH];
     DetectContentData *ud = sm->ctx;
-    if (sm->type == DETECT_URICONTENT) {
+    if (sm->type == DETECT_CONTENT) {
         if (ud->flags & DETECT_CONTENT_FAST_PATTERN &&
             ud->flags & DETECT_CONTENT_FAST_PATTERN_ONLY &&
             !(ud->flags & DETECT_CONTENT_FAST_PATTERN_CHOP) &&
@@ -2249,7 +2249,7 @@ int DetectFastPatternTest57(void)
     result = 0;
     sm = de_ctx->sig_list->sm_lists[DETECT_SM_LIST_UMATCH];
     DetectContentData *ud = sm->ctx;
-    if (sm->type == DETECT_URICONTENT) {
+    if (sm->type == DETECT_CONTENT) {
         if (ud->flags & DETECT_CONTENT_FAST_PATTERN &&
             !(ud->flags & DETECT_CONTENT_FAST_PATTERN_ONLY) &&
             ud->flags & DETECT_CONTENT_FAST_PATTERN_CHOP &&
@@ -3216,7 +3216,7 @@ int DetectFastPatternTest94(void)
     result = 0;
     sm = de_ctx->sig_list->sm_lists[DETECT_SM_LIST_UMATCH];
     while (sm != NULL) {
-        if (sm->type == DETECT_URICONTENT) {
+        if (sm->type == DETECT_CONTENT) {
             if ( ((DetectContentData *)sm->ctx)->flags &
                  DETECT_CONTENT_FAST_PATTERN) {
                 result = 1;
@@ -3257,7 +3257,7 @@ int DetectFastPatternTest95(void)
     result = 0;
     sm = de_ctx->sig_list->sm_lists[DETECT_SM_LIST_UMATCH];
     while (sm != NULL) {
-        if (sm->type == DETECT_URICONTENT) {
+        if (sm->type == DETECT_CONTENT) {
             if ( ((DetectContentData *)sm->ctx)->flags &
                  DETECT_CONTENT_FAST_PATTERN) {
                 result = 1;
@@ -3294,7 +3294,7 @@ int DetectFastPatternTest96(void)
     result = 0;
     sm = de_ctx->sig_list->sm_lists[DETECT_SM_LIST_UMATCH];
     DetectContentData *ud = sm->ctx;
-    if (sm->type == DETECT_URICONTENT) {
+    if (sm->type == DETECT_CONTENT) {
         if (ud->flags & DETECT_CONTENT_FAST_PATTERN &&
             ud->flags & DETECT_CONTENT_FAST_PATTERN_ONLY &&
             !(ud->flags & DETECT_CONTENT_FAST_PATTERN_CHOP) &&
@@ -3330,7 +3330,7 @@ int DetectFastPatternTest97(void)
     result = 0;
     sm = de_ctx->sig_list->sm_lists[DETECT_SM_LIST_UMATCH];
     DetectContentData *ud = sm->ctx;
-    if (sm->type == DETECT_URICONTENT) {
+    if (sm->type == DETECT_CONTENT) {
         if (ud->flags & DETECT_CONTENT_FAST_PATTERN &&
             !(ud->flags & DETECT_CONTENT_FAST_PATTERN_ONLY) &&
             ud->flags & DETECT_CONTENT_FAST_PATTERN_CHOP &&

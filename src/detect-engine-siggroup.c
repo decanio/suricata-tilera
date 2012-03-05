@@ -914,10 +914,8 @@ static void SigGroupHeadFreeSigArraysHash2(DetectEngineCtx *de_ctx,
             sgh->init->sig_size = 0;
         }
 
-        if (sgh->init != NULL) {
-            SigGroupHeadInitDataFree(sgh->init);
-            sgh->init = NULL;
-        }
+        SigGroupHeadInitDataFree(sgh->init);
+        sgh->init = NULL;
     }
 
     return;
@@ -1403,7 +1401,7 @@ int SigGroupHeadLoadUricontent(DetectEngineCtx *de_ctx, SigGroupHead *sgh)
             continue;
 
         for ( ;sm != NULL; sm = sm->next) {
-            if (sm->type == DETECT_URICONTENT) {
+            if (sm->type == DETECT_CONTENT) {
                 co = (DetectContentData *)sm->ctx;
 
                 sgh->init->uri_content_array[co->id / 8] |= 1 << (co->id % 8);

@@ -128,11 +128,11 @@ static inline Packet *FlowForceReassemblyPseudoPacketSetup(Packet *p,
         p->ip4h->ip_proto = IPPROTO_TCP;
         //p->ip4h->ip_csum =
         if (direction == 0) {
-            p->ip4h->ip_src.s_addr = f->src.addr_data32[0];
-            p->ip4h->ip_dst.s_addr = f->dst.addr_data32[0];
+            p->ip4h->s_ip_src.s_addr = f->src.addr_data32[0];
+            p->ip4h->s_ip_dst.s_addr = f->dst.addr_data32[0];
         } else {
-            p->ip4h->ip_src.s_addr = f->dst.addr_data32[0];
-            p->ip4h->ip_dst.s_addr = f->src.addr_data32[0];
+            p->ip4h->s_ip_src.s_addr = f->dst.addr_data32[0];
+            p->ip4h->s_ip_dst.s_addr = f->src.addr_data32[0];
         }
 
         /* set the tcp header */
@@ -160,23 +160,23 @@ static inline Packet *FlowForceReassemblyPseudoPacketSetup(Packet *p,
         p->ip6h->s_ip6_plen = htons(20);
         p->ip6h->s_ip6_hlim = 64;
         if (direction == 0) {
-            p->ip6h->ip6_src[0] = f->src.addr_data32[0];
-            p->ip6h->ip6_src[1] = f->src.addr_data32[1];
-            p->ip6h->ip6_src[2] = f->src.addr_data32[2];
-            p->ip6h->ip6_src[3] = f->src.addr_data32[3];
-            p->ip6h->ip6_dst[0] = f->dst.addr_data32[0];
-            p->ip6h->ip6_dst[1] = f->dst.addr_data32[1];
-            p->ip6h->ip6_dst[2] = f->dst.addr_data32[2];
-            p->ip6h->ip6_dst[3] = f->dst.addr_data32[3];
+            p->ip6h->s_ip6_src[0] = f->src.addr_data32[0];
+            p->ip6h->s_ip6_src[1] = f->src.addr_data32[1];
+            p->ip6h->s_ip6_src[2] = f->src.addr_data32[2];
+            p->ip6h->s_ip6_src[3] = f->src.addr_data32[3];
+            p->ip6h->s_ip6_dst[0] = f->dst.addr_data32[0];
+            p->ip6h->s_ip6_dst[1] = f->dst.addr_data32[1];
+            p->ip6h->s_ip6_dst[2] = f->dst.addr_data32[2];
+            p->ip6h->s_ip6_dst[3] = f->dst.addr_data32[3];
         } else {
-            p->ip6h->ip6_src[0] = f->dst.addr_data32[0];
-            p->ip6h->ip6_src[1] = f->dst.addr_data32[1];
-            p->ip6h->ip6_src[2] = f->dst.addr_data32[2];
-            p->ip6h->ip6_src[3] = f->dst.addr_data32[3];
-            p->ip6h->ip6_dst[0] = f->src.addr_data32[0];
-            p->ip6h->ip6_dst[1] = f->src.addr_data32[1];
-            p->ip6h->ip6_dst[2] = f->src.addr_data32[2];
-            p->ip6h->ip6_dst[3] = f->src.addr_data32[3];
+            p->ip6h->s_ip6_src[0] = f->dst.addr_data32[0];
+            p->ip6h->s_ip6_src[1] = f->dst.addr_data32[1];
+            p->ip6h->s_ip6_src[2] = f->dst.addr_data32[2];
+            p->ip6h->s_ip6_src[3] = f->dst.addr_data32[3];
+            p->ip6h->s_ip6_dst[0] = f->src.addr_data32[0];
+            p->ip6h->s_ip6_dst[1] = f->src.addr_data32[1];
+            p->ip6h->s_ip6_dst[2] = f->src.addr_data32[2];
+            p->ip6h->s_ip6_dst[3] = f->src.addr_data32[3];
         }
 
         /* set the tcp header */
@@ -218,10 +218,10 @@ static inline Packet *FlowForceReassemblyPseudoPacketSetup(Packet *p,
     }
 
     if (FLOW_IS_IPV4(f)) {
-        p->tcph->th_sum = TCPCalculateChecksum((uint16_t *)&(p->ip4h->ip_src),
+        p->tcph->th_sum = TCPCalculateChecksum(p->ip4h->s_ip_addrs,
                                                (uint16_t *)p->tcph, 20);
     } else if (FLOW_IS_IPV6(f)) {
-        p->tcph->th_sum = TCPCalculateChecksum((uint16_t *)&(p->ip6h->ip6_src),
+        p->tcph->th_sum = TCPCalculateChecksum(p->ip6h->s_ip6_addrs,
                                                (uint16_t *)p->tcph, 20);
     }
 
@@ -247,23 +247,18 @@ static inline Packet *FlowForceReassemblyPseudoPacketGet(int direction,
     return FlowForceReassemblyPseudoPacketSetup(p, direction, f, ssn, dummy);
 }
 
-
 /**
- * \internal
- * \brief Forces reassembly for flow if it needs it.
+ *  \brief Check if a flow needs forced reassembly
  *
- *        The function requires flow to be locked beforehand.
+ *  \param f *LOCKED* flow
+ *  \param server ptr to int that should be set to 1 or 2 if we return 1
+ *  \param client ptr to int that should be set to 1 or 2 if we return 1
  *
- * \param f Pointer to the flow.
- *
- * \retval 0 This flow doesn't need any reassembly processing; 1 otherwise.
+ *  \retval 0 no
+ *  \retval 1 yes
  */
-int FlowForceReassemblyForFlowV2(Flow *f)
-{
+int FlowForceReassemblyNeedReassmbly(Flow *f, int *server, int *client) {
     TcpSession *ssn;
-
-    int client_ok = 0;
-    int server_ok = 0;
 
     /* looks like we have no flows in this queue */
     if (f == NULL || f->flags & FLOW_TIMEOUT_REASSEMBLY_DONE) {
@@ -272,32 +267,57 @@ int FlowForceReassemblyForFlowV2(Flow *f)
 
     /* Get the tcp session for the flow */
     ssn = (TcpSession *)f->protoctx;
-    /* \todo Also skip flows that shouldn't be inspected */
     if (ssn == NULL) {
         return 0;
     }
 
-    client_ok = StreamHasUnprocessedSegments(ssn, 0);
-    server_ok = StreamHasUnprocessedSegments(ssn, 1);
+    *client = StreamHasUnprocessedSegments(ssn, 0);
+    *server = StreamHasUnprocessedSegments(ssn, 1);
 
     /* if state is not fully closed we assume that we haven't fully
      * inspected the app layer state yet */
     if (ssn->state >= TCP_ESTABLISHED && ssn->state != TCP_CLOSED) {
-        if (client_ok != 1)
-            client_ok = 2;
-        if (server_ok != 1)
-            server_ok = 2;
+        if (*client != 1)
+            *client = 2;
+        if (*server != 1)
+            *server = 2;
     }
 
     /* nothing to do */
-    if (client_ok == 0 && server_ok == 0) {
+    if (*client == 0 && *server == 0) {
         return 0;
     }
 
-    /* move this unlock after the stream reassemble call */
-    SCSpinUnlock(&f->fb->s);
+    return 1;
+}
 
+/**
+ * \internal
+ * \brief Forces reassembly for flow if it needs it.
+ *
+ *        The function requires flow to be locked beforehand.
+ *
+ * \param f Pointer to the flow.
+ * \param server action required for server: 1 or 2
+ * \param client action required for client: 1 or 2
+ *
+ * \retval 0 This flow doesn't need any reassembly processing; 1 otherwise.
+ */
+int FlowForceReassemblyForFlowV2(Flow *f, int server, int client)
+{
     Packet *p1 = NULL, *p2 = NULL, *p3 = NULL;
+    TcpSession *ssn;
+
+    /* looks like we have no flows in this queue */
+    if (f == NULL) {
+        return 0;
+    }
+
+    /* Get the tcp session for the flow */
+    ssn = (TcpSession *)f->protoctx;
+    if (ssn == NULL) {
+        return 0;
+    }
 
     /* The packets we use are based on what segments in what direction are
      * unprocessed.
@@ -308,13 +328,13 @@ int FlowForceReassemblyForFlowV2(Flow *f)
      * toclient which is now dummy since all we need it for is detection */
 
     /* insert a pseudo packet in the toserver direction */
-    if (client_ok == 1) {
+    if (client == 1) {
         p1 = FlowForceReassemblyPseudoPacketGet(1, f, ssn, 0);
         if (p1 == NULL) {
             return 1;
         }
 
-        if (server_ok == 1) {
+        if (server == 1) {
             p2 = FlowForceReassemblyPseudoPacketGet(0, f, ssn, 0);
             if (p2 == NULL) {
                 TmqhOutputPacketpool(NULL,p1);
@@ -335,8 +355,8 @@ int FlowForceReassemblyForFlowV2(Flow *f)
             }
         }
 
-    } else if (client_ok == 2) {
-        if (server_ok == 1) {
+    } else if (client == 2) {
+        if (server == 1) {
             p1 = FlowForceReassemblyPseudoPacketGet(0, f, ssn, 0);
             if (p1 == NULL) {
                 return 1;
@@ -353,7 +373,7 @@ int FlowForceReassemblyForFlowV2(Flow *f)
                 return 1;
             }
 
-            if (server_ok == 2) {
+            if (server == 2) {
                 p2 = FlowForceReassemblyPseudoPacketGet(1, f, ssn, 1);
                 if (p2 == NULL) {
                     TmqhOutputPacketpool(NULL, p1);
@@ -363,7 +383,7 @@ int FlowForceReassemblyForFlowV2(Flow *f)
         }
 
     } else {
-        if (server_ok == 1) {
+        if (server == 1) {
             p1 = FlowForceReassemblyPseudoPacketGet(0, f, ssn, 0);
             if (p1 == NULL) {
                 return 1;
@@ -374,10 +394,9 @@ int FlowForceReassemblyForFlowV2(Flow *f)
                 TmqhOutputPacketpool(NULL, p1);
                 return 1;
             }
-        } else if (server_ok == 2) {
+        } else if (server == 2) {
             p1 = FlowForceReassemblyPseudoPacketGet(1, f, ssn, 1);
             if (p1 == NULL) {
-                TmqhOutputPacketpool(NULL, p1);
                 return 1;
             }
         } else {
@@ -412,8 +431,14 @@ int FlowForceReassemblyForFlowV2(Flow *f)
  * \internal
  * \brief Forces reassembly for flows that need it.
  *
- *        Please note we don't use locks anywhere.  This function is to be
- *        called right when the engine is not doing anything.
+ * When this function is called we're running in virtually dead engine,
+ * so locking the flows is not strictly required. The reasons it is still
+ * done are:
+ * - code consistency
+ * - silence complaining profilers
+ * - allow us to aggressively check using debug valdation assertions
+ * - be robust in case of future changes
+ * - locking overhead if neglectable when no other thread fights us
  *
  * \param q The queue to process flows from.
  */
@@ -423,9 +448,7 @@ static inline void FlowForceReassemblyForQ(FlowQueue *q)
     TcpSession *ssn;
     int client_ok;
     int server_ok;
-
-    /* no locks needed, since the engine is virtually dead.
-     * We are the kings here */
+    int tcp_needs_inspection;
 
     /* get the topmost flow from the QUEUE */
     f = q->top;
@@ -439,11 +462,14 @@ static inline void FlowForceReassemblyForQ(FlowQueue *q)
     while (f != NULL) {
         PACKET_RECYCLE(reassemble_p);
 
+        SCMutexLock(&f->m);
+
         /* Get the tcp session for the flow */
         ssn = (TcpSession *)f->protoctx;
 
         /* \todo Also skip flows that shouldn't be inspected */
         if (ssn == NULL) {
+            SCMutexUnlock(&f->m);
             f = f->lnext;
             continue;
         }
@@ -475,11 +501,20 @@ static inline void FlowForceReassemblyForQ(FlowQueue *q)
             StreamTcpReassembleProcessAppLayer(stt->ra_ctx);
         }
 
+        if (ssn->state >= TCP_ESTABLISHED && ssn->state != TCP_CLOSED)
+            tcp_needs_inspection = 1;
+        else
+            tcp_needs_inspection = 0;
+
+        SCMutexUnlock(&f->m);
+
         /* insert a pseudo packet in the toserver direction */
-        if (client_ok ||
-                (ssn->state >= TCP_ESTABLISHED && ssn->state != TCP_CLOSED))
+        if (client_ok || tcp_needs_inspection)
         {
+            SCMutexLock(&f->m);
             Packet *p = FlowForceReassemblyPseudoPacketGet(0, f, ssn, 1);
+            SCMutexUnlock(&f->m);
+
             if (p == NULL) {
                 TmqhOutputPacketpool(NULL, reassemble_p);
                 return;
@@ -502,10 +537,12 @@ static inline void FlowForceReassemblyForQ(FlowQueue *q)
                 }
             }
         } /* if (ssn->client.seg_list != NULL) */
-        if (server_ok ||
-                (ssn->state >= TCP_ESTABLISHED && ssn->state != TCP_CLOSED))
+        if (server_ok || tcp_needs_inspection)
         {
+            SCMutexLock(&f->m);
             Packet *p = FlowForceReassemblyPseudoPacketGet(1, f, ssn, 1);
+            SCMutexUnlock(&f->m);
+
             if (p == NULL) {
                 TmqhOutputPacketpool(NULL, reassemble_p);
                 return;

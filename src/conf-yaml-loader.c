@@ -37,11 +37,32 @@
  * work most of the time. */
 #define DEFAULT_NAME_LEN 16
 
+#define MANGLE_ERRORS_MAX 10
+static int mangle_errors = 0;
+
 /* Configuration processing states. */
 enum conf_state {
     CONF_KEY = 0,
     CONF_VAL,
 };
+
+/**
+ * \brief Mangle unsupported characters.
+ *
+ * \param string A pointer to an null terminated string.
+ *
+ * \retval none
+ */
+static void
+Mangle(char *string)
+{
+    char *c;
+
+    while ((c = strchr(string, '_')))
+        *c = '-';
+
+    return;
+}
 
 /**
  * \brief Parse a YAML layer.
@@ -105,6 +126,8 @@ ConfYamlParse(yaml_parser_t *parser, ConfNode *parent, int inseq)
                     if (parent->is_seq) {
                         if (parent->val == NULL) {
                             parent->val = SCStrdup(value);
+                            if (parent->val && strchr(parent->val, '_'))
+                                Mangle(parent->val);
                         }
                     }
                     ConfNode *n0 = ConfNodeLookupChild(parent, value);
@@ -114,6 +137,22 @@ ConfYamlParse(yaml_parser_t *parser, ConfNode *parent, int inseq)
                     else {
                         node = ConfNodeNew();
                         node->name = SCStrdup(value);
+                        if (node->name && strchr(node->name, '_')) {
+                            if (!(parent->name &&
+                                   ((strcmp(parent->name, "address-groups") == 0) ||
+                                    (strcmp(parent->name, "port-groups") == 0)))) {
+                                Mangle(node->name);
+                                if (mangle_errors < MANGLE_ERRORS_MAX) {
+                                    SCLogWarning(SC_WARN_DEPRECATED,
+                                            "%s is deprecated. Please use %s on line %"PRIuMAX".",
+                                            value, node->name, (uintmax_t)parser->mark.line+1);
+                                    mangle_errors++;
+                                    if (mangle_errors >= MANGLE_ERRORS_MAX)
+                                        SCLogWarning(SC_WARN_DEPRECATED, "not showing more "
+                                                "parameter name warnings.");
+                                }
+                            }
+                        }
                         TAILQ_INSERT_TAIL(&parent->head, node, next);
                     }
                     state = CONF_VAL;

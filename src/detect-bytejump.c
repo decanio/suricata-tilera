@@ -565,7 +565,7 @@ int DetectBytejumpSetup(DetectEngineCtx *de_ctx, Signature *s, char *optstr)
         if (data->flags & DETECT_BYTEJUMP_RELATIVE) {
             SigMatch *prev_sm = NULL;
             prev_sm = SigMatchGetLastSMFromLists(s, 8,
-                    DETECT_AL_HTTP_SERVER_BODY, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
+                    DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
                     DETECT_BYTETEST, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
                     DETECT_BYTEJUMP, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH],
                     DETECT_PCRE, s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH]);
@@ -632,9 +632,8 @@ int DetectBytejumpSetup(DetectEngineCtx *de_ctx, Signature *s, char *optstr)
     }
 
     SigMatch *prev_sm = NULL;
-    prev_sm = SigMatchGetLastSMFromLists(s, 8,
+    prev_sm = SigMatchGetLastSMFromLists(s, 6,
                                          DETECT_CONTENT, sm->prev,
-                                         DETECT_URICONTENT, sm->prev,
                                          DETECT_BYTEJUMP, sm->prev,
                                          DETECT_PCRE, sm->prev);
     if (prev_sm == NULL) {
@@ -650,7 +649,6 @@ int DetectBytejumpSetup(DetectEngineCtx *de_ctx, Signature *s, char *optstr)
     }
 
     DetectContentData *cd = NULL;
-    DetectContentData *ud = NULL;
     DetectPcreData *pe = NULL;
 
     switch (prev_sm->type) {
@@ -663,18 +661,6 @@ int DetectBytejumpSetup(DetectEngineCtx *de_ctx, Signature *s, char *optstr)
                 return -1;
             }
             cd->flags |= DETECT_CONTENT_RELATIVE_NEXT;
-
-            break;
-
-        case DETECT_URICONTENT:
-            /* Set the relative next flag on the prev sigmatch */
-            ud = (DetectContentData *)prev_sm->ctx;
-            if (ud == NULL) {
-                SCLogError(SC_ERR_INVALID_SIGNATURE, "Unknown previous-"
-                           "previous keyword!");
-                return -1;
-            }
-            ud->flags |= DETECT_CONTENT_RELATIVE_NEXT;
 
             break;
 

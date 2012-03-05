@@ -78,122 +78,10 @@ void DetectHttpStatMsgRegister (void) {
     sigmatch_table[DETECT_AL_HTTP_STAT_MSG].AppLayerMatch = NULL;
     sigmatch_table[DETECT_AL_HTTP_STAT_MSG].alproto = ALPROTO_HTTP;
     sigmatch_table[DETECT_AL_HTTP_STAT_MSG].Setup = DetectHttpStatMsgSetup;
-    sigmatch_table[DETECT_AL_HTTP_STAT_MSG].Free  = DetectHttpStatMsgFree;
+    sigmatch_table[DETECT_AL_HTTP_STAT_MSG].Free  = NULL;
     sigmatch_table[DETECT_AL_HTTP_STAT_MSG].RegisterTests = DetectHttpStatMsgRegisterTests;
 
     sigmatch_table[DETECT_AL_HTTP_STAT_MSG].flags |= SIGMATCH_PAYLOAD;
-}
-
-/**
- * \brief match the specified content in the signature with the received http
- *        status message header in the http response.
- *
- * \param t         pointer to thread vars
- * \param det_ctx   pointer to the pattern matcher thread
- * \param f         pointer to the current flow
- * \param flags     flags to indicate the direction of the received packet
- * \param state     pointer the app layer state, which will cast into HtpState
- * \param s         pointer to the current signature
- * \param sm        pointer to the sigmatch
- *
- * \retval 0 no match
- * \retval 1 match
- */
-int DetectHttpStatMsgMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
-                           Flow *f, uint8_t flags, void *state, Signature *s,
-                           SigMatch *sm)
-{
-    SCEnter();
-
-    int ret = 0;
-    int idx;
-
-    SCMutexLock(&f->m);
-    SCLogDebug("got lock %p", &f->m);
-
-    DetectContentData *co = (DetectContentData *)sm->ctx;
-
-    HtpState *htp_state = (HtpState *)state;
-    if (htp_state == NULL) {
-        SCLogDebug("no HTTP layer state has been received, so no match");
-        goto end;
-    }
-
-    if (!(htp_state->flags & HTP_FLAG_STATE_OPEN)) {
-        SCLogDebug("HTP state not yet properly setup, so no match");
-        goto end;
-    }
-
-    SCLogDebug("htp_state %p, flow %p", htp_state, f);
-    SCLogDebug("htp_state->connp %p", htp_state->connp);
-    SCLogDebug("htp_state->connp->conn %p", htp_state->connp->conn);
-
-    if (htp_state->connp == NULL || htp_state->connp->conn == NULL) {
-        SCLogDebug("HTTP connection structure is NULL");
-        goto end;
-    }
-
-    htp_tx_t *tx = NULL;
-
-    idx = AppLayerTransactionGetInspectId(f);
-    if (idx == -1) {
-        goto end;
-    }
-
-    int size = (int)list_size(htp_state->connp->conn->transactions);
-    for (; idx < size; idx++)
-    {
-        tx = list_get(htp_state->connp->conn->transactions, idx);
-        if (tx == NULL)
-            continue;
-
-        if (tx->response_message == NULL)
-            continue;
-
-        SCLogDebug("we have a response message");
-
-        /* call the case insensitive version if nocase has been specified in the sig */
-        if (co->flags & DETECT_CONTENT_NOCASE) {
-            if (SpmNocaseSearch((uint8_t *) bstr_ptr(tx->response_message),
-                    bstr_len(tx->response_message), co->content, co->content_len) != NULL)
-            {
-                SCLogDebug("match has been found in received request and given http_"
-                           "stat_msg rule");
-                ret = 1;
-            }
-        } else {
-            if (SpmSearch((uint8_t *) bstr_ptr(tx->response_message),
-                    bstr_len(tx->response_message), co->content, co->content_len) != NULL)
-            {
-                SCLogDebug("match has been found in received request and given http_"
-                           "stat_msg rule");
-                ret = 1;
-            }
-        }
-    }
-
-    SCMutexUnlock(&f->m);
-    SCReturnInt(ret ^ ((co->flags & DETECT_CONTENT_NEGATED) ? 1 : 0));
-
-end:
-    SCMutexUnlock(&f->m);
-    SCLogDebug("released lock %p", &f->m);
-    SCReturnInt(ret);
-}
-
-/**
- * \brief this function clears the memory of http_stat_msg modifier keyword
- *
- * \param ptr   Pointer to the Detection Stat Message data
- */
-void DetectHttpStatMsgFree(void *ptr)
-{
-    DetectContentData *hsmd = (DetectContentData *)ptr;
-    if (hsmd == NULL)
-        return;
-    if (hsmd->content != NULL)
-        SCFree(hsmd->content);
-    SCFree(hsmd);
 }
 
 /**
@@ -263,7 +151,7 @@ static int DetectHttpStatMsgSetup (DetectEngineCtx *de_ctx, Signature *s, char *
 
         /* reassigning pm */
         pm = SigMatchGetLastSMFromLists(s, 4,
-                                        DETECT_AL_HTTP_STAT_MSG, s->sm_lists_tail[DETECT_SM_LIST_HSMDMATCH],
+                                        DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_HSMDMATCH],
                                         DETECT_PCRE, s->sm_lists_tail[DETECT_SM_LIST_HSMDMATCH]);
         if (pm == NULL) {
             SCLogError(SC_ERR_INVALID_SIGNATURE, "http_stat_msg seen with a "
@@ -280,7 +168,7 @@ static int DetectHttpStatMsgSetup (DetectEngineCtx *de_ctx, Signature *s, char *
         }
     }
     cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_SM_LIST_HSMDMATCH);
-    sm->type = DETECT_AL_HTTP_STAT_MSG;
+    sm->type = DETECT_CONTENT;
 
     /* transfer the sm from the pmatch list to hcbdmatch list */
     SigMatchTransferSigMatchAcrossLists(sm,
@@ -378,10 +266,10 @@ int DetectHttpStatMsgTest02(void)
 
     SigMatch *prev = NULL;
     while (sm != NULL) {
-        if (sm->type == DETECT_AL_HTTP_STAT_MSG) {
+        if (sm->type == DETECT_CONTENT) {
             result = 1;
         } else {
-            printf("expected DETECT_AL_HTTP_STAT_MSG, got %d: ", sm->type);
+            printf("expected DETECT_CONTENT for http_stat_msg, got %d: ", sm->type);
             goto end;
         }
         prev = sm;

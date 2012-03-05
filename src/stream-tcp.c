@@ -67,6 +67,7 @@
 #include "util-privs.h"
 #include "util-profiling.h"
 #include "util-misc.h"
+#include "util-validate.h"
 
 //#define DEBUG
 
@@ -336,7 +337,7 @@ void StreamTcpInitConfig(char quiet)
     memset(&stream_config,  0, sizeof(stream_config));
 
     /** set config defaults */
-    if ((ConfGetInt("stream.max_sessions", &value)) == 1) {
+    if ((ConfGetInt("stream.max-sessions", &value)) == 1) {
         stream_config.max_sessions = (uint32_t)value;
     } else {
         if (RunmodeIsUnittests())
@@ -345,10 +346,10 @@ void StreamTcpInitConfig(char quiet)
             stream_config.max_sessions = STREAMTCP_DEFAULT_SESSIONS;
     }
     if (!quiet) {
-        SCLogInfo("stream \"max_sessions\": %"PRIu32"", stream_config.max_sessions);
+        SCLogInfo("stream \"max-sessions\": %"PRIu32"", stream_config.max_sessions);
     }
 
-    if ((ConfGetInt("stream.prealloc_sessions", &value)) == 1) {
+    if ((ConfGetInt("stream.prealloc-sessions", &value)) == 1) {
         stream_config.prealloc_sessions = (uint32_t)value;
     } else {
         if (RunmodeIsUnittests())
@@ -357,7 +358,7 @@ void StreamTcpInitConfig(char quiet)
             stream_config.prealloc_sessions = STREAMTCP_DEFAULT_PREALLOC;
     }
     if (!quiet) {
-        SCLogInfo("stream \"prealloc_sessions\": %"PRIu32"", stream_config.prealloc_sessions);
+        SCLogInfo("stream \"prealloc-sessions\": %"PRIu32"", stream_config.prealloc_sessions);
     }
 
     char *temp_stream_memcap_str;
@@ -382,15 +383,15 @@ void StreamTcpInitConfig(char quiet)
         SCLogInfo("stream \"midstream\" session pickups: %s", stream_config.midstream ? "enabled" : "disabled");
     }
 
-    ConfGetBool("stream.async_oneside", &stream_config.async_oneside);
+    ConfGetBool("stream.async-oneside", &stream_config.async_oneside);
 
     if (!quiet) {
-        SCLogInfo("stream \"async_oneside\": %s", stream_config.async_oneside ? "enabled" : "disabled");
+        SCLogInfo("stream \"async-oneside\": %s", stream_config.async_oneside ? "enabled" : "disabled");
     }
 
     int csum = 0;
 
-    if ((ConfGetBool("stream.checksum_validation", &csum)) == 1) {
+    if ((ConfGetBool("stream.checksum-validation", &csum)) == 1) {
         if (csum == 1) {
             stream_config.flags |= STREAMTCP_INIT_FLAG_CHECKSUM_VALIDATION;
 	}
@@ -400,7 +401,7 @@ void StreamTcpInitConfig(char quiet)
     }
 
     if (!quiet) {
-        SCLogInfo("stream \"checksum_validation\": %s",
+        SCLogInfo("stream \"checksum-validation\": %s",
                 stream_config.flags & STREAMTCP_INIT_FLAG_CHECKSUM_VALIDATION ?
                 "enabled" : "disabled");
     }
@@ -452,12 +453,12 @@ void StreamTcpInitConfig(char quiet)
     }
 
     char *temp_stream_reassembly_toserver_chunk_size_str;
-    if (ConfGet("stream.reassembly.toserver_chunk_size",
+    if (ConfGet("stream.reassembly.toserver-chunk-size",
                 &temp_stream_reassembly_toserver_chunk_size_str) == 1) {
         if (ParseSizeStringU16(temp_stream_reassembly_toserver_chunk_size_str,
                                &stream_config.reassembly_toserver_chunk_size) < 0) {
             SCLogError(SC_ERR_SIZE_PARSE, "Error parsing "
-                       "stream.reassembly.toserver_chunk_size "
+                       "stream.reassembly.toserver-chunk-size "
                        "from conf file - %s.  Killing engine",
                        temp_stream_reassembly_toserver_chunk_size_str);
             exit(EXIT_FAILURE);
@@ -470,12 +471,12 @@ void StreamTcpInitConfig(char quiet)
             stream_config.reassembly_toserver_chunk_size);
 
     char *temp_stream_reassembly_toclient_chunk_size_str;
-    if (ConfGet("stream.reassembly.toclient_chunk_size",
+    if (ConfGet("stream.reassembly.toclient-chunk-size",
                 &temp_stream_reassembly_toclient_chunk_size_str) == 1) {
         if (ParseSizeStringU16(temp_stream_reassembly_toclient_chunk_size_str,
                                &stream_config.reassembly_toclient_chunk_size) < 0) {
             SCLogError(SC_ERR_SIZE_PARSE, "Error parsing "
-                       "stream.reassembly.toclient_chunk_size "
+                       "stream.reassembly.toclient-chunk-size "
                        "from conf file - %s.  Killing engine",
                        temp_stream_reassembly_toclient_chunk_size_str);
             exit(EXIT_FAILURE);
@@ -488,9 +489,9 @@ void StreamTcpInitConfig(char quiet)
             stream_config.reassembly_toclient_chunk_size);
 
     if (!quiet) {
-        SCLogInfo("stream.reassembly \"toserver_chunk_size\": %"PRIu16,
+        SCLogInfo("stream.reassembly \"toserver-chunk-size\": %"PRIu16,
             stream_config.reassembly_toserver_chunk_size);
-        SCLogInfo("stream.reassembly \"toclient_chunk_size\": %"PRIu16,
+        SCLogInfo("stream.reassembly \"toclient-chunk-size\": %"PRIu16,
             stream_config.reassembly_toclient_chunk_size);
     }
 
@@ -666,6 +667,9 @@ void StreamTcpSetOSPolicy(TcpStream *stream, Packet *p)
  *  \param  tv      Thread Variable containig  input/output queue, cpu affinity
  *  \param  p       Packet which has to be handled in this TCP state.
  *  \param  stt     Strean Thread module registered to handle the stream handling
+ *
+ *  \retval 0 ok
+ *  \retval -1 error
  */
 static int StreamTcpPacketStateNone(ThreadVars *tv, Packet *p,
                         StreamTcpThread *stt, TcpSession *ssn, PacketQueue *pq)
@@ -923,6 +927,7 @@ static int StreamTcpPacketStateNone(ThreadVars *tv, Packet *p,
             SCLogDebug("default case");
             break;
     }
+
     return 0;
 }
 
@@ -3594,6 +3599,8 @@ static int StreamTcpPacket (ThreadVars *tv, Packet *p, StreamTcpThread *stt,
 {
     SCEnter();
 
+    DEBUG_ASSERT_FLOW_LOCKED(p->flow);
+
     SCLogDebug("p->pcap_cnt %"PRIu64, p->pcap_cnt);
 
     TcpSession *ssn = (TcpSession *)p->flow->protoctx;
@@ -3746,39 +3753,40 @@ static int StreamTcpPacket (ThreadVars *tv, Packet *p, StreamTcpThread *stt,
      * inject a fake packet into the system, forcing reassembly of the
      * opposing direction.
      * There should be only one, but to be sure we do a while loop. */
-    while (stt->pseudo_queue.len > 0) {
-        SCLogDebug("processing pseudo packet / stream end");
-        Packet *np = PacketDequeue(&stt->pseudo_queue);
-        if (np != NULL) {
-            /* process the opposing direction of the original packet */
-            if (PKT_IS_TOSERVER(np)) {
-                SCLogDebug("pseudo packet is to server");
-                StreamTcpReassembleHandleSegment(tv, stt->ra_ctx, ssn,
-                        &ssn->client, np, NULL);
-            } else {
-                SCLogDebug("pseudo packet is to client");
-                StreamTcpReassembleHandleSegment(tv, stt->ra_ctx, ssn,
-                        &ssn->server, np, NULL);
-            }
-
-            /* enqueue this packet so we inspect it in detect etc */
-            PacketEnqueue(pq, np);
-        }
-        SCLogDebug("processing pseudo packet / stream end done");
-    }
-
-    /* Process stream smsgs we may have in queue */
-    if (StreamTcpReassembleProcessAppLayer(stt->ra_ctx) < 0) {
-        goto error;
-    }
-
-    /* recalc the csum on the packet if it was modified */
-    if (p->flags & PKT_STREAM_MODIFIED) {
-        ReCalculateChecksum(p);
-    }
-
-    /* check for conditions that may make us not want to log this packet */
     if (ssn != NULL) {
+        while (stt->pseudo_queue.len > 0) {
+            SCLogDebug("processing pseudo packet / stream end");
+            Packet *np = PacketDequeue(&stt->pseudo_queue);
+            if (np != NULL) {
+                /* process the opposing direction of the original packet */
+                if (PKT_IS_TOSERVER(np)) {
+                    SCLogDebug("pseudo packet is to server");
+                    StreamTcpReassembleHandleSegment(tv, stt->ra_ctx, ssn,
+                            &ssn->client, np, NULL);
+                } else {
+                    SCLogDebug("pseudo packet is to client");
+                    StreamTcpReassembleHandleSegment(tv, stt->ra_ctx, ssn,
+                            &ssn->server, np, NULL);
+                }
+
+                /* enqueue this packet so we inspect it in detect etc */
+                PacketEnqueue(pq, np);
+            }
+            SCLogDebug("processing pseudo packet / stream end done");
+        }
+
+        /* Process stream smsgs we may have in queue */
+        if (StreamTcpReassembleProcessAppLayer(stt->ra_ctx) < 0) {
+            goto error;
+        }
+
+        /* recalc the csum on the packet if it was modified */
+        if (p->flags & PKT_STREAM_MODIFIED) {
+            ReCalculateChecksum(p);
+        }
+
+        /* check for conditions that may make us not want to log this packet */
+
         /* streams that hit depth */
         if ((ssn->client.flags & STREAMTCP_STREAM_FLAG_DEPTH_REACHED ||
              ssn->server.flags & STREAMTCP_STREAM_FLAG_DEPTH_REACHED))
@@ -3839,12 +3847,12 @@ static inline int StreamTcpValidateChecksum(Packet *p)
 
     if (p->tcpvars.comp_csum == -1) {
         if (PKT_IS_IPV4(p)) {
-            p->tcpvars.comp_csum = TCPCalculateChecksum((uint16_t *)&(p->ip4h->ip_src),
+            p->tcpvars.comp_csum = TCPCalculateChecksum(p->ip4h->s_ip_addrs,
                                                  (uint16_t *)p->tcph,
                                                  (p->payload_len +
                                                   TCP_GET_HLEN(p)));
         } else if (PKT_IS_IPV6(p)) {
-            p->tcpvars.comp_csum = TCPV6CalculateChecksum((uint16_t *)&(p->ip6h->ip6_src),
+            p->tcpvars.comp_csum = TCPV6CalculateChecksum(p->ip6h->s_ip6_addrs,
                                                    (uint16_t *)p->tcph,
                                                    (p->payload_len +
                                                     TCP_GET_HLEN(p)));
@@ -4569,19 +4577,19 @@ void StreamTcpSetSessionNoReassemblyFlag (TcpSession *ssn, char direction)
         IPV4_SET_RAW_IPLEN(nipv4h, IPV4_GET_RAW_IPLEN(ipv4h)); \
         IPV4_SET_RAW_IPTOS(nipv4h, IPV4_GET_RAW_IPTOS(ipv4h)); \
         IPV4_SET_RAW_IPPROTO(nipv4h, IPV4_GET_RAW_IPPROTO(ipv4h)); \
-        (nipv4h)->ip_src = IPV4_GET_RAW_IPDST(ipv4h); \
-        (nipv4h)->ip_dst = IPV4_GET_RAW_IPSRC(ipv4h); \
+        (nipv4h)->s_ip_src = IPV4_GET_RAW_IPDST(ipv4h); \
+        (nipv4h)->s_ip_dst = IPV4_GET_RAW_IPSRC(ipv4h); \
     } while (0)
 
 #define PSEUDO_PKT_SET_IPV6HDR(nipv6h,ipv6h) do { \
-        (nipv6h)->ip6_src[0] = (ipv6h)->ip6_dst[0]; \
-        (nipv6h)->ip6_src[1] = (ipv6h)->ip6_dst[1]; \
-        (nipv6h)->ip6_src[2] = (ipv6h)->ip6_dst[2]; \
-        (nipv6h)->ip6_src[3] = (ipv6h)->ip6_dst[3]; \
-        (nipv6h)->ip6_dst[0] = (ipv6h)->ip6_src[0]; \
-        (nipv6h)->ip6_dst[1] = (ipv6h)->ip6_src[1]; \
-        (nipv6h)->ip6_dst[2] = (ipv6h)->ip6_src[2]; \
-        (nipv6h)->ip6_dst[3] = (ipv6h)->ip6_src[3]; \
+        (nipv6h)->s_ip6_src[0] = (ipv6h)->s_ip6_dst[0]; \
+        (nipv6h)->s_ip6_src[1] = (ipv6h)->s_ip6_dst[1]; \
+        (nipv6h)->s_ip6_src[2] = (ipv6h)->s_ip6_dst[2]; \
+        (nipv6h)->s_ip6_src[3] = (ipv6h)->s_ip6_dst[3]; \
+        (nipv6h)->s_ip6_dst[0] = (ipv6h)->s_ip6_src[0]; \
+        (nipv6h)->s_ip6_dst[1] = (ipv6h)->s_ip6_src[1]; \
+        (nipv6h)->s_ip6_dst[2] = (ipv6h)->s_ip6_src[2]; \
+        (nipv6h)->s_ip6_dst[3] = (ipv6h)->s_ip6_src[3]; \
         IPV6_SET_RAW_NH(nipv6h, IPV6_GET_RAW_NH(ipv6h));    \
     } while (0)
 

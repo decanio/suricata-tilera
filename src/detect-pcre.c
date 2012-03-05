@@ -1201,19 +1201,9 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
         SCReturnInt(0);
     }
 
-    prev_sm = SigMatchGetLastSMFromLists(s, 24,
-            DETECT_CONTENT, sm->prev,
-            DETECT_URICONTENT, sm->prev,
-            DETECT_AL_HTTP_CLIENT_BODY, sm->prev,
-            DETECT_AL_HTTP_SERVER_BODY, sm->prev,
-            DETECT_AL_HTTP_HEADER, sm->prev,
-            DETECT_AL_HTTP_RAW_HEADER, sm->prev,
-            DETECT_AL_HTTP_RAW_URI, sm->prev,
-            DETECT_AL_HTTP_COOKIE, sm->prev,
-            DETECT_AL_HTTP_METHOD, sm->prev,
-            DETECT_PCRE, sm->prev,
-            DETECT_AL_HTTP_STAT_MSG, sm->prev,
-            DETECT_AL_HTTP_STAT_CODE, sm->prev);
+    prev_sm = SigMatchGetLastSMFromLists(s, 4,
+                                         DETECT_CONTENT, sm->prev,
+                                         DETECT_PCRE, sm->prev);
     if (prev_sm == NULL) {
         if (s->alproto == ALPROTO_DCERPC) {
             SCLogDebug("No preceding content or pcre keyword.  Possible "
@@ -1237,16 +1227,6 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
 
     switch (prev_sm->type) {
         case DETECT_CONTENT:
-        case DETECT_URICONTENT:
-        case DETECT_AL_HTTP_CLIENT_BODY:
-        case DETECT_AL_HTTP_SERVER_BODY:
-        case DETECT_AL_HTTP_HEADER:
-        case DETECT_AL_HTTP_RAW_HEADER:
-        case DETECT_AL_HTTP_STAT_MSG:
-        case DETECT_AL_HTTP_STAT_CODE:
-        case DETECT_AL_HTTP_RAW_URI:
-        case DETECT_AL_HTTP_COOKIE:
-        case DETECT_AL_HTTP_METHOD:
             /* Set the relative next flag on the prev sigmatch */
             cd = (DetectContentData *)prev_sm->ctx;
             if (cd == NULL) {

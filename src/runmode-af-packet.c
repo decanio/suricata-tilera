@@ -110,13 +110,15 @@ void *ParseAFPConfig(const char *iface)
     intmax_t value;
     int boolval;
 
-    if (iface == NULL) {
-        return NULL;
-    }
-
     if (aconf == NULL) {
         return NULL;
     }
+
+    if (iface == NULL) {
+        SCFree(aconf);
+        return NULL;
+    }
+
     strlcpy(aconf->iface, iface, sizeof(aconf->iface));
     aconf->threads = 1;
     SC_ATOMIC_INIT(aconf->ref);
@@ -127,6 +129,7 @@ void *ParseAFPConfig(const char *iface)
     aconf->promisc = 1;
     aconf->checksum_mode = CHECKSUM_VALIDATION_KERNEL;
     aconf->DerefFunc = AFPDerefConfig;
+    aconf->flags = 0;
 
     /* Find initial node */
     af_packet_node = ConfGetNode("af-packet");
@@ -189,6 +192,7 @@ void *ParseAFPConfig(const char *iface)
         aconf->cluster_type = PACKET_FANOUT_CPU;
     } else {
         SCLogError(SC_ERR_INVALID_CLUSTER_TYPE,"invalid cluster-type %s",tmpctype);
+        SCFree(aconf);
         return NULL;
     }
 
@@ -204,6 +208,13 @@ void *ParseAFPConfig(const char *iface)
                 aconf->iface);
         aconf->promisc = 0;
     }
+    ConfGetChildValueBool(if_root, "use-mmap", (int *)&boolval);
+    if (boolval) {
+        SCLogInfo("Enabling mmaped capture on iface %s",
+                aconf->iface);
+        aconf->flags |= AFP_RING_MODE;
+    }
+
 
     if (ConfGetChildValue(if_root, "checksum-checks", &tmpctype) == 1) {
         if (strcmp(tmpctype, "auto") == 0) {

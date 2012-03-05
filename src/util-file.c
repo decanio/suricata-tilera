@@ -32,6 +32,7 @@
 #include "util-memcmp.h"
 #include "util-print.h"
 #include "app-layer-parser.h"
+#include "util-validate.h"
 
 /** \brief switch to force magic checks on all files
  *         regardless of the rules.
@@ -331,7 +332,7 @@ static void FileFree(File *ff) {
 }
 
 void FileContainerAdd(FileContainer *ffc, File *ff) {
-    if (ffc->head == NULL) {
+    if (ffc->head == NULL || ffc->tail == NULL) {
         ffc->head = ffc->tail = ff;
     } else {
         ffc->tail->next = ff;
@@ -357,7 +358,8 @@ int FileStore(File *ff) {
  */
 int FileSetTx(File *ff, uint16_t txid) {
     SCLogDebug("ff %p txid %"PRIu16, ff, txid);
-    ff->txid = txid;
+    if (ff != NULL)
+        ff->txid = txid;
     SCReturnInt(0);
 }
 
@@ -588,6 +590,8 @@ void FileDisableStoring(Flow *f, uint8_t direction) {
 
     SCEnter();
 
+    DEBUG_ASSERT_FLOW_LOCKED(f);
+
     f->flags |= FLOW_FILE_NO_STORE;
 
     FileContainer *ffc = AppLayerGetFilesFromFlow(f, direction);
@@ -611,6 +615,8 @@ void FileDisableMagic(Flow *f, uint8_t direction) {
     File *ptr = NULL;
 
     SCEnter();
+
+    DEBUG_ASSERT_FLOW_LOCKED(f);
 
     f->flags |= FLOW_FILE_NO_MAGIC;
 
@@ -647,12 +653,14 @@ void FileDisableStoringForFile(File *ff) {
 /**
  *  \brief disable file storing for files in a transaction
  *
- *  \param f flow
+ *  \param f *LOCKED* flow
  *  \param direction flow direction
  *  \param tx_id transaction id
  */
 void FileDisableStoringForTransaction(Flow *f, uint8_t direction, uint16_t tx_id) {
     File *ptr = NULL;
+
+    DEBUG_ASSERT_FLOW_LOCKED(f);
 
     SCEnter();
 

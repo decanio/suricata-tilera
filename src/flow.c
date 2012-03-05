@@ -170,6 +170,62 @@ static uint64_t prune_no_timeout = 0;
 static uint64_t prune_usecnt = 0;
 #endif
 
+/** \internal
+ *  \brief get timeout for flow
+ *
+ *  \param f flow
+ *  \param emergency bool indicating emergency mode 1 yes, 0 no
+ *
+ *  \retval timeout timeout in seconds
+ */
+static inline uint32_t FlowPruneGetFlowTimeout(Flow *f, int emergency) {
+    uint32_t timeout;
+
+    if (emergency) {
+        if (flow_proto[f->protomap].GetProtoState != NULL) {
+            switch(flow_proto[f->protomap].GetProtoState(f->protoctx)) {
+                default:
+                case FLOW_STATE_NEW:
+                    timeout = flow_proto[f->protomap].emerg_new_timeout;
+                    break;
+                case FLOW_STATE_ESTABLISHED:
+                    timeout = flow_proto[f->protomap].emerg_est_timeout;
+                    break;
+                case FLOW_STATE_CLOSED:
+                    timeout = flow_proto[f->protomap].emerg_closed_timeout;
+                    break;
+            }
+        } else {
+            if (f->flags & FLOW_EST_LIST)
+                timeout = flow_proto[f->protomap].emerg_est_timeout;
+            else
+                timeout = flow_proto[f->protomap].emerg_new_timeout;
+        }
+    } else { /* implies no emergency */
+        if (flow_proto[f->protomap].GetProtoState != NULL) {
+            switch(flow_proto[f->protomap].GetProtoState(f->protoctx)) {
+                default:
+                case FLOW_STATE_NEW:
+                    timeout = flow_proto[f->protomap].new_timeout;
+                    break;
+                case FLOW_STATE_ESTABLISHED:
+                    timeout = flow_proto[f->protomap].est_timeout;
+                    break;
+                case FLOW_STATE_CLOSED:
+                    timeout = flow_proto[f->protomap].closed_timeout;
+                    break;
+            }
+        } else {
+            if (f->flags & FLOW_EST_LIST)
+                timeout = flow_proto[f->protomap].est_timeout;
+            else
+                timeout = flow_proto[f->protomap].new_timeout;
+        }
+    }
+
+    return timeout;
+}
+
 /** FlowPrune
  *
  * Inspect top (last recently used) flow from the queue and see if
@@ -179,11 +235,10 @@ static uint64_t prune_usecnt = 0;
  *
  * \param q       Flow queue to prune
  * \param ts      Current time
- * \param timeout Timeout to enforce
  * \param try_cnt Tries to prune the first try_cnt no of flows in the q
  *
  * \retval 0 on error, failed block, nothing to prune
- * \retval 1 on successfully pruned one
+ * \retval cnt on successfully pruned, cnt flows were pruned
  */
 static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
 {
@@ -248,47 +303,7 @@ static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
 
         /*set the timeout value according to the flow operating mode, flow's state
           and protocol.*/
-        uint32_t timeout = 0;
-
-        if (flow_flags & FLOW_EMERGENCY) {
-            if (flow_proto[f->protomap].GetProtoState != NULL) {
-                switch(flow_proto[f->protomap].GetProtoState(f->protoctx)) {
-                case FLOW_STATE_NEW:
-                    timeout = flow_proto[f->protomap].emerg_new_timeout;
-                    break;
-                case FLOW_STATE_ESTABLISHED:
-                    timeout = flow_proto[f->protomap].emerg_est_timeout;
-                    break;
-                case FLOW_STATE_CLOSED:
-                    timeout = flow_proto[f->protomap].emerg_closed_timeout;
-                    break;
-                }
-            } else {
-                if (f->flags & FLOW_EST_LIST)
-                    timeout = flow_proto[f->protomap].emerg_est_timeout;
-                else
-                    timeout = flow_proto[f->protomap].emerg_new_timeout;
-            }
-        } else { /* implies no emergency */
-            if (flow_proto[f->protomap].GetProtoState != NULL) {
-                switch(flow_proto[f->protomap].GetProtoState(f->protoctx)) {
-                case FLOW_STATE_NEW:
-                    timeout = flow_proto[f->protomap].new_timeout;
-                    break;
-                case FLOW_STATE_ESTABLISHED:
-                    timeout = flow_proto[f->protomap].est_timeout;
-                    break;
-                case FLOW_STATE_CLOSED:
-                    timeout = flow_proto[f->protomap].closed_timeout;
-                    break;
-                }
-            } else {
-                if (f->flags & FLOW_EST_LIST)
-                    timeout = flow_proto[f->protomap].est_timeout;
-                else
-                    timeout = flow_proto[f->protomap].new_timeout;
-            }
-        }
+        uint32_t timeout = FlowPruneGetFlowTimeout(f, flow_flags & FLOW_EMERGENCY ? 1 : 0);
 
         SCLogDebug("got lock, now check: %" PRIdMAX "+%" PRIu32 "=(%" PRIdMAX ") < "
                    "%" PRIdMAX "", (intmax_t)f->lastts_sec,
@@ -317,18 +332,23 @@ static int FlowPrune(FlowQueue *q, struct timeval *ts, int try_cnt)
 #ifdef FLOW_PRUNE_DEBUG
             prune_usecnt++;
 #endif
-            Flow *prev_f = f;
+            SCSpinUnlock(&f->fb->s);
+            SCMutexUnlock(&f->m);
             f = f->lnext;
-            SCSpinUnlock(&prev_f->fb->s);
-            SCMutexUnlock(&prev_f->m);
             continue;
         }
 
-        if (FlowForceReassemblyForFlowV2(f) == 1) {
-            Flow *prev_f = f;
+        int server = 0, client = 0;
+        if (FlowForceReassemblyNeedReassmbly(f, &server, &client) == 1) {
+            /* we no longer need the fb lock. We know this flow won't be timed
+             * out just yet. So an incoming pkt is allowed to pick up this
+             * flow. */
+            SCSpinUnlock(&f->fb->s);
+
+            FlowForceReassemblyForFlowV2(f, server, client);
+            SCMutexUnlock(&f->m);
+
             f = f->lnext;
-            SCSpinUnlock(&prev_f->fb->s);
-            SCMutexUnlock(&prev_f->m);
             continue;
         }
 #ifdef DEBUG
@@ -838,22 +858,22 @@ void FlowInitConfig(char quiet)
     /* If we have specific config, overwrite the defaults with them,
      * otherwise, leave the default values */
     intmax_t val = 0;
-    if (ConfGetInt("flow.emergency_recovery", &val) == 1) {
+    if (ConfGetInt("flow.emergency-recovery", &val) == 1) {
         if (val <= 100 && val >= 1) {
             flow_config.emergency_recovery = (uint8_t)val;
         } else {
-            SCLogError(SC_ERR_INVALID_VALUE, "flow.emergency_recovery must be in the range of 1 and 100 (as percentage)");
+            SCLogError(SC_ERR_INVALID_VALUE, "flow.emergency-recovery must be in the range of 1 and 100 (as percentage)");
             flow_config.emergency_recovery = FLOW_DEFAULT_EMERGENCY_RECOVERY;
         }
     } else {
-        SCLogDebug("flow.emergency_recovery, using default value");
+        SCLogDebug("flow.emergency-recovery, using default value");
         flow_config.emergency_recovery = FLOW_DEFAULT_EMERGENCY_RECOVERY;
     }
 
-    if (ConfGetInt("flow.prune_flows", &val) == 1) {
+    if (ConfGetInt("flow.prune-flows", &val) == 1) {
             flow_config.flow_try_release = (uint8_t)val;
     } else {
-        SCLogDebug("flow.flow.prune_flows, using default value");
+        SCLogDebug("flow.flow.prune-flows, using default value");
         flow_config.flow_try_release = FLOW_DEFAULT_FLOW_PRUNE;
     }
 
@@ -871,7 +891,7 @@ void FlowInitConfig(char quiet)
             exit(EXIT_FAILURE);
         }
     }
-    if ((ConfGet("flow.hash_size", &conf_val)) == 1)
+    if ((ConfGet("flow.hash-size", &conf_val)) == 1)
     {
         if (ByteExtractStringUint32(&configval, 10, strlen(conf_val),
                                     conf_val) > 0) {
@@ -885,7 +905,7 @@ void FlowInitConfig(char quiet)
             flow_config.prealloc = configval;
         }
     }
-    SCLogDebug("Flow config from suricata.yaml: memcap: %"PRIu64", hash_size: "
+    SCLogDebug("Flow config from suricata.yaml: memcap: %"PRIu64", hash-size: "
                "%"PRIu32", prealloc: %"PRIu32, flow_config.memcap,
                flow_config.hash_size, flow_config.prealloc);
 
@@ -1114,11 +1134,11 @@ void FlowInitFlowProto(void)
             new = ConfNodeLookupChildValue(proto, "new");
             established = ConfNodeLookupChildValue(proto, "established");
             closed = ConfNodeLookupChildValue(proto, "closed");
-            emergency_new = ConfNodeLookupChildValue(proto, "emergency_new");
+            emergency_new = ConfNodeLookupChildValue(proto, "emergency-new");
             emergency_established = ConfNodeLookupChildValue(proto,
-                "emergency_established");
+                "emergency-established");
             emergency_closed = ConfNodeLookupChildValue(proto,
-                "emergency_closed");
+                "emergency-closed");
 
             if (new != NULL &&
                 ByteExtractStringUint32(&configval, 10, strlen(new), new) > 0) {
@@ -1165,11 +1185,11 @@ void FlowInitFlowProto(void)
             new = ConfNodeLookupChildValue(proto, "new");
             established = ConfNodeLookupChildValue(proto, "established");
             closed = ConfNodeLookupChildValue(proto, "closed");
-            emergency_new = ConfNodeLookupChildValue(proto, "emergency_new");
+            emergency_new = ConfNodeLookupChildValue(proto, "emergency-new");
             emergency_established = ConfNodeLookupChildValue(proto,
-                "emergency_established");
+                "emergency-established");
             emergency_closed = ConfNodeLookupChildValue(proto,
-                "emergency_closed");
+                "emergency-closed");
 
             if (new != NULL &&
                 ByteExtractStringUint32(&configval, 10, strlen(new), new) > 0) {
@@ -1215,9 +1235,9 @@ void FlowInitFlowProto(void)
         if (proto != NULL) {
             new = ConfNodeLookupChildValue(proto, "new");
             established = ConfNodeLookupChildValue(proto, "established");
-            emergency_new = ConfNodeLookupChildValue(proto, "emergency_new");
+            emergency_new = ConfNodeLookupChildValue(proto, "emergency-new");
             emergency_established = ConfNodeLookupChildValue(proto,
-                "emergency_established");
+                "emergency-established");
             if (new != NULL &&
                 ByteExtractStringUint32(&configval, 10, strlen(new), new) > 0) {
 
@@ -1249,9 +1269,9 @@ void FlowInitFlowProto(void)
         if (proto != NULL) {
             new = ConfNodeLookupChildValue(proto, "new");
             established = ConfNodeLookupChildValue(proto, "established");
-            emergency_new = ConfNodeLookupChildValue(proto, "emergency_new");
+            emergency_new = ConfNodeLookupChildValue(proto, "emergency-new");
             emergency_established = ConfNodeLookupChildValue(proto,
-                "emergency_established");
+                "emergency-established");
 
             if (new != NULL &&
                 ByteExtractStringUint32(&configval, 10, strlen(new), new) > 0) {

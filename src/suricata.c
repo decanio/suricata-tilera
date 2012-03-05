@@ -97,6 +97,7 @@
 #include "log-httplog.h"
 #include "log-pcap.h"
 #include "log-file.h"
+#include "log-filestore.h"
 
 #include "stream-tcp.h"
 
@@ -277,6 +278,7 @@ SignalHandlerSetup(int sig, void (*handler)())
 	signal(sig, handler);
 #else
     struct sigaction action;
+    memset(&action, 0x00, sizeof(struct sigaction));
 
     action.sa_handler = handler;
     sigemptyset(&(action.sa_mask));
@@ -385,28 +387,27 @@ static void SetBpfStringFromFile(char *filename) {
         SCLogError(SC_ERR_FOPEN, "Failed to stat file %s", filename);
         exit(EXIT_FAILURE);
     }
-    bpf_len=st.st_size + 1;
+    bpf_len = st.st_size + 1;
 
-    bpf_filter = SCMalloc(bpf_len*sizeof(char));
-    if(bpf_filter == NULL) {
+    fp = fopen(filename,"r");
+    if (fp == NULL) {
+        SCLogError(SC_ERR_FOPEN, "Failed to open file %s", filename);
+        exit(EXIT_FAILURE);
+    }
+
+    bpf_filter = SCMalloc(bpf_len * sizeof(char));
+    if (bpf_filter == NULL) {
         SCLogError(SC_ERR_MEM_ALLOC,
-        "Failed to allocate buffer for bpf filter in file %s", filename);
+                "Failed to allocate buffer for bpf filter in file %s", filename);
         exit(EXIT_FAILURE);
     }
     memset(bpf_filter, 0x00, bpf_len);
 
-    fp = fopen(filename,"r");
-    if(fp == NULL) {
-        SCLogError(SC_ERR_FOPEN, "Failed to open file %s", filename);
-        SCFree(bpf_filter);
-        exit(EXIT_FAILURE);
-    }else {
-        nm = fread(bpf_filter, bpf_len - 1, 1, fp);
-        if((ferror(fp) != 0)||( nm != 1)) {
-           *bpf_filter='\0';
-        }
-        fclose(fp);
+    nm = fread(bpf_filter, bpf_len - 1, 1, fp);
+    if((ferror(fp) != 0)||( nm != 1)) {
+        *bpf_filter='\0';
     }
+    fclose(fp);
 
     if(strlen(bpf_filter) > 0) {
         /*replace comments with space*/
@@ -564,6 +565,9 @@ void SCPrintBuildInfo(void) {
 #endif
 #ifdef HAVE_AF_PACKET
     strlcat(features, "AF_PACKET ", sizeof(features));
+#endif
+#ifdef HAVE_PACKET_FANOUT
+    strlcat(features, "HAVE_PACKET_FANOUT ", sizeof(features));
 #endif
 #ifdef HAVE_DAG
     strlcat(features, "DAG ", sizeof(features));
@@ -869,8 +873,8 @@ int main(int argc, char **argv)
                     exit(EXIT_FAILURE);
                 }
             } else if(strcmp((long_opts[option_index]).name, "init-errors-fatal") == 0) {
-                if (ConfSet("engine.init_failure_fatal", "1", 0) != 1) {
-                    fprintf(stderr, "ERROR: Failed to set engine init_failure_fatal.\n");
+                if (ConfSet("engine.init-failure-fatal", "1", 0) != 1) {
+                    fprintf(stderr, "ERROR: Failed to set engine init-failure-fatal.\n");
                     exit(EXIT_FAILURE);
                 }
             }
@@ -926,8 +930,8 @@ int main(int argc, char **argv)
             }
             else if(strcmp((long_opts[option_index]).name, "fatal-unittests") == 0) {
 #ifdef UNITTESTS
-                if (ConfSet("unittests.failure_fatal", "1", 0) != 1) {
-                    fprintf(stderr, "ERROR: Failed to set unittests failure_fatal.\n");
+                if (ConfSet("unittests.failure-fatal", "1", 0) != 1) {
+                    fprintf(stderr, "ERROR: Failed to set unittests failure-fatal.\n");
                     exit(EXIT_FAILURE);
                 }
 #else
@@ -957,15 +961,15 @@ int main(int argc, char **argv)
             }
             else if (strcmp((long_opts[option_index]).name, "erf-in") == 0) {
                 run_mode = RUNMODE_ERF_FILE;
-                if (ConfSet("erf_file.file", optarg, 0) != 1) {
-                    fprintf(stderr, "ERROR: Failed to set erf_file.file\n");
+                if (ConfSet("erf-file.file", optarg, 0) != 1) {
+                    fprintf(stderr, "ERROR: Failed to set erf-file.file\n");
                     exit(EXIT_FAILURE);
                 }
             }
 			else if (strcmp((long_opts[option_index]).name, "dag") == 0) {
 #ifdef HAVE_DAG
 				run_mode = RUNMODE_DAG;
-                if (ConfSet("erf_dag.iface", optarg, 0) != 1) {
+                if (ConfSet("erf-dag.iface", optarg, 0) != 1) {
                     fprintf(stderr, "ERROR: Failed to set erf_dag.iface\n");
                     exit(EXIT_FAILURE);
                 }
@@ -1156,8 +1160,8 @@ int main(int argc, char **argv)
                 usage(argv[0]);
                 exit(EXIT_SUCCESS);
             }
-            if (ConfSet("pcap_file.file", optarg, 0) != 1) {
-                fprintf(stderr, "ERROR: Failed to set pcap_file.file\n");
+            if (ConfSet("pcap-file.file", optarg, 0) != 1) {
+                fprintf(stderr, "ERROR: Failed to set pcap-file.file\n");
                 exit(EXIT_FAILURE);
             }
             break;
@@ -1450,6 +1454,7 @@ int main(int argc, char **argv)
     TmModuleLogHttpLogIPv6Register();
     TmModulePcapLogRegister();
     TmModuleLogFileLogRegister();
+    TmModuleLogFilestoreRegister();
 #ifdef __SC_CUDA_SUPPORT__
     TmModuleCudaMpmB2gRegister();
     TmModuleCudaPacketBatcherRegister();

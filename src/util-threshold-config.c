@@ -812,9 +812,9 @@ int SCThresholdConfLineIsMultiline(char *line)
 int SCThresholdConfLineLength(FILE *fd) {
     long pos = ftell(fd);
     int len = 0;
-    char c;
+    int c;
 
-    while ( (c = fgetc(fd)) && c != '\n' && !feof(fd))
+    while ( (c = fgetc(fd)) && (char)c != '\n' && c != EOF && !feof(fd))
         len++;
 
     if (pos < 0)
@@ -1543,8 +1543,8 @@ int SCThresholdConfTest09(void)
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
     alerts += PacketAlertCheck(p, 10);
     if (alerts > 0) {
-        goto end;
         result = 0;
+        goto end;
     }
 
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
@@ -1636,8 +1636,8 @@ int SCThresholdConfTest10(void)
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p2);
     alerts += PacketAlertCheck(p2, 10);
     if (alerts > 0) {
-        goto end;
         result = 0;
+        goto end;
     }
 
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
