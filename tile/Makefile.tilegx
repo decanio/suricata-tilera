@@ -159,6 +159,7 @@ TILE_MONITOR_WILDCAT_ARGS = \
 
 TILE_MONITOR_WILDCAT_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
+  --hvx "hugepagesz=1g hugepages=2" \
   $(WILDCAT_SPEED) \
   --huge-pages 800 \
   --mount-tile /usr/lib \

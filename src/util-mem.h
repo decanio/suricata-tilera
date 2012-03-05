@@ -322,10 +322,42 @@ extern tmc_mspace mpm_mspace;
 
 #endif
 
-#define SCMallocInit() ({\
+#define SCMallocInit() ({ \
     extern void *tile_pcre_malloc(size_t size); \
     extern void tile_pcre_free(void *ptr); \
     size_t global_capacity = 8ULL*1024ULL*1024ULL*1024ULL; \
+    unsigned long pagesizes = tmc_alloc_get_pagesizes(); \
+    char log[64]; char str[8]; \
+    log[0] = '\0'; \
+    for (int i = 0; i < sizeof(pagesizes)*8; i++) { \
+        unsigned long size = 1UL<<i; \
+        if (pagesizes & size) { \
+            if (size >= 1024UL*1024UL*1024UL) { \
+                sprintf(str, "%luGB ", size / (1024UL*1024UL*1024UL)); \
+            } else if (size >= 1024UL*1024UL) { \
+                sprintf(str, "%luMB ", size / (1024UL*1024UL)); \
+            } else { \
+                sprintf(str, "%luKB ", size / 1024UL);  \
+            } \
+            strcat(log, str); \
+            tile_vhuge_size = (size_t)size; \
+        } \
+    } \
+    printf("Tilera Huge Page Sizes %s\n", log); \
+    for (int i = 0; i < sizeof(tile_vhuge_size)*8; i++) { \
+        unsigned long size = 1UL<<i; \
+        if (tile_vhuge_size & size) { \
+            if (size >= 1024UL*1024UL*1024UL) { \
+                sprintf(log, "%luGB", size / (1024UL*1024UL*1024UL)); \
+            } else if (size >= 1024UL*1024UL) { \
+                sprintf(log, "%luMB", size / (1024UL*1024UL)); \
+            } else { \
+                sprintf(log, "%luKB", size / 1024UL); \
+            } \
+            break; \
+        } \
+    } \
+    printf("Tilera Very Huge Page Size %s\n", log); \
     tmc_alloc_t attr = TMC_ALLOC_INIT; \
     tmc_alloc_set_huge(&attr); \
     tmc_alloc_set_home(&attr, TMC_ALLOC_HOME_HASH); \
@@ -416,6 +448,21 @@ extern tmc_mspace mpm_mspace;
     (void*)ptrmem; \
 })
 
+#define SCMpmRealloc(x, a) ({ \
+    void *ptrmem = NULL; \
+    \
+    ptrmem = tmc_mspace_realloc(mpm_mspace, (x), (a)); \
+    if (ptrmem == NULL) { \
+        if (SC_ATOMIC_GET(engine_stage) == SURICATA_INIT) {\
+            SCLogError(SC_ERR_MEM_ALLOC, "SCRealloc failed: %s, while trying " \
+                "to allocate %"PRIuMAX" bytes", strerror(errno), (uintmax_t)(a)); \
+            SCLogError(SC_ERR_FATAL, "Out of memory. The engine cannot be initialized. Exiting..."); \
+            exit(EXIT_FAILURE); \
+        } \
+    } \
+    (void*)ptrmem; \
+})
+
 #define SCCalloc(nm, a) ({ \
     void *ptrmem = NULL; \
     \
@@ -479,6 +526,13 @@ extern tmc_mspace mpm_mspace;
  */
 #define SCFreeAligned(a) ({ \
     tmc_mspace_free((a)); \
+})
+
+#define SCFreeze() ({ \
+})
+
+#define SCMpmFreeze() ({ \
+    tmc_mspace_freeze((mpm_mspace)); \
 })
 
 #endif /* __tile__ */

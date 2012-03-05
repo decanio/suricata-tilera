@@ -231,6 +231,7 @@ tmc_mspace global_mspace;
 /** Place mpm into memory in hash for home memory not cached in local L2 */
 tmc_mspace mpm_mspace;
 tmc_sync_barrier_t startup_barrier;
+unsigned long tile_vhuge_size = 16UL*1024UL*1024UL;
 #endif
 
 int RunmodeIsUnittests(void) {
@@ -1653,7 +1654,18 @@ int main(int argc, char **argv)
     tmc_sync_barrier_init(&startup_barrier,
                           (TileNumPipelines * TILES_PER_PIPELINE) + 4);
     {
+#ifdef __tilegx__
+    tmc_alloc_t alloc = TMC_ALLOC_INIT;
+    tmc_alloc_set_huge(&alloc);
+    tmc_alloc_set_home(&alloc, TMC_ALLOC_HOME_HASH);
+    if (tmc_alloc_set_pagesize_exact(&alloc, tile_vhuge_size) == NULL) {
+        SCLogInfo("Could not allocated Packets from very huge page.");
+        tmc_alloc_set_pagesize(&alloc, tile_vhuge_size);
+    }
+    Packet *p = tmc_alloc_map(&alloc, max_pending_packets * sizeof(Packet));
+#else
     Packet *p = SCMalloc(max_pending_packets * sizeof(Packet));
+#endif
     if (p == NULL) {
         SCLogError(SC_ERR_FATAL, "Fatal error encountered while allocating a packet. Exiting...");
         exit(EXIT_FAILURE);
