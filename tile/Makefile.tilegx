@@ -22,7 +22,7 @@ endif
 #
 # Local environment configuation
 # Go ahead and modify these:
-BASE_DIR=/home/decanio
+BASE_DIR=/mnt/decanio
 #RULES_DIR=$(BASE_DIR)/work/TileGX/suricata
 RULES_DIR=$(BASE_DIR)/work/TileGX/emergingthreats
 #RULES_CONFIG=/opt/suricata/etc/suricata.yaml
@@ -269,7 +269,7 @@ TILE_MONITOR_WILDCAT_PROFILE_STATIC_ARGS = \
 FUNCTIONAL=--functional
 PROFILE=--sim-args -+- --xml-profile profile.xml --profile-disable-at-startup -+-
 
-ARGS := mpipe0:mac=0:input=$(PCAPFILE):output=output.pcap:bps=10G:stall
+ARGS := mpipe0:mac=2:input=$(PCAPFILE):output=output.pcap:bps=10G:stall
 
 #SIM_ARGS := --sim-args -+- --ram-mb-per-controller 8 --extra-shim-args "$(ARGS)" -+-
 SIM_ARGS := --sim-args -+- --extra-shim-args "$(ARGS)" -+-
