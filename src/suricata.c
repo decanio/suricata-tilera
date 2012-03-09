@@ -271,6 +271,8 @@ uint8_t print_mem_flag = 1;
 #endif
 #endif
 
+#define min(a,b) (((a)<(b))?(a):(b))
+
 static void
 SignalHandlerSetup(int sig, void (*handler)())
 {
@@ -1653,6 +1655,7 @@ int main(int argc, char **argv)
 
     /* pre allocate packets */
     SCLogDebug("preallocating packets... packet size %" PRIuMAX "", (uintmax_t)SIZE_OF_PACKET);
+    SCLogInfo("preallocating packets... packet size %" PRIuMAX "", (uintmax_t)SIZE_OF_PACKET);
     int i = 0;
 #ifdef __tile__
     RunModeTileGetPipelineConfig();
@@ -1667,12 +1670,19 @@ int main(int argc, char **argv)
         SCLogInfo("Could not allocated Packets from very huge page.");
         tmc_alloc_set_pagesize(&alloc, tile_vhuge_size);
     }
+    max_pending_packets = tile_vhuge_size / sizeof(Packet);
+    max_pending_packets = min(max_pending_packets, TileNumPipelines*65535);
+printf("max_pending_packets %ld sizeof(Packet) %lu tile_vhuge_size %lu packet_size %lu\n",
+       max_pending_packets, sizeof(Packet), tile_vhuge_size, max_pending_packets * sizeof(Packet));
     Packet *p = tmc_alloc_map(&alloc, max_pending_packets * sizeof(Packet));
+    //Packet *p = tmc_alloc_map(&alloc, tile_vhuge_size);
+    printf("packet pool at %p\n", p);
 #else
     Packet *p = SCMalloc(max_pending_packets * sizeof(Packet));
 #endif
     if (p == NULL) {
-        SCLogError(SC_ERR_FATAL, "Fatal error encountered while allocating a packet. Exiting...");
+        SCLogError(SC_ERR_FATAL, "Fatal error encountered while allocating packet space. Exiting...");
+        SCLogInfo("Fatal error encountered while allocating packet space. Exiting...");
         exit(EXIT_FAILURE);
     }
 #endif
@@ -1687,7 +1697,7 @@ int main(int argc, char **argv)
 #endif
         PACKET_INITIALIZE(p);
 #ifdef __tile__
-	 p->pool = i % TileNumPipelines;
+        p->pool = i % TileNumPipelines;
 #endif
 
         PacketPoolStorePacket(p);

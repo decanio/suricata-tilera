@@ -250,7 +250,15 @@ static inline void MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *
 
 static inline Packet *PacketAlloc(int rank)
 {
+#if 1
+    Packet *p = NULL;
+    if (PacketPoolSize(rank) > 0) {
+        p = PacketPoolGetPacket(rank);
+    }
+    return p;
+#else
     return PacketGetFromQueueOrAlloc(rank);
+#endif
 }
 
 static uint16_t xlate_stack(MpipeThreadVars *ptv, int stack_idx) {
@@ -406,7 +414,8 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     int rank = (cpu-1)/TILES_PER_MPIPE_PIPELINE;
 #endif
     unsigned int num_buffers;
-    unsigned int total_buffers = max_pending_packets;
+    //unsigned int total_buffers = max_pending_packets;
+    unsigned int total_buffers = 0;
     unsigned int num_workers = TileNumPipelines /*DFLT_TILERA_MPIPE_PIPELINES*/;
     unsigned int stack_count = 0;
     const gxio_mpipe_buffer_size_enum_t gxio_buffer_sizes[] = {
@@ -429,6 +438,21 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             10368,
             16384
         };
+#if 1
+static const struct {
+   int mul;
+   int div;
+} buffer_scale[] = {
+  { 1, 8 }, /* 128 */
+  { 1, 8 }, /* 256 */
+  { 1, 8 }, /* 512 */
+  { 1, 8 }, /* 1024 */
+  { 3, 8 }, /* 1664 */
+  { 0, 8 }, /* 4096 */
+  { 1, 8 }, /* 10386 */
+  { 0, 8 }  /* 16384 */
+};
+#else
     /* sort of tuned these for expected traffic patterns.
      * should make these configurable now that we have insight into
      * no buffer conditions.
@@ -443,6 +467,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             1000,
             0
         };
+#endif
 
     if (initdata == NULL) {
         SCLogError(SC_ERR_INVALID_ARGUMENT, "initdata == NULL");
@@ -523,7 +548,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
                   getpagesize()/sizeof(gxio_mpipe_idesc_t));
         */
         /* Init the NotifRings. */
-        size_t notif_ring_entries = 512/*128*/;
+        size_t notif_ring_entries = 2048;
         size_t notif_ring_size = notif_ring_entries * sizeof(gxio_mpipe_idesc_t);
         for (unsigned int i = 0; i < num_workers; i++) {
             tmc_alloc_t alloc = TMC_ALLOC_INIT;
@@ -545,10 +570,15 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         for (unsigned int i = 0;
              i < sizeof(gxio_buffer_sizes)/sizeof(gxio_buffer_sizes[0]);
              i++) {
+#if 1
+            if (buffer_scale[i].mul != 0)
+#else
             if (buffer_counts[i] != 0)
+#endif
                 ++stack_count;
         }
-        //SCLogInfo("DEBUG: %u non-zero sized stacks", stack_count);
+        SCLogInfo("DEBUG: %u non-zero sized stacks", stack_count);
+        SCLogInfo("DEBUG: tile_vhuge_size %llu", tile_vhuge_size);
 
         /* Allocate one very huge page to hold our buffer stack, notif ring, and
          * packets.  This should be more than enough space. */
@@ -569,7 +599,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         int group = result;
 
         /* Allocate a bucket. */
-        int num_buckets = 4096/*1024*/;
+        int num_buckets = 4096;
         result = gxio_mpipe_alloc_buckets(context, num_buckets, 0, 0);
         VERIFY(result, "gxio_mpipe_alloc_buckets()");
         int bucket = result;
@@ -594,17 +624,24 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
              stackidx < stack + stack_count;
              stackidx++, i++) {
 
+#if 1
+            for (;buffer_scale[i].mul == 0; i++) ;
+#else
             for (;buffer_counts[i] == 0; i++) ;
+#endif
 
-            total_buffers = buffer_counts[i];
+	    size_t stack_mem = tile_vhuge_size * buffer_scale[i].mul / buffer_scale[i].div;
+            //total_buffers = buffer_counts[i];
+            //total_buffers = stack_mem / buffer_sizes[i];
+            num_buffers = stack_mem / buffer_sizes[i];
             unsigned buffer_size = buffer_sizes[i];
 
-            //SCLogInfo("Initializing stackidx %d i %d size %d buffers %d",
-            //         stackidx, i, buffer_size, total_buffers);
+            SCLogInfo("Initializing stackidx %d i %d size %d buffers %d",
+                     stackidx, i, buffer_size, num_buffers);
 
-            /* Initialize the buffer stack.*/
+            /* Initialize the buffer stack. Must be aligned mod 64K. */
             ALIGN(mem, 0x10000);
-            size_t stack_bytes = gxio_mpipe_calc_buffer_stack_bytes(total_buffers);
+            size_t stack_bytes = gxio_mpipe_calc_buffer_stack_bytes(num_buffers);
             gxio_mpipe_buffer_size_enum_t buf_size = gxio_buffer_sizes[i];
             result = gxio_mpipe_init_buffer_stack(context, stackidx, buf_size,
                                                   mem, stack_bytes, 0);
@@ -613,6 +650,10 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
             ALIGN(mem, 0x10000);
 
+            SCLogInfo("stack_bytes %d", stack_bytes);
+            stack_bytes = (stack_bytes + (0x10000)) & ~(0x10000-1);
+            SCLogInfo("rounded stack_bytes %d", stack_bytes);
+
             /* Register the entire huge page of memory which contains all
              * the buffers.
              */
@@ -620,7 +661,9 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
                                               tile_vhuge_size, 0);
             VERIFY(result, "gxio_mpipe_register_page()");
 
-            num_buffers = total_buffers;
+            num_buffers -= ((stack_bytes / buffer_sizes[i]) + 1);
+
+            total_buffers += num_buffers;
 
     	    SCLogInfo("Adding %d %d byte packet buffers",
                       num_buffers, buffer_size);
@@ -636,6 +679,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             assert(mem <= page + tile_vhuge_size);
 
         }
+    	SCLogInfo("%d total packet buffers", total_buffers);
 
         /* Register for packets. */
         gxio_mpipe_rules_t rules;
