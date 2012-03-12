@@ -44,6 +44,7 @@ build_static:
 	echo Running configure
 	LIBS="-lgxio -ltmc" ./configure --host=tile --disable-gccmarch-native \
 	    --without-libpcap \
+	    --disable-af-packet \
 	    --with-libyaml-includes=$(YAML_DIR)/include \
 	    --with-libyaml-libraries=$(YAML_DIR)/src/.libs \
 	    --with-libmagic-includes=$(LIBMAGIC_DIR)/src \
@@ -162,11 +163,11 @@ TILE_MONITOR_WILDCAT_STATIC_ARGS = \
   --hvx "hugepagesz=1g hugepages=2" \
   $(WILDCAT_SPEED) \
   --huge-pages 800 \
-  --mount-tile /usr/lib \
+  --mount-tile /bin \
   --mount-tile /lib \
+  --mount-tile /usr \
   --mount $(RULES_DIR) /opt \
   --mount $(LOG_DIR) /var/log/suricata \
-  --upload $(TILERA_ROOT)/tile/usr/bin/strace /usr/bin/strace \
   --upload ./src/suricata suricata \
   --run -+- suricata -c $(RULES_CONFIG) --mpipe -+-
 

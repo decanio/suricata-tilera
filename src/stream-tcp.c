@@ -111,9 +111,7 @@ static uint64_t ssn_pool_cnt = 0; /** counts ssns, protected by ssn_pool_mutex *
 
 extern uint8_t engine_mode;
 
-static SCSpinlock stream_memuse_spinlock;
-static uint64_t stream_memuse = 0;
-static uint64_t stream_memuse_max = 0;
+SC_ATOMIC_DECLARE(uint64_t, st_memuse);
 
 /* stream engine running in "inline" mode. */
 int stream_inline = 0;
@@ -130,26 +128,19 @@ void TmModuleStreamTcpRegister (void)
 }
 
 void StreamTcpIncrMemuse(uint64_t size) {
-    SCSpinLock(&stream_memuse_spinlock);
-    stream_memuse += (uint64_t)size;
-    if (stream_memuse > stream_memuse_max)
-        stream_memuse_max = stream_memuse;
-    SCSpinUnlock(&stream_memuse_spinlock);
+    SC_ATOMIC_ADD(st_memuse, size);
+    return;
 }
 
 void StreamTcpDecrMemuse(uint64_t size) {
-    SCSpinLock(&stream_memuse_spinlock);
-    if ((uint64_t)size <= stream_memuse)
-        stream_memuse -= (uint64_t)size;
-    else
-        stream_memuse = 0;
-    SCSpinUnlock(&stream_memuse_spinlock);
+    SC_ATOMIC_SUB(st_memuse, size);
+    return;
 }
 
 void StreamTcpMemuseCounter(ThreadVars *tv, StreamTcpThread *stt) {
-    SCSpinLock(&stream_memuse_spinlock);
-    SCPerfCounterSetUI64(stt->counter_tcp_memuse, tv->sc_perf_pca, stream_memuse);
-    SCSpinUnlock(&stream_memuse_spinlock);
+    uint64_t memusecopy = SC_ATOMIC_GET(st_memuse);
+    SCPerfCounterSetUI64(stt->counter_tcp_memuse, tv->sc_perf_pca, memusecopy);
+    return;
 }
 
 /**
@@ -159,15 +150,9 @@ void StreamTcpMemuseCounter(ThreadVars *tv, StreamTcpThread *stt) {
  *  \retval 0 if not in bounds
  */
 int StreamTcpCheckMemcap(uint64_t size) {
-    SCEnter();
-
-    int ret = 0;
-    SCSpinLock(&stream_memuse_spinlock);
-    if (stream_config.memcap == 0 || (size + stream_memuse) <= stream_config.memcap)
-        ret = 1;
-    SCSpinUnlock(&stream_memuse_spinlock);
-
-    SCReturnInt(ret);
+    if (stream_config.memcap == 0 || size + SC_ATOMIC_GET(st_memuse) <= stream_config.memcap)
+        return 1;
+    return 0;
 }
 
 /**
@@ -495,23 +480,21 @@ void StreamTcpInitConfig(char quiet)
             stream_config.reassembly_toclient_chunk_size);
     }
 
-    /* init the memcap and it's lock */
-    SCSpinInit(&stream_memuse_spinlock, PTHREAD_PROCESS_PRIVATE);
-    SCSpinLock(&stream_memuse_spinlock);
-    stream_memuse = 0;
-    stream_memuse_max = 0;
-    SCSpinUnlock(&stream_memuse_spinlock);
+    /* init the memcap/use tracking */
+    SC_ATOMIC_INIT(st_memuse);
 
+    SCMutexInit(&ssn_pool_mutex, NULL);
+    SCMutexLock(&ssn_pool_mutex);
     ssn_pool = PoolInit(stream_config.max_sessions,
                         stream_config.prealloc_sessions,
                         StreamTcpSessionPoolAlloc, NULL,
                         StreamTcpSessionPoolFree);
     if (ssn_pool == NULL) {
         SCLogError(SC_ERR_POOL_INIT, "ssn_pool is not initialized");
+        SCMutexUnlock(&ssn_pool_mutex);
         exit(EXIT_FAILURE);
     }
-
-    SCMutexInit(&ssn_pool_mutex, NULL);
+    SCMutexUnlock(&ssn_pool_mutex);
 
     StreamTcpReassembleInit(quiet);
 
@@ -525,24 +508,15 @@ void StreamTcpFreeConfig(char quiet)
 {
     StreamTcpReassembleFree(quiet);
 
+    SCMutexLock(&ssn_pool_mutex);
     if (ssn_pool != NULL) {
         PoolFree(ssn_pool);
         ssn_pool = NULL;
-    } else {
-        SCLogError(SC_ERR_POOL_EMPTY, "ssn_pool is NULL");
-        exit(EXIT_FAILURE);
     }
-    SCLogDebug("ssn_pool_cnt %"PRIu64"", ssn_pool_cnt);
-
-    if (!quiet) {
-        SCSpinLock(&stream_memuse_spinlock);
-        SCLogInfo("Max memuse of stream engine %"PRIu64" (in use %"PRIu64")",
-            stream_memuse_max, stream_memuse);
-        SCSpinUnlock(&stream_memuse_spinlock);
-    }
+    SCMutexUnlock(&ssn_pool_mutex);
     SCMutexDestroy(&ssn_pool_mutex);
 
-    SCSpinDestroy(&stream_memuse_spinlock);
+    SCLogDebug("ssn_pool_cnt %"PRIu64"", ssn_pool_cnt);
 }
 
 /** \brief The function is used to to fetch a TCP session from the
@@ -584,8 +558,6 @@ static void StreamTcpPacketSetState(Packet *p, TcpSession *ssn,
         return;
 
     ssn->state = state;
-
-    FlowUpdateQueue(p->flow);
 }
 
 /**
@@ -7235,7 +7207,7 @@ static int StreamTcpTest23(void)
 //        goto end;
     }
 
-    if(ssn.client.seg_list_tail->payload_len != 4) {
+    if(ssn.client.seg_list_tail != NULL && ssn.client.seg_list_tail->payload_len != 4) {
         printf("failed in segment reassmebling: ");
         result &= 0;
     }
@@ -7243,10 +7215,10 @@ static int StreamTcpTest23(void)
 end:
     StreamTcpReturnStreamSegments(&ssn.client);
     StreamTcpFreeConfig(TRUE);
-    if (stream_memuse == 0) {
+    if (SC_ATOMIC_GET(st_memuse) == 0) {
         result &= 1;
     } else {
-        printf("stream_memuse %"PRIu64"\n", stream_memuse);
+        printf("smemuse.stream_memuse %"PRIu64"\n", SC_ATOMIC_GET(st_memuse));
     }
     SCFree(p);
     return result;
@@ -7323,7 +7295,7 @@ static int StreamTcpTest24(void)
         goto end;
     }
 
-    if(ssn.client.seg_list_tail->payload_len != 2) {
+    if(ssn.client.seg_list_tail != NULL && ssn.client.seg_list_tail->payload_len != 2) {
         printf("failed in segment reassmebling\n");
         result &= 0;
     }
@@ -7331,10 +7303,10 @@ static int StreamTcpTest24(void)
 end:
     StreamTcpReturnStreamSegments(&ssn.client);
     StreamTcpFreeConfig(TRUE);
-    if (stream_memuse == 0) {
+    if (SC_ATOMIC_GET(st_memuse) == 0) {
         result &= 1;
     } else {
-        printf("stream_memuse %"PRIu64"\n", stream_memuse);
+        printf("smemuse.stream_memuse %"PRIu64"\n", SC_ATOMIC_GET(st_memuse));
     }
     SCFree(p);
     return result;
@@ -7631,16 +7603,16 @@ static int StreamTcpTest28(void)
 {
     uint8_t ret = 0;
     StreamTcpInitConfig(TRUE);
-    uint32_t memuse = stream_memuse;
+    uint32_t memuse = SC_ATOMIC_GET(st_memuse);
 
     StreamTcpIncrMemuse(500);
-    if (stream_memuse != (memuse+500)) {
+    if (SC_ATOMIC_GET(st_memuse) != (memuse+500)) {
         printf("failed in incrementing the memory");
         goto end;
     }
 
     StreamTcpDecrMemuse(500);
-    if (stream_memuse != memuse) {
+    if (SC_ATOMIC_GET(st_memuse) != memuse) {
         printf("failed in decrementing the memory");
         goto end;
     }
@@ -7657,7 +7629,7 @@ static int StreamTcpTest28(void)
 
     StreamTcpFreeConfig(TRUE);
 
-    if (stream_memuse != 0) {
+    if (SC_ATOMIC_GET(st_memuse) != 0) {
         printf("failed in clearing the memory");
         goto end;
     }

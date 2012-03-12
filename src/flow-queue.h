@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2010 Open Information Security Foundation
+/* Copyright (C) 2007-2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -27,6 +27,16 @@
 #include "suricata-common.h"
 #include "flow.h"
 
+/** Spinlocks or Mutex for the flow queues. */
+//#define FQLOCK_SPIN
+#define FQLOCK_MUTEX
+
+#ifdef FQLOCK_SPIN
+    #ifdef FQLOCK_MUTEX
+        #error Cannot enable both FQLOCK_SPIN and FQLOCK_MUTEX
+    #endif
+#endif
+
 /* Define a queue for storing flows */
 typedef struct FlowQueue_
 {
@@ -40,13 +50,36 @@ typedef struct FlowQueue_
 #ifdef DBG_PERF
     uint32_t dbg_maxlen;
 #endif /* DBG_PERF */
-#ifdef __tile__
-    volatile unsigned cond_q;
+//#ifdef __tile__
+//    volatile unsigned cond_q;
+//#else
+//    SCCondT cond_q;
+//#endif
+//    SCMutex mutex_q;
+#ifdef FQLOCK_MUTEX
+    SCMutex m;
+#elif defined FQLOCK_SPIN
+    SCSpinlock s;
 #else
-    SCCondT cond_q;
+    #error Enable FQLOCK_SPIN or FQLOCK_MUTEX
 #endif
-    SCMutex mutex_q;
 } FlowQueue;
+
+#ifdef FQLOCK_SPIN
+    #define FQLOCK_INIT(q) SCSpinInit(&(q)->s, 0)
+    #define FQLOCK_DESTROY(q) SCSpinDestroy(&(q)->s)
+    #define FQLOCK_LOCK(q) SCSpinLock(&(q)->s)
+    #define FQLOCK_TRYLOCK(q) SCSpinTrylock(&(q)->s)
+    #define FQLOCK_UNLOCK(q) SCSpinUnlock(&(q)->s)
+#elif defined FQLOCK_MUTEX
+    #define FQLOCK_INIT(q) SCMutexInit(&(q)->m, NULL)
+    #define FQLOCK_DESTROY(q) SCMutexDestroy(&(q)->m)
+    #define FQLOCK_LOCK(q) SCMutexLock(&(q)->m)
+    #define FQLOCK_TRYLOCK(q) SCMutexTrylock(&(q)->m)
+    #define FQLOCK_UNLOCK(q) SCMutexUnlock(&(q)->m)
+#else
+    #error Enable FQLOCK_SPIN or FQLOCK_MUTEX
+#endif
 
 /* prototypes */
 FlowQueue *FlowQueueNew();
@@ -56,9 +89,7 @@ void FlowQueueDestroy (FlowQueue *);
 void FlowEnqueue (FlowQueue *, Flow *);
 Flow *FlowDequeue (FlowQueue *);
 
-void FlowRequeue(Flow *, FlowQueue *, FlowQueue *);
-void FlowRequeueMoveToBot(Flow *, FlowQueue *);
-void FlowRequeueMoveToSpare(Flow *, FlowQueue *);
+void FlowMoveToSpare(Flow *);
 
 #endif /* __FLOW_QUEUE_H__ */
 

@@ -1983,7 +1983,6 @@ printf("DEBUG: setting affinity for main\n");
     TmThreadKillThreads();
     SCPerfReleaseResources();
     FlowShutdown();
-    FlowPrintQueueInfo();
     StreamTcpFreeConfig(STREAM_VERBOSE);
     HTPFreeConfig();
     HTPAtExitPrintStats();
