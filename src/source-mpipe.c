@@ -107,6 +107,7 @@ typedef struct MpipeThreadVars_
     Packet *in_p;
 
     /** stats/counters */
+    uint16_t mpipe_depth;
     uint16_t counter_no_buffers_0;
     uint16_t counter_no_buffers_1;
     uint16_t counter_no_buffers_2;
@@ -334,15 +335,17 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
 
             int n = gxio_mpipe_iqueue_try_peek(iqueue, &idesc);
             if (likely(n > 0)) {
-                int i;
+                int i; int m;
 
-		n = min(n, 32);
+                m = min(n, 32);
 
                 /* Prefetch the idescs (64 bytes each). */
-                for (i = 0; i < n; i++) {
+                for (i = 0; i < m; i++) {
                     __insn_prefetch(&idesc[i]);
                 }
-                for (i = 0; i < n; i++, idesc++) {
+                SCPerfCounterSetUI64(ptv->mpipe_depth, tv->sc_perf_pca,
+                                     (uint64_t)n);
+                for (i = 0; i < m; i++, idesc++) {
                     if (likely(!idesc->be)) {
                         MpipeProcessPacket(ptv,  idesc, p, &timeval);
                         TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
@@ -376,6 +379,9 @@ TmEcode MpipeRegisterPipeStage(void *td) {
 
 static void MpipeRegisterPerfCounters(MpipeThreadVars *ptv, ThreadVars *tv) {
     /* register counters */
+    ptv->mpipe_depth = SCPerfTVRegisterCounter("mpipe.mpipe_depth", tv,
+                                               SC_PERF_TYPE_UINT64,
+                                               "NULL");
     ptv->counter_no_buffers_0 = SCPerfTVRegisterCounter("mpipe.no_buf0", tv,
                                                         SC_PERF_TYPE_UINT64,
                                                         "NULL");
@@ -548,7 +554,7 @@ static const struct {
                   getpagesize()/sizeof(gxio_mpipe_idesc_t));
         */
         /* Init the NotifRings. */
-        size_t notif_ring_entries = 2048;
+        size_t notif_ring_entries = 65536/*2048*/;
         size_t notif_ring_size = notif_ring_entries * sizeof(gxio_mpipe_idesc_t);
         for (unsigned int i = 0; i < num_workers; i++) {
             tmc_alloc_t alloc = TMC_ALLOC_INIT;

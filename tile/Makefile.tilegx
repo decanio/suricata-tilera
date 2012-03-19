@@ -130,7 +130,7 @@ TILE_MONITOR_UT_ARGS = \
   --run -+- suricata -u -+-
 
 WILDCAT_CPU = --hvd CHIP_WIDTH=6 --hvd CHIP_HEIGHT=6
-WILDCAT_SPEED = --hvd MEM_SPEED=750 --hvd CPU_SPEED=750
+#WILDCAT_SPEED = --hvd MEM_SPEED=750 --hvd CPU_SPEED=750
 #WILDCAT_SPEED = --hvd MEM_SPEED=1066 --hvd CPU_SPEED=1200
 #WILDCAT_SPEED = --hvd MEM_SPEED=800 --hvd CPU_SPEED=1000
 
@@ -246,14 +246,16 @@ TILE_MONITOR_WILDCAT_PROFILE_ARGS = \
 
 TILE_MONITOR_WILDCAT_PROFILE_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
+  --hvx "hugepagesz=1g hugepages=2" \
   $(WILDCAT_SPEED) \
   --huge-pages 800 \
-  --mount-tile /usr/lib \
+  --mount-tile /bin \
   --mount-tile /lib \
+  --mount-tile /usr/lib \
   --mount $(RULES_DIR) /opt \
+  --mount $(LOG_DIR) /var/log/suricata \
   --upload ./src/suricata suricata \
-  --run -+- mkdir -p /var/log/suricata -+- \
-  --launch -+- suricata -c $(RULES_CONFIG) -i xgbe3 -+- \
+  --launch -+- suricata -c $(RULES_CONFIG) --mpipe -+- \
   --run -+- sleep 210 -+- \
   --profile-init --profile-kernel \
   --profile-reset \
@@ -304,7 +306,9 @@ fb_sim: $(SIM_DEPS) $(IMAGE_FILE)
 	    $(SIM_ARGS) $(TILE_MONITOR_WILDCAT_FEEDBACK_ARGS)
 
 #WILDCAT_ARGS=--resume --dev fae-wc-1
-WILDCAT_ARGS=--dev fae-wc-1
+#WILDCAT_ARGS=--dev fae-wc-1
+# scwc-14 from sclab-36 below
+WILDCAT_ARGS=--dev usb1
 #WILDCAT_ARGS=--
 NET_ARGS=--net 192.168.0.6
 

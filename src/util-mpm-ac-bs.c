@@ -78,6 +78,8 @@ void SCACBSRegisterTests(void);
 
 #define STATE_QUEUE_CONTAINER_SIZE 65536
 
+#define min(a,b) (((a)<(b))?(a):(b))
+
 /**
  * \brief Helper structure used by AC during state table creation
  */
@@ -976,6 +978,7 @@ static inline void SCACBSCreateModDeltaTable(MpmCtx *mpm_ctx)
         }
         memset(ctx->state_table_mod, 0, size);
 
+        SCLogInfo("Delta Table size %d", size);
         mpm_ctx->memory_cnt++;
         mpm_ctx->memory_size += size;
 
@@ -1409,12 +1412,14 @@ uint32_t SCACBSSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
     int i = 0;
     int matches = 0;
     uint8_t buf_local;
+    uint8_t c, nc;
 
     /* \todo tried loop unrolling with register var, with no perf increase.  Need
      * to dig deeper */
     /* \todo Change it for stateful MPM.  Supply the state using mpm_thread_ctx */
     SCACBSPatternList *pid_pat_list = ctx->pid_pat_list;
 
+    if (buflen > 0) {
     if (ctx->state_count < 32767) {
         register SC_AC_BS_STATE_TYPE_U16 state = 0;
         uint16_t no_of_entries;
@@ -1422,14 +1427,16 @@ uint32_t SCACBSSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
         uint16_t **state_table_mod_pointers = (uint16_t **)ctx->state_table_mod_pointers;
         uint16_t *zero_state = state_table_mod_pointers[0] + 1;
 
+        c = u8_tolower(buf[0]);
         for (i = 0; i < buflen; i++) {
+            nc = u8_tolower(buf[min(i+1,buflen)]);
             if (state == 0) {
-                state = zero_state[u8_tolower(buf[i])];
+                state = zero_state[c/*u8_tolower(buf[i])*/];
             } else {
                 no_of_entries = *(state_table_mod_pointers[state & 0x7FFF]);
                 if (no_of_entries == 1) {
                     ascii_codes = state_table_mod_pointers[state & 0x7FFF] + 1;
-                    buf_local = u8_tolower(buf[i]);
+                    buf_local = c/*u8_tolower(buf[i])*/;
                     if (buf_local == ascii_codes[0]) {
                         state = *(ascii_codes + no_of_entries);;
                     } else {
@@ -1437,10 +1444,10 @@ uint32_t SCACBSSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
                     }
                 } else {
                     if (no_of_entries == 0) {
-                        state = zero_state[u8_tolower(buf[i])];
+                        state = zero_state[c/*u8_tolower(buf[i])*/];
                         goto match_u16;
                     }
-                    buf_local = u8_tolower(buf[i]);
+                    buf_local = c/*u8_tolower(buf[i])*/;
                     ascii_codes = state_table_mod_pointers[state & 0x7FFF] + 1;
                     int low = 0;
                     int high = no_of_entries;
@@ -1496,6 +1503,7 @@ uint32_t SCACBSSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
                     //;
                 }
             }
+            c = nc;
         } /* for (i = 0; i < buflen; i++) */
 
     } else {
@@ -1505,14 +1513,16 @@ uint32_t SCACBSSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
         uint32_t **state_table_mod_pointers = (uint32_t **)ctx->state_table_mod_pointers;
         uint32_t *zero_state = state_table_mod_pointers[0] + 1;
 
+        c = u8_tolower(buf[0]);
         for (i = 0; i < buflen; i++) {
+            nc = u8_tolower(buf[min(i+1,buflen)]);
             if (state == 0) {
-                state = zero_state[u8_tolower(buf[i])];
+                state = zero_state[c/*u8_tolower(buf[i])*/];
             } else {
                 no_of_entries = *(state_table_mod_pointers[state & 0x00FFFFFF]);
                 if (no_of_entries == 1) {
                     ascii_codes = state_table_mod_pointers[state & 0x00FFFFFF] + 1;
-                    buf_local = u8_tolower(buf[i]);
+                    buf_local = c/*u8_tolower(buf[i])*/;
                     if (buf_local == ascii_codes[0]) {
                         state = *(ascii_codes + no_of_entries);;
                     } else {
@@ -1520,10 +1530,10 @@ uint32_t SCACBSSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
                     }
                 } else {
                     if (no_of_entries == 0) {
-                        state = zero_state[u8_tolower(buf[i])];
+                        state = zero_state[c/*u8_tolower(buf[i])*/];
                         goto match_u32;
                     }
-                    buf_local = u8_tolower(buf[i]);
+                    buf_local = c/*u8_tolower(buf[i])*/;
                     ascii_codes = state_table_mod_pointers[state & 0x00FFFFFF] + 1;
                     int low = 0;
                     int high = no_of_entries;
@@ -1556,6 +1566,7 @@ uint32_t SCACBSSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
                                      pid_pat_list[pids[k] & 0x0000FFFF].patlen) != 0) {
                             /* inside loop */
                             if (pid_pat_list[pids[k] & 0x0000FFFF].case_state != 3) {
+
                                 continue;
                             }
                         }
@@ -1579,7 +1590,9 @@ uint32_t SCACBSSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
                     //;
                 }
             }
+            c = nc;
         } /* for (i = 0; i < buflen; i++) */
+    }
     }
 
     return matches;
