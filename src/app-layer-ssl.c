@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2011 Open Information Security Foundation
+/* Copyright (C) 2007-2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -19,6 +19,7 @@
  * \file
  *
  * \author Anoop Saldanha <anoopsaldanha@gmail.com>
+ * \author Pierre Chifflier <pierre.chifflier@ssi.gouv.fr>
  *
  */
 
@@ -39,7 +40,10 @@
 #include "app-layer-parser.h"
 #include "app-layer-ssl.h"
 
+#include "app-layer-tls-handshake.h"
+
 #include "conf.h"
+#include "decode-events.h"
 
 #include "util-spm.h"
 #include "util-unittest.h"
@@ -48,6 +52,21 @@
 #include "flow-private.h"
 
 #include "util-byte.h"
+
+SCEnumCharMap tls_decoder_event_table[ ] = {
+    /* TLS protocol messages */
+    { "INVALID_SSLV2_HEADER",        TLS_DECODER_EVENT_INVALID_SSLV2_HEADER },
+    { "INVALID_TLS_HEADER",          TLS_DECODER_EVENT_INVALID_TLS_HEADER },
+    { "INVALID_RECORD_TYPE",         TLS_DECODER_EVENT_INVALID_RECORD_TYPE },
+    { "INVALID_HANDSHAKE_MESSAGE",   TLS_DECODER_EVENT_INVALID_HANDSHAKE_MESSAGE },
+    /* Certificates decoding messages */
+    { "INVALID_CERTIFICATE",         TLS_DECODER_EVENT_INVALID_CERTIFICATE },
+    { "CERTIFICATE_MISSING_ELEMENT", TLS_DECODER_EVENT_CERTIFICATE_MISSING_ELEMENT },
+    { "CERTIFICATE_UNKNOWN_ELEMENT", TLS_DECODER_EVENT_CERTIFICATE_UNKNOWN_ELEMENT },
+    { "CERTIFICATE_INVALID_LENGTH",  TLS_DECODER_EVENT_CERTIFICATE_INVALID_LENGTH },
+    { "CERTIFICATE_INVALID_STRING",  TLS_DECODER_EVENT_CERTIFICATE_INVALID_STRING },
+    { NULL,                          -1 },
+};
 
 typedef struct SslConfig_ {
     int no_reassemble;
@@ -87,10 +106,12 @@ SslConfig ssl_config;
 #define SSLV2_MT_CLIENT_CERTIFICATE   8
 
 #define SSLV3_RECORD_LEN 5
+#define SSLV3_MESSAGE_HDR_LEN 4
 
 static void SSLParserReset(SSLState *ssl_state)
 {
     ssl_state->bytes_processed = 0;
+    ssl_state->message_start = 0;
 }
 
 static int SSLv3ParseHandshakeType(SSLState *ssl_state, uint8_t *input,
@@ -98,6 +119,7 @@ static int SSLv3ParseHandshakeType(SSLState *ssl_state, uint8_t *input,
 {
     uint8_t *initial_input = input;
     uint32_t parsed = 0;
+    int rc;
 
     if (input_len == 0) {
         return 0;
@@ -110,11 +132,13 @@ static int SSLv3ParseHandshakeType(SSLState *ssl_state, uint8_t *input,
             switch (ssl_state->bytes_processed) {
                 case 9:
                     ssl_state->bytes_processed++;
+                    parsed++;
                     ssl_state->handshake_client_hello_ssl_version = *(input++) << 8;
                     if (--input_len == 0)
                         break;
                 case 10:
                     ssl_state->bytes_processed++;
+                    parsed++;
                     ssl_state->handshake_client_hello_ssl_version |= *(input++);
                     if (--input_len == 0)
                         break;
@@ -124,17 +148,11 @@ static int SSLv3ParseHandshakeType(SSLState *ssl_state, uint8_t *input,
         case SSLV3_HS_SERVER_HELLO:
             ssl_state->flags |= SSL_AL_FLAG_STATE_SERVER_HELLO;
 
-            switch (ssl_state->bytes_processed) {
-                case 9:
-                    ssl_state->bytes_processed++;
-                    ssl_state->handshake_server_hello_ssl_version = *(input++) << 8;
-                    if (--input_len == 0)
-                        break;
-                case 10:
-                    ssl_state->bytes_processed++;
-                    ssl_state->handshake_server_hello_ssl_version |= *(input++);
-                    if (--input_len == 0)
-                        break;
+            rc = DecodeTLSHandshakeServerHello(ssl_state, input, input_len);
+            if (rc >= 0) {
+                ssl_state->bytes_processed += rc;
+                input += rc;
+                parsed += rc;
             }
             break;
 
@@ -146,8 +164,38 @@ static int SSLv3ParseHandshakeType(SSLState *ssl_state, uint8_t *input,
             ssl_state->flags |= SSL_AL_FLAG_STATE_CLIENT_KEYX;
             break;
 
-        case SSLV3_HS_HELLO_REQUEST:
         case SSLV3_HS_CERTIFICATE:
+            if (ssl_state->trec == NULL) {
+                ssl_state->trec_len = 2 * ssl_state->record_length + SSLV3_RECORD_LEN + 1;
+                ssl_state->trec = SCMalloc( ssl_state->trec_len );
+            }
+            if (ssl_state->trec_pos + input_len >= ssl_state->trec_len) {
+                ssl_state->trec_len = ssl_state->trec_len + 2 * input_len + 1;
+                ssl_state->trec = SCRealloc( ssl_state->trec, ssl_state->trec_len );
+            }
+            if (ssl_state->trec == NULL) {
+                ssl_state->trec_len = 0;
+                /* error, skip packet */
+                parsed += input_len;
+                ssl_state->bytes_processed += input_len;
+                break;
+            }
+            memcpy(ssl_state->trec + ssl_state->trec_pos, initial_input, input_len);
+            ssl_state->trec_pos += input_len;
+
+            rc = DecodeTLSHandshakeServerCertificate(ssl_state, ssl_state->trec, ssl_state->trec_pos);
+            if (rc > 0) {
+                /* do not return normally if the packet was fragmented:
+                 * we would return the size of the *entire* message,
+                 * while we expect only the number of bytes parsed bytes
+                 * from the *current* fragment
+                 */
+                uint32_t diff = input_len - (ssl_state->trec_pos - rc);
+                ssl_state->bytes_processed += diff;
+                return diff;
+            }
+            break;
+        case SSLV3_HS_HELLO_REQUEST:
         case SSLV3_HS_CERTIFICATE_REQUEST:
         case SSLV3_HS_CERTIFICATE_VERIFY:
         case SSLV3_HS_FINISHED:
@@ -158,73 +206,69 @@ static int SSLv3ParseHandshakeType(SSLState *ssl_state, uint8_t *input,
             break;
     }
 
-    /* looks like we have another record */
-    parsed += (input - initial_input);
-    if ((input_len + ssl_state->bytes_processed) >= ssl_state->record_length + SSLV3_RECORD_LEN) {
-        uint32_t diff = ssl_state->record_length + SSLV3_RECORD_LEN - ssl_state->bytes_processed;
-        parsed += diff;
-        ssl_state->bytes_processed += diff;
-        return parsed;
-
-        /* we still don't have the entire record for the one we are
-         * currently parsing */
-    } else {
+    /* skip the rest of the current message */
+    uint32_t next_msg_offset = ssl_state->message_start + SSLV3_MESSAGE_HDR_LEN + ssl_state->message_length;
+    if (ssl_state->bytes_processed + input_len < next_msg_offset) {
+        /* we don't have enough data */
         parsed += input_len;
         ssl_state->bytes_processed += input_len;
         return parsed;
     }
+    uint32_t diff = next_msg_offset - ssl_state->bytes_processed;
+    parsed += diff;
+    ssl_state->bytes_processed += diff;
+    return parsed;
 }
 
 static int SSLv3ParseHandshakeProtocol(SSLState *ssl_state, uint8_t *input,
                                        uint32_t input_len)
 {
     uint8_t *initial_input = input;
+    int retval;
 
     if (input_len == 0) {
         return 0;
     }
 
-    switch (ssl_state->bytes_processed) {
-        case 5:
-            if (input_len >= 4) {
-                ssl_state->handshake_type = *(input++);
-                input += 3;
-                input_len -= 4;
-                ssl_state->bytes_processed += 4;
-                break;
-            } else {
-                ssl_state->handshake_type = *(input++);
-                ssl_state->bytes_processed++;
-                if (--input_len == 0)
-                    break;
-            }
-        case 6:
+    if (ssl_state->message_start == 0) {
+        ssl_state->message_start = SSLV3_RECORD_LEN;
+    }
+
+    switch (ssl_state->bytes_processed - ssl_state->message_start) {
+        case 0:
+            ssl_state->handshake_type = *(input++);
             ssl_state->bytes_processed++;
-            input++;
             if (--input_len == 0)
                 break;
-        case 7:
+        case 1:
+            ssl_state->message_length = *(input++) << 16;
             ssl_state->bytes_processed++;
-            input++;
             if (--input_len == 0)
                 break;
-        case 8:
+        case 2:
+            ssl_state->message_length |= *(input++) << 8;
             ssl_state->bytes_processed++;
-            input++;
+            if (--input_len == 0)
+                break;
+        case 3:
+            ssl_state->message_length |= *(input++);
+            ssl_state->bytes_processed++;
             if (--input_len == 0)
                 break;
     }
 
-    if (input_len == 0)
-        return (input - initial_input);
-
-    int retval = SSLv3ParseHandshakeType(ssl_state, input, input_len);
-    if (retval == -1) {
-        SCReturnInt(-1);
-    } else {
-        input += retval;
-        return (input - initial_input);
+    retval = SSLv3ParseHandshakeType(ssl_state, input, input_len);
+    if (retval < 0) {
+        SCReturnInt(retval);
     }
+    uint32_t next_msg_offset = ssl_state->message_start + SSLV3_MESSAGE_HDR_LEN + ssl_state->message_length;
+    if (ssl_state->bytes_processed >= next_msg_offset) {
+        ssl_state->handshake_type = 0;
+        ssl_state->message_length = 0;
+        ssl_state->message_start = next_msg_offset;
+    }
+    input += retval;
+    return (input - initial_input);
 }
 
 static int SSLv3ParseRecord(uint8_t direction, SSLState *ssl_state,
@@ -417,7 +461,7 @@ static int SSLv2Decode(uint8_t direction, SSLState *ssl_state,
     if (ssl_state->bytes_processed < (ssl_state->record_lengths_length + 1)) {
         retval = SSLv2ParseRecord(direction, ssl_state, input, input_len);
         if (retval == -1) {
-            SCLogDebug("Error parsing SSLv2Header");
+            AppLayerDecoderEventsSetEvent(ssl_state->f, TLS_DECODER_EVENT_INVALID_SSLV2_HEADER);
             return -1;
         } else {
             input += retval;
@@ -431,9 +475,10 @@ static int SSLv2Decode(uint8_t direction, SSLState *ssl_state,
 
     switch (ssl_state->cur_content_type) {
         case SSLV2_MT_ERROR:
-            SCLogWarning(SC_ERR_ALPARSER, "SSLV2_MT_ERROR msg_type recived.  "
+            SCLogWarning(SC_ERR_ALPARSER, "SSLV2_MT_ERROR msg_type received.  "
                          "Error encountered in establishing the sslv2 "
                          "session, may be version");
+            AppLayerDecoderEventsSetEvent(ssl_state->f, TLS_DECODER_EVENT_INVALID_HANDSHAKE_MESSAGE);
 
             break;
 
@@ -626,7 +671,7 @@ static int SSLv3Decode(uint8_t direction, SSLState *ssl_state,
     if (ssl_state->bytes_processed < SSLV3_RECORD_LEN) {
         retval = SSLv3ParseRecord(direction, ssl_state, input, input_len);
         if (retval == -1) {
-            SCLogDebug("Error parsing SSLv3Header");
+            AppLayerDecoderEventsSetEvent(ssl_state->f, TLS_DECODER_EVENT_INVALID_TLS_HEADER);
             return -1;
         } else {
             parsed += retval;
@@ -668,9 +713,15 @@ static int SSLv3Decode(uint8_t direction, SSLState *ssl_state,
 
             retval = SSLv3ParseHandshakeProtocol(ssl_state, input + parsed, input_len);
             if (retval == -1) {
-                SCLogDebug("Error parsing SSLv3.x.  Let's get outta here");
+                AppLayerDecoderEventsSetEvent(ssl_state->f, TLS_DECODER_EVENT_INVALID_HANDSHAKE_MESSAGE);
                 return -1;
             } else {
+                if ((uint32_t)retval > input_len) {
+                    SCLogDebug("Error parsing SSLv3.x.  Reseting parser "
+                            "state.  Let's get outta here");
+                    SSLParserReset(ssl_state);
+                    return -1;
+                }
                 parsed += retval;
                 input_len -= retval;
                 if (ssl_state->bytes_processed == ssl_state->record_length + SSLV3_RECORD_LEN) {
@@ -682,7 +733,7 @@ static int SSLv3Decode(uint8_t direction, SSLState *ssl_state,
             break;
 
         default:
-            SCLogDebug("Bad ssl record type");
+            AppLayerDecoderEventsSetEvent(ssl_state->f, TLS_DECODER_EVENT_INVALID_RECORD_TYPE);
             return -1;
     }
 
@@ -723,12 +774,14 @@ static int SSLv3Decode(uint8_t direction, SSLState *ssl_state,
  *
  * \retval >=0 On success.
  */
-static int SSLDecode(uint8_t direction, void *alstate, AppLayerParserState *pstate,
+static int SSLDecode(Flow *f, uint8_t direction, void *alstate, AppLayerParserState *pstate,
                      uint8_t *input, uint32_t input_len)
 {
     SSLState *ssl_state = (SSLState *)alstate;
     int retval = 0;
     uint8_t counter = 0;
+
+    ssl_state->f = f;
 
     /* if we have more than one record */
     while (input_len) {
@@ -772,6 +825,11 @@ static int SSLDecode(uint8_t direction, void *alstate, AppLayerParserState *psta
                     } else {
                         input_len -= retval;
                         input += retval;
+                        if (ssl_state->bytes_processed == SSLV3_RECORD_LEN
+                                && ssl_state->record_length == 0) {
+                            /* empty record */
+                            SSLParserReset(ssl_state);
+                        }
                     }
                 }
 
@@ -799,14 +857,24 @@ static int SSLDecode(uint8_t direction, void *alstate, AppLayerParserState *psta
                                "previously left off");
                     retval = SSLv3Decode(direction, ssl_state, pstate, input,
                                          input_len);
-                    if (retval == -1) {
+                    if (retval < 0) {
                         SCLogDebug("Error parsing SSLv3.x.  Reseting parser "
                                    "state.  Let's get outta here");
                         SSLParserReset(ssl_state);
                         return 0;
                     } else {
+                        if ((uint32_t)retval > input_len) {
+                            SCLogDebug("Error parsing SSLv3.x.  Reseting parser "
+                                       "state.  Let's get outta here");
+                            SSLParserReset(ssl_state);
+                        }
                         input_len -= retval;
                         input += retval;
+                        if (ssl_state->bytes_processed == SSLV3_RECORD_LEN
+                                && ssl_state->record_length == 0) {
+                            /* empty record */
+                            SSLParserReset(ssl_state);
+                        }
                     }
                 }
 
@@ -821,14 +889,14 @@ int SSLParseClientRecord(Flow *f, void *alstate, AppLayerParserState *pstate,
                          uint8_t *input, uint32_t input_len,
                          void *local_data, AppLayerParserResult *output)
 {
-    return SSLDecode(0 /* toserver */, alstate, pstate, input, input_len);
+    return SSLDecode(f, 0 /* toserver */, alstate, pstate, input, input_len);
 }
 
 int SSLParseServerRecord(Flow *f, void *alstate, AppLayerParserState *pstate,
                          uint8_t *input, uint32_t input_len,
                          void *local_data, AppLayerParserResult *output)
 {
-    return SSLDecode(1 /* toclient */, alstate, pstate, input, input_len);
+    return SSLDecode(f, 1 /* toclient */, alstate, pstate, input, input_len);
 }
 
 /**
@@ -851,7 +919,15 @@ void *SSLStateAlloc(void)
  */
 void SSLStateFree(void *p)
 {
-    SCFree(p);
+    SSLState *ssl_state = (SSLState *)p;
+
+    if (ssl_state->trec)
+        SCFree(ssl_state->trec);
+    if (ssl_state->cert0_subject)
+        SCFree(ssl_state->cert0_subject);
+    if (ssl_state->cert0_issuerdn)
+        SCFree(ssl_state->cert0_issuerdn);
+    SCFree(ssl_state);
 
     return;
 }
@@ -861,8 +937,10 @@ void SSLStateFree(void *p)
  */
 void RegisterSSLParsers(void)
 {
+    char *proto_name = "tls";
+
     /** SSLv2  and SSLv23*/
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_TLS, "|01 00 02|", 5, 2, STREAM_TOSERVER);
+    AlpProtoAdd(&alp_proto_ctx, proto_name, IPPROTO_TCP, ALPROTO_TLS, "|01 00 02|", 5, 2, STREAM_TOSERVER);
     /* subsection - SSLv2 style record by client, but informing the server the max
      * version it supports */
     /* Updated by Anoop Saldanha.  Disabled it for now.  We'll get back to it
@@ -871,23 +949,24 @@ void RegisterSSLParsers(void)
     //AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_TLS, "|00 02|", 7, 5, STREAM_TOCLIENT);
 
     /** SSLv3 */
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_TLS, "|01 03 00|", 3, 0, STREAM_TOSERVER);
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_TLS, "|16 03 00|", 3, 0, STREAM_TOSERVER); /* client hello */
+    AlpProtoAdd(&alp_proto_ctx, proto_name, IPPROTO_TCP, ALPROTO_TLS, "|01 03 00|", 3, 0, STREAM_TOSERVER);
+    AlpProtoAdd(&alp_proto_ctx, proto_name, IPPROTO_TCP, ALPROTO_TLS, "|16 03 00|", 3, 0, STREAM_TOSERVER); /* client hello */
     /** TLSv1 */
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_TLS, "|01 03 01|", 3, 0, STREAM_TOSERVER);
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_TLS, "|16 03 01|", 3, 0, STREAM_TOSERVER); /* client hello */
+    AlpProtoAdd(&alp_proto_ctx, proto_name, IPPROTO_TCP, ALPROTO_TLS, "|01 03 01|", 3, 0, STREAM_TOSERVER);
+    AlpProtoAdd(&alp_proto_ctx, proto_name, IPPROTO_TCP, ALPROTO_TLS, "|16 03 01|", 3, 0, STREAM_TOSERVER); /* client hello */
     /** TLSv1.1 */
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_TLS, "|01 03 02|", 3, 0, STREAM_TOSERVER);
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_TLS, "|16 03 02|", 3, 0, STREAM_TOSERVER); /* client hello */
+    AlpProtoAdd(&alp_proto_ctx, proto_name, IPPROTO_TCP, ALPROTO_TLS, "|01 03 02|", 3, 0, STREAM_TOSERVER);
+    AlpProtoAdd(&alp_proto_ctx, proto_name, IPPROTO_TCP, ALPROTO_TLS, "|16 03 02|", 3, 0, STREAM_TOSERVER); /* client hello */
     /** TLSv1.2 */
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_TLS, "|01 03 03|", 3, 0, STREAM_TOSERVER);
-    AlpProtoAdd(&alp_proto_ctx, IPPROTO_TCP, ALPROTO_TLS, "|16 03 03|", 3, 0, STREAM_TOSERVER); /* client hello */
+    AlpProtoAdd(&alp_proto_ctx, proto_name, IPPROTO_TCP, ALPROTO_TLS, "|01 03 03|", 3, 0, STREAM_TOSERVER);
+    AlpProtoAdd(&alp_proto_ctx, proto_name, IPPROTO_TCP, ALPROTO_TLS, "|16 03 03|", 3, 0, STREAM_TOSERVER); /* client hello */
 
-    AppLayerRegisterProto("tls", ALPROTO_TLS, STREAM_TOSERVER,
+    AppLayerRegisterProto(proto_name, ALPROTO_TLS, STREAM_TOSERVER,
                           SSLParseClientRecord);
 
-    AppLayerRegisterProto("tls", ALPROTO_TLS, STREAM_TOCLIENT,
+    AppLayerRegisterProto(proto_name, ALPROTO_TLS, STREAM_TOCLIENT,
                           SSLParseServerRecord);
+    AppLayerDecoderEventsModuleRegister(ALPROTO_TLS, tls_decoder_event_table);
 
     AppLayerRegisterStateFuncs(ALPROTO_TLS, SSLStateAlloc, SSLStateFree);
 

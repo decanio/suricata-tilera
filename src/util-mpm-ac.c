@@ -61,11 +61,9 @@
 #undef SCMalloc
 #undef SCRealloc
 //#undef SCFree
-#undef SCFreeze
 #define SCMalloc SCMpmMalloc
 #define SCRealloc SCMpmRealloc
 //#define SCFree SCMpmFree
-#define SCFreeze SCMpmFreeze
 #endif
 
 void SCACInitCtx(MpmCtx *, int);
@@ -204,7 +202,7 @@ static inline SCACPattern *SCACInitHashLookup(SCACCtx *ctx, uint8_t *pat,
 {
     uint32_t hash = SCACInitHashRaw(pat, patlen);
 
-    if (ctx->init_hash[hash] == NULL) {
+    if (ctx->init_hash == NULL || ctx->init_hash[hash] == NULL) {
         return NULL;
     }
 
@@ -304,6 +302,10 @@ static inline uint32_t SCACInitHash(SCACPattern *p)
 static inline int SCACInitHashAdd(SCACCtx *ctx, SCACPattern *p)
 {
     uint32_t hash = SCACInitHash(p);
+
+    if (ctx->init_hash == NULL) {
+        return 0;
+    }
 
     if (ctx->init_hash[hash] == NULL) {
         ctx->init_hash[hash] = p;
@@ -974,7 +976,7 @@ int SCACPreparePatterns(MpmCtx *mpm_ctx)
 {
     SCACCtx *ctx = (SCACCtx *)mpm_ctx->ctx;
 
-    if (mpm_ctx->pattern_cnt == 0) {
+    if (mpm_ctx->pattern_cnt == 0 || ctx->init_hash == NULL) {
         SCLogDebug("no patterns supplied to this mpm_ctx");
         return 0;
     }
@@ -1220,25 +1222,12 @@ uint32_t SCACSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
     SCACCtx *ctx = (SCACCtx *)mpm_ctx->ctx;
     int i = 0;
     int matches = 0;
-#ifdef __tile__
-    static int frozen = 0;
-#endif
 
     /* \todo tried loop unrolling with register var, with no perf increase.  Need
      * to dig deeper */
     /* \todo Change it for stateful MPM.  Supply the state using mpm_thread_ctx */
     if (buflen == 0)
         return matches;
-
-#ifdef __tile__
-    /* Need a better way to do this */
-    /* Ideally a call into mpm after all of the tables have been built. */
-    if (frozen == 0) {
-        frozen = 1;
-        SCFreeze();
-        SCLogInfo("MPM pattern memory frozen.");
-    }
-#endif
 
     SCACPatternList *pid_pat_list = ctx->pid_pat_list;
 

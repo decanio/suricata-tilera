@@ -58,6 +58,8 @@ flow-bit.c flow-bit.h \
 flow-alert-sid.c flow-alert-sid.h \
 pkt-var.c pkt-var.h \
 host.c host.h \
+host-queue.c host-queue.h \
+host-timeout.c host-timeout.h \
 reputation.c reputation.h \
 detect.c detect.h \
 detect-engine-sigorder.c detect-engine-sigorder.h \
@@ -146,6 +148,7 @@ detect-http-raw-header.c detect-http-raw-header.h \
 detect-http-uri.c detect-http-uri.h \
 detect-http-raw-uri.c detect-http-raw-uri.h \
 detect-file-data.c detect-file-data.h \
+detect-tls.c detect-tls.h \
 detect-tls-version.c detect-tls-version.h \
 detect-ssh-proto-version.c detect-ssh-proto-version.h \
 detect-ssh-software-version.c detect-ssh-software-version.h \
@@ -226,6 +229,8 @@ util-cuda-handlers.c util-cuda-handlers.h \
 util-optimize.h \
 util-privs.c util-privs.h \
 util-decode-asn1.c util-decode-asn1.h \
+util-decode-der.c util-decode-der.h \
+util-decode-der-get.c util-decode-der-get.h \
 util-ringbuffer.c util-ringbuffer.h \
 util-validate.h util-affinity.h util-affinity.c \
 util-memcmp.c util-memcmp.h \
@@ -282,6 +287,7 @@ app-layer-dcerpc-udp.c app-layer-dcerpc-udp.h \
 app-layer-ftp.c app-layer-ftp.h \
 app-layer-ssl.c app-layer-ssl.h \
 app-layer-ssh.c app-layer-ssh.h \
+app-layer-tls-handshake.c app-layer-tls-handshake.h \
 app-layer-smtp.c app-layer-smtp.h \
 defrag.c defrag.h \
 output.c output.h \
@@ -290,6 +296,7 @@ win32-service.c win32-service.h \
 util-action.c util-action.h \
 win32-syslog.h \
 util-profiling.c util-profiling.h \
+util-profiling-locks.c util-profiling-locks.h \
 cuda-packet-batcher.c cuda-packet-batcher.h \
 util-ioctl.h util-ioctl.c \
 util-logopenfile.h util-logopenfile.c

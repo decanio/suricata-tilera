@@ -136,6 +136,8 @@
 #include "flow-alert-sid.h"
 #include "pkt-var.h"
 
+#include "host.h"
+
 #include "app-layer-detect-proto.h"
 #include "app-layer-parser.h"
 #include "app-layer-smb.h"
@@ -475,6 +477,7 @@ void usage(const char *progname)
 #ifdef UNITTESTS
     printf("\t-u                           : run the unittests and exit\n");
     printf("\t-U, --unittest-filter=REGEX  : filter unittests with a regex\n");
+    printf("\t--list-app-layer-protos      : list supported app layer protocols\n");
     printf("\t--list-unittests             : list unit tests\n");
     printf("\t--list-keywords              : list all keywords implemented by the engine\n");
     printf("\t--fatal-unittests            : enable fatal failure on unittest error\n");
@@ -592,6 +595,12 @@ void SCPrintBuildInfo(void) {
 #ifdef HAVE_NSS
     strlcat(features, "HAVE_NSS ", sizeof(features));
 #endif
+#ifdef PROFILING
+    strlcat(features, "PROFILING ", sizeof(features));
+#endif
+#ifdef PROFILE_LOCKING
+    strlcat(features, "PROFILE_LOCKING ", sizeof(features));
+#endif
     if (strlen(features) == 0) {
         strlcat(features, "none", sizeof(features));
     }
@@ -656,6 +665,7 @@ int main(int argc, char **argv)
     char *regex_arg = NULL;
 #endif
     int dump_config = 0;
+    int list_app_layer_protocols = 0;
     int list_unittests = 0;
     int list_cuda_cards = 0;
     int list_runmodes = 0;
@@ -739,6 +749,7 @@ int main(int argc, char **argv)
         {"pcap", optional_argument, 0, 0},
         {"pcap-buffer-size", required_argument, 0, 0},
         {"unittest-filter", required_argument, 0, 'U'},
+        {"list-app-layer-protos", 0, &list_app_layer_protocols, 1},
         {"list-unittests", 0, &list_unittests, 1},
         {"list-cuda-cards", 0, &list_cuda_cards, 1},
         {"list-runmodes", 0, &list_runmodes, 1},
@@ -879,6 +890,9 @@ int main(int argc, char **argv)
                     fprintf(stderr, "ERROR: Failed to set engine init-failure-fatal.\n");
                     exit(EXIT_FAILURE);
                 }
+            }
+            else if(strcmp((long_opts[option_index]).name, "list-app-layer-protocols") == 0) {
+                /* listing all supported app layer protocols */
             }
             else if(strcmp((long_opts[option_index]).name, "list-unittests") == 0) {
 #ifdef UNITTESTS
@@ -1258,8 +1272,18 @@ int main(int argc, char **argv)
     TimeInit();
     SupportFastPatternForSigMatchTypes();
 
+    /* load the pattern matchers */
+    MpmTableSetup();
+
+    /** \todo we need an api for these */
     /* Load yaml configuration file if provided. */
     if (conf_filename != NULL) {
+#ifdef UNITTESTS
+        if (run_mode == RUNMODE_UNITTEST) {
+            SCLogError(SC_ERR_CMD_LINE, "should not use a configuration file with unittests");
+            exit(EXIT_FAILURE);
+        }
+#endif
         if (ConfYamlLoadFile(conf_filename) != 0) {
             /* Error already displayed. */
             exit(EXIT_FAILURE);
@@ -1280,11 +1304,19 @@ int main(int argc, char **argv)
         }
 
     } else if (run_mode != RUNMODE_UNITTEST &&
-               !list_keywords){
+                !list_keywords &&
+                !list_app_layer_protocols) {
         SCLogError(SC_ERR_OPENING_FILE, "Configuration file has not been provided");
         usage(argv[0]);
         exit(EXIT_FAILURE);
     }
+
+    AppLayerDetectProtoThreadInit();
+    if (list_app_layer_protocols) {
+        AppLayerListSupportedProtocols();
+        exit(EXIT_SUCCESS);
+    }
+    AppLayerParsersInitPostProcess();
 
     if (dump_config) {
         ConfDump();
@@ -1395,7 +1427,6 @@ int main(int argc, char **argv)
     }
 
     /* hardcoded initialization code */
-    MpmTableSetup(); /* load the pattern matchers */
     SigTableSetup(); /* load the rule keywords */
     if (list_keywords) {
         SigTableList();
@@ -1470,10 +1501,6 @@ int main(int argc, char **argv)
     TmModuleDebugList();
 
     AppLayerHtpNeedFileInspection();
-
-    /** \todo we need an api for these */
-    AppLayerDetectProtoThreadInit();
-    AppLayerParsersInitPostProcess();
 
 #ifdef UNITTESTS
 
@@ -1714,6 +1741,7 @@ printf("max_pending_packets %ld sizeof(Packet) %lu tile_vhuge_size %lu packet_si
         max_pending_packets, (uintmax_t)(max_pending_packets*SIZE_OF_PACKET));
 #endif
 
+    HostInitConfig(HOST_VERBOSE);
     FlowInitConfig(FLOW_VERBOSE);
 
     DetectEngineCtx *de_ctx = DetectEngineCtxInit();
@@ -1983,6 +2011,7 @@ printf("DEBUG: setting affinity for main\n");
     TmThreadKillThreads();
     SCPerfReleaseResources();
     FlowShutdown();
+    HostShutdown();
     StreamTcpFreeConfig(STREAM_VERBOSE);
     HTPFreeConfig();
     HTPAtExitPrintStats();
@@ -2062,5 +2091,6 @@ printf("DEBUG: setting affinity for main\n");
 #endif /* OS_WIN32 */
 
     SC_ATOMIC_DESTROY(engine_stage);
+
     exit(engine_retval);
 }

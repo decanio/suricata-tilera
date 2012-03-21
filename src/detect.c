@@ -140,6 +140,7 @@
 #include "app-layer.h"
 #include "app-layer-protos.h"
 #include "app-layer-htp.h"
+#include "detect-tls.h"
 #include "detect-tls-version.h"
 #include "detect-ssh-proto-version.h"
 #include "detect-ssh-software-version.h"
@@ -4433,6 +4434,10 @@ int SigGroupBuild (DetectEngineCtx *de_ctx) {
 //    DetectSigGroupPrintMemory();
 //    DetectPortPrintMemory();
 
+#ifdef __tile__
+    SCMpmFreeze();
+    SCLogInfo("MPM pattern memory frozen.");
+#endif
     return 0;
 }
 
@@ -4518,6 +4523,7 @@ void SigTableSetup(void) {
     DetectHttpCookieRegister();
     DetectHttpMethodRegister();
     DetectHttpStatMsgRegister();
+    DetectTlsRegister();
     DetectTlsVersionRegister();
     DetectUrilenRegister();
     DetectDetectionFilterRegister();

@@ -514,24 +514,12 @@ typedef struct MpmPatternIdStore_ {
 
 /** \brief threshold ctx */
 typedef struct ThresholdCtx_    {
-    HashListTable *threshold_hash_table_dst;        /**< Ipv4 dst hash table */
-    HashListTable *threshold_hash_table_src;        /**< Ipv4 src hash table */
-    HashListTable *threshold_hash_table_dst_ipv6;   /**< Ipv6 dst hash table */
-    HashListTable *threshold_hash_table_src_ipv6;   /**< Ipv6 src hash table */
     SCMutex threshold_table_lock;                   /**< Mutex for hash table */
 
     /** to support rate_filter "by_rule" option */
     DetectThresholdEntry **th_entry;
     uint32_t th_size;
 } ThresholdCtx;
-
-/** \brief tag ctx */
-typedef struct DetectTagHostCtx_ {
-    HashListTable *tag_hash_table_ipv4;   /**< Ipv4 hash table      */
-    HashListTable *tag_hash_table_ipv6;   /**< Ipv6 hash table      */
-    SCMutex lock;                         /**< Mutex for the ctx    */
-    struct timeval last_ts;               /**< Last time the ctx was pruned */
-} DetectTagHostCtx;
 
 /** \brief main detection engine ctx */
 typedef struct DetectEngineCtx_ {
@@ -999,6 +987,9 @@ enum {
     DETECT_MARK,
 
     DETECT_AL_TLS_VERSION,
+    DETECT_AL_TLS_SUBJECT,
+    DETECT_AL_TLS_ISSUERDN,
+
     DETECT_AL_HTTP_COOKIE,
     DETECT_AL_HTTP_METHOD,
     DETECT_AL_URILEN,

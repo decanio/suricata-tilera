@@ -260,6 +260,9 @@ typedef struct Flow_
     SC_ATOMIC_DECLARE(unsigned short, use_cnt);
 #endif
 
+    /** flow queue id, used with autofp */
+    SC_ATOMIC_DECLARE(int, autofp_tmqh_flow_qid);
+
     uint32_t probing_parser_toserver_al_proto_masks;
     uint32_t probing_parser_toclient_al_proto_masks;
 
@@ -297,7 +300,7 @@ typedef struct Flow_
     struct SigGroupHead_ *sgh_toserver;
 
     /** List of tags of this flow (from "tag" keyword of type "session") */
-    DetectTagDataEntryList *tag_list;
+    void *tag_list;
 
     /* pointer to the var list */
     GenericVar *flowvar;

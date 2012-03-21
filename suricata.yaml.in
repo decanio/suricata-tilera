@@ -19,6 +19,18 @@
 # to get the runmode custom modes that can be used here for a particular runmode.
 #runmode: auto
 
+# Specifies the kind of q scheduler used by flow pinned autofp mode.
+#
+# Supported schedulers are:
+#
+# round-robin - Flows assigned to threads in a round robin fashion.
+# active-packets - Flows assigned to threads that have the lowest number of
+#                  unprocessed packets.
+# hash - Flow alloted usihng the address hash. More of a random technique. Was
+#        the default in 1.2.1 and older.
+#
+autofp-scheduler: active-packets
+
 # Default pid file.
 # Will use this file if no --pidfile in command options.
 #pid-file: /var/run/suricata.pid
@@ -871,6 +883,13 @@ profiling:
       # performance impact if compiled in.
       enabled: no
       filename: packet_stats.csv
+
+  # profiling of locking. Only available when Suricata was built with
+  # --enable-profiling-locks.
+  locks:
+    enabled: no
+    filename: lock_stats.log
+    append: yes
 
 # Suricata core dump configuration. Limits the size of the core dump file to
 # approximately max-dump. The actual core dump size will be a multiple of the

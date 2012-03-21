@@ -51,6 +51,14 @@ __thread uint64_t mutex_lock_cnt;
 __thread uint64_t spin_lock_contention;
 __thread uint64_t spin_lock_wait_ticks;
 __thread uint64_t spin_lock_cnt;
+
+__thread uint64_t rww_lock_contention;
+__thread uint64_t rww_lock_wait_ticks;
+__thread uint64_t rww_lock_cnt;
+
+__thread uint64_t rwr_lock_contention;
+__thread uint64_t rwr_lock_wait_ticks;
+__thread uint64_t rwr_lock_cnt;
 #endif
 
 #ifdef OS_FREEBSD
@@ -1257,6 +1265,7 @@ ThreadVars *TmThreadCreate(char *name, char *inq_name, char *inqh_name,
             goto error;
 
         tv->tmqh_out = tmqh->OutHandler;
+        tv->outqh_name = tmqh->name;
 
         if (outq_name != NULL && strcmp(outq_name, "packetpool") != 0) {
             SCLogDebug("outq_name \"%s\"", outq_name);
@@ -1587,6 +1596,16 @@ void TmThreadKillThread(ThreadVars *tv)
             usleep(100);
         }
         SCLogDebug("signalled tv->inq->id %" PRIu32 "", tv->inq->id);
+    }
+
+    if (tv->outctx != NULL) {
+        Tmqh *tmqh = TmqhGetQueueHandlerByName(tv->outqh_name);
+        if (tmqh == NULL)
+            BUG_ON(1);
+
+        if (tmqh->OutHandlerCtxFree != NULL) {
+            tmqh->OutHandlerCtxFree(tv->outctx);
+        }
     }
 
     if (tv->cond != NULL ) {

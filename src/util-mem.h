@@ -533,7 +533,7 @@ extern tmc_mspace mpm_mspace;
 })
 
 #define SCMpmFreeze() ({ \
-    /*tmc_mspace_freeze((mpm_mspace))*/; \
+    tmc_mspace_freeze((mpm_mspace)); \
 })
 
 #endif /* __tile__ */
