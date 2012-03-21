@@ -58,6 +58,9 @@
 
 //#define MPIPE_DEBUG
 
+// return bucket credits after completely done with packet
+#define LATE_MPIPE_CREDIT 1
+
 /* Align "p" mod "align", assuming "p" is a "void*". */
 #define ALIGN(p, align) do { (p) += -(long)(p) & ((align) - 1); } while(0)
 
@@ -186,6 +189,10 @@ void TmModuleDecodeMpipeRegister (void) {
 
 void MpipeFreePacket(Packet *p) {
 
+#ifdef LATE_MPIPE_CREDIT
+    gxio_mpipe_iqueue_t* iqueue = iqueues[p->pool];
+    gxio_mpipe_iqueue_release(iqueue, &p->idesc);
+#endif
     gxio_mpipe_push_buffer(context,
                            p->idesc.stack_idx,
                            (void *)(intptr_t)p->idesc.va);
@@ -244,9 +251,13 @@ static inline void MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *
     p->pkt = pkt;
 
     /* copy only the fields we use later */
+#if 1
+    p->idesc = *idesc;
+#else
     p->idesc.cs = idesc->cs;
     p->idesc.va = idesc->va;
     p->idesc.stack_idx = idesc->stack_idx;
+#endif
 }
 
 static inline Packet *PacketAlloc(int rank)
@@ -356,7 +367,11 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
                     } else {
                         SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
                     }
+#ifdef LATE_MPIPE_CREDIT
+                    gxio_mpipe_iqueue_advance(iqueue, 1);
+#else
                     gxio_mpipe_iqueue_consume(iqueue, idesc);
+#endif
                 }
             } else {
                 tilera_fast_gettimeofday(&timeval);
@@ -611,7 +626,11 @@ static const struct {
         int bucket = result;
 
         /* Init group and buckets, preserving packet order among flows. */
+#ifdef LATE_MPIPE_CREDIT
+        gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_DYNAMIC_FLOW_AFFINITY;
+#else
         gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_STATIC_FLOW_AFFINITY;
+#endif
         result = gxio_mpipe_init_notif_group_and_buckets(context, group,
                                                    ring, num_workers,
                                                    bucket, num_buckets, mode);

@@ -397,11 +397,15 @@ typedef struct Packet_
 
 #ifdef __tilegx__
         /* TileGX mpipe stuff */
+#if 1
+        gxio_mpipe_idesc_t idesc;
+#else
         struct {
             uint_reg_t cs : 1;
             uint_reg_t va : 42;
             uint_reg_t stack_idx : 5;
         } idesc;
+#endif
 #elif defined(__tile__)
         /* Tile64 netio stuff */
     	netio_pkt_t netio_packet;
