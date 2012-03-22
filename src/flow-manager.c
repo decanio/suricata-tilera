@@ -563,6 +563,10 @@ void FlowManagerThreadSpawn()
         exit(1);
     }
 #ifdef __tile__
+    cpu_set_t s;
+    tmc_cpus_get_dataplane_cpus(&s);
+    int cpu = tmc_cpus_find_last_cpu(&s);
+    SCLogInfo("Setting FlowManagerThread affinity to cpu %d", cpu);
     TmThreadSetCPUAffinity(tv_flowmgr, 0);
 #endif
     if (TmThreadSpawn(tv_flowmgr) != TM_ECODE_OK) {

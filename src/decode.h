@@ -523,7 +523,6 @@ typedef struct Packet_
     PktProfiling profile;
 #endif
 #ifdef __tile__
-//#if 0
 } __attribute__((aligned(64))) Packet;
 #else
 } Packet;
@@ -544,7 +543,7 @@ typedef struct PacketQueue_ {
 #endif /* DBG_PERF */
 #ifdef __tile__
     volatile uint32_t cond_q;
-    SCMutex mutex_q __attribute__((aligned(64)));
+    SCMutex mutex_q /*__attribute__((aligned(64)))*/;
 } __attribute__((aligned(64))) PacketQueue;
 #else
     SCMutex mutex_q;
@@ -637,6 +636,17 @@ typedef struct DecodeThreadVars_
     (p)->livedev = NULL; \
 }
 #else
+#ifdef __tile__
+#define PACKET_INITIALIZE(p) { \
+    memset((p), 0x00, sizeof(Packet)); \
+    SCMutexInit(&(p)->tunnel_mutex, NULL); \
+    PACKET_RESET_CHECKSUMS((p)); \
+    SCMutexInit(&(p)->cuda_mutex, NULL); \
+    SCCondInit(&(p)->cuda_cond, NULL); \
+    (p)->pkt = ((uint8_t *)(p)) + sizeof(Packet); \
+    (p)->livedev = NULL; \
+}
+#else
 #define PACKET_INITIALIZE(p) { \
     memset((p), 0x00, SIZE_OF_PACKET); \
     SCMutexInit(&(p)->tunnel_mutex, NULL); \
@@ -646,6 +656,7 @@ typedef struct DecodeThreadVars_
     (p)->pkt = ((uint8_t *)(p)) + sizeof(Packet); \
     (p)->livedev = NULL; \
 }
+#endif
 #endif
 
 

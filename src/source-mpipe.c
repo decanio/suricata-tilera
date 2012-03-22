@@ -60,6 +60,7 @@
 
 // return bucket credits after completely done with packet
 #define LATE_MPIPE_CREDIT 1
+//#define LATE_MPIPE_BUCKET_CREDIT 1
 
 /* Align "p" mod "align", assuming "p" is a "void*". */
 #define ALIGN(p, align) do { (p) += -(long)(p) & ((align) - 1); } while(0)
@@ -191,7 +192,11 @@ void MpipeFreePacket(Packet *p) {
 
 #ifdef LATE_MPIPE_CREDIT
     gxio_mpipe_iqueue_t* iqueue = iqueues[p->pool];
+#ifdef LATE_MPIPE_BUCKET_CREDIT
+    gxio_mpipe_credit(iqueue->context, -1, p->idesc.bucket_id, 1);
+#else
     gxio_mpipe_iqueue_release(iqueue, &p->idesc);
+#endif
 #endif
     gxio_mpipe_push_buffer(context,
                            p->idesc.stack_idx,
@@ -325,7 +330,7 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
 
     SCEnter();
 
-    SCLogInfo("Mpipe cpu: %d rank: %d\n", cpu, rank);
+    SCLogInfo("cpu: %d rank: %d", cpu, rank);
 
     gxio_mpipe_iqueue_t* iqueue = iqueues[rank];
 
@@ -369,6 +374,9 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
                     }
 #ifdef LATE_MPIPE_CREDIT
                     gxio_mpipe_iqueue_advance(iqueue, 1);
+#ifdef LATE_MPIPE_BUCKET_CREDIT
+                   gxio_mpipe_credit(iqueue->context, iqueue->ring, -1, 1);
+#endif
 #else
                     gxio_mpipe_iqueue_consume(iqueue, idesc);
 #endif
@@ -569,7 +577,11 @@ static const struct {
                   getpagesize()/sizeof(gxio_mpipe_idesc_t));
         */
         /* Init the NotifRings. */
-        size_t notif_ring_entries = 65536/*2048*/;
+#if 0
+        size_t notif_ring_entries = 65536;
+#else
+        size_t notif_ring_entries = 2048;
+#endif
         size_t notif_ring_size = notif_ring_entries * sizeof(gxio_mpipe_idesc_t);
         for (unsigned int i = 0; i < num_workers; i++) {
             tmc_alloc_t alloc = TMC_ALLOC_INIT;
@@ -599,7 +611,7 @@ static const struct {
                 ++stack_count;
         }
         SCLogInfo("DEBUG: %u non-zero sized stacks", stack_count);
-        SCLogInfo("DEBUG: tile_vhuge_size %llu", tile_vhuge_size);
+        SCLogInfo("DEBUG: tile_vhuge_size %lu", tile_vhuge_size);
 
         /* Allocate one very huge page to hold our buffer stack, notif ring, and
          * packets.  This should be more than enough space. */
@@ -675,9 +687,9 @@ static const struct {
 
             ALIGN(mem, 0x10000);
 
-            SCLogInfo("stack_bytes %d", stack_bytes);
+            SCLogInfo("stack_bytes %lu", stack_bytes);
             stack_bytes = (stack_bytes + (0x10000)) & ~(0x10000-1);
-            SCLogInfo("rounded stack_bytes %d", stack_bytes);
+            SCLogInfo("rounded stack_bytes %lu", stack_bytes);
 
             /* Register the entire huge page of memory which contains all
              * the buffers.
@@ -718,7 +730,7 @@ static const struct {
 
     tmc_sync_barrier_wait(&barrier);
 
-    SCLogInfo("ReceiveMpipe-%d initialization complete!!!", rank);
+    //SCLogInfo("ReceiveMpipe-%d initialization complete!!!", rank);
     *data = (void *)ptv;
     SCReturnInt(TM_ECODE_OK);
 }
@@ -734,7 +746,7 @@ TmEcode ReceiveMpipeInit(void) {
 
 TmEcode ReceiveMpipeGo(void) {
     SCEnter();
-    SCLogInfo("Mpipe enabling input and profiling\n");
+
     /* Turn on all the links on mpipe0. */
     sim_enable_mpipe_links(0, -1);
 

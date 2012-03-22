@@ -43,7 +43,9 @@ cycle_pause(unsigned int delay)
 #define DFLT_TILERA_MPIPE_PIPELINES 5
 
 #define TILES_PER_NETIO_PIPELINE (4 + TileDetectThreadPerPipeline)
-#define TILES_PER_MPIPE_PIPELINE (3 + TileDetectThreadPerPipeline)
+//#define TILES_PER_MPIPE_PIPELINE (3 + TileDetectThreadPerPipeline)
+/* NOTE Output stage shared between pairs of pipelines */
+#define TILES_PER_MPIPE_PIPELINE (2 + TileDetectThreadPerPipeline)
 
 #ifdef __tilegx__
 #define TILES_PER_PIPELINE (TILES_PER_MPIPE_PIPELINE)

@@ -60,7 +60,11 @@ typedef struct SCDQDataQueue_ {
     SCCondT cond_q;
 #endif
 
+#ifdef __tile__
+} __attribute__((aligned(64))) SCDQDataQueue;
+#else
 } SCDQDataQueue;
+#endif
 
 void SCDQDataEnqueue(SCDQDataQueue *, SCDQGenericQData *);
 SCDQGenericQData *SCDQDataDequeue(SCDQDataQueue *);

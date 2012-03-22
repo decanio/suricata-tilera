@@ -265,7 +265,11 @@ void TmqhOutputFlowRoundRobin(ThreadVars *tv, Packet *p)
     PacketQueue *q = ctx->queues[qid].q;
     SCMutexLock(&q->mutex_q);
     PacketEnqueue(q, p);
+#ifdef __tile__
+    q->cond_q = 1;
+#else
     SCCondSignal(&q->cond_q);
+#endif
     SCMutexUnlock(&q->mutex_q);
 
     return;
@@ -313,7 +317,11 @@ void TmqhOutputFlowActivePackets(ThreadVars *tv, Packet *p)
     PacketQueue *q = ctx->queues[qid].q;
     SCMutexLock(&q->mutex_q);
     PacketEnqueue(q, p);
+#ifdef __tile__
+    q->cond_q = 1;
+#else
     SCCondSignal(&q->cond_q);
+#endif
     SCMutexUnlock(&q->mutex_q);
 
     return;
@@ -362,11 +370,10 @@ void TmqhOutputFlowHash(ThreadVars *tv, Packet *p)
     PacketEnqueue(q, p);
 #ifdef __tile__
     q->cond_q = 1;
-    SCMutexUnlock(&q->mutex_q);
 #else
     SCCondSignal(&q->cond_q);
-    SCMutexUnlock(&q->mutex_q);
 #endif
+    SCMutexUnlock(&q->mutex_q);
 
     return;
 }

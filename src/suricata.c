@@ -1687,7 +1687,8 @@ int main(int argc, char **argv)
 #ifdef __tile__
     RunModeTileGetPipelineConfig();
     tmc_sync_barrier_init(&startup_barrier,
-                          (TileNumPipelines * TILES_PER_PIPELINE) + 4);
+                          (TileNumPipelines * TILES_PER_PIPELINE) + 4 +
+                          (TileNumPipelines / 2)/* Output tiles */);
     {
 #ifdef __tilegx__
     tmc_alloc_t alloc = TMC_ALLOC_INIT;
@@ -1698,10 +1699,11 @@ int main(int argc, char **argv)
         tmc_alloc_set_pagesize(&alloc, tile_vhuge_size);
     }
     max_pending_packets = tile_vhuge_size / sizeof(Packet);
-    max_pending_packets = min(max_pending_packets, TileNumPipelines*65535);
+    max_pending_packets = min(max_pending_packets-1, TileNumPipelines*65535);
 printf("max_pending_packets %ld sizeof(Packet) %lu tile_vhuge_size %lu packet_size %lu\n",
        max_pending_packets, sizeof(Packet), tile_vhuge_size, max_pending_packets * sizeof(Packet));
-    Packet *p = tmc_alloc_map(&alloc, max_pending_packets * sizeof(Packet));
+    //Packet *p = tmc_alloc_map(&alloc, max_pending_packets * sizeof(Packet));
+    Packet *p = tmc_alloc_map(&alloc, tile_vhuge_size);
     //Packet *p = tmc_alloc_map(&alloc, tile_vhuge_size);
     printf("packet pool at %p\n", p);
 #else

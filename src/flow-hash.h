@@ -48,7 +48,11 @@ typedef struct FlowBucket_ {
 #else
     #error Enable FBLOCK_SPIN or FBLOCK_MUTEX
 #endif
+#ifdef __tile__
+} __attribute__((aligned(64))) FlowBucket;
+#else
 } FlowBucket;
+#endif
 
 #ifdef FBLOCK_SPIN
     #define FBLOCK_INIT(fb) SCSpinInit(&(fb)->s, 0)

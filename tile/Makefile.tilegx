@@ -158,10 +158,13 @@ TILE_MONITOR_WILDCAT_ARGS = \
 
 #  --run -+- strace -e !nanosleep /suricata -c /opt/suricata/etc/suricata.yaml -I xgbe3 -+-
 
+#  --hvx "kcache_hash=none" \
+
 TILE_MONITOR_WILDCAT_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   --hvx "hugepagesz=1g hugepages=2" \
   $(WILDCAT_SPEED) \
+  --hvd MEMPROF_TILE=5,5 \
   --huge-pages 800 \
   --mount-tile /bin \
   --mount-tile /lib \
@@ -311,6 +314,7 @@ fb_sim: $(SIM_DEPS) $(IMAGE_FILE)
 WILDCAT_ARGS=--dev usb1
 #WILDCAT_ARGS=--
 NET_ARGS=--net 192.168.0.6
+#NET_ARGS=--net 10.101.0.33
 
 run_wc: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \

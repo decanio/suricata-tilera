@@ -165,6 +165,7 @@ static int MapTile(int cpu)
 #ifdef NO_TILE_MAP
     return cpu;
 #else
+#error Tile mapping no longer supported
     return map[cpu-1];
 #endif
 }
@@ -204,7 +205,7 @@ void RunModeTileGetPipelineConfig(void) {
         TileDetectThreadPerPipeline = DFLT_DETECT_THREADS_PER_PIPELINE;
     }
     SCLogInfo("%d detect threads per pipeline", TileDetectThreadPerPipeline);
-    SCLogInfo("%d utilized dataplane tiles", TILES_PER_PIPELINE * TileNumPipelines);
+    SCLogInfo("%d utilized dataplane tiles", (TILES_PER_PIPELINE * TileNumPipelines) + (TileNumPipelines / 2));
 }
 
 /**
@@ -329,7 +330,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
 
         sprintf(stream_queue[pipe], "stream-queue%d", pipe);
 
-        snprintf(tname, sizeof(tname), "Decode & Stream%d", pipe+1);
+        snprintf(tname, sizeof(tname), "Decode&Stream%d", pipe+1);
         thread_name = SCStrdup(tname);
 
         ThreadVars *tv_decode1 =
@@ -378,7 +379,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
                 TmThreadCreatePacketHandler(thread_name,
                                             stream_queue[(pool_detect_threads) ? 0 : pipe],"simple", 
 #if 1
-                                            verdict_queue[pipe],"simple",
+                                            verdict_queue[pipe/2],"simple",
 #else
                                             "packetpool", "packetpool", 
 #endif
@@ -415,18 +416,20 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
         }
 
 #ifdef COMBINE_RESPOND_REJECT_AND_OUTPUT
-        snprintf(tname, sizeof(tname), "RR & Output%d", pipe+1);
+	if ((pipe % 2) == 0) {
+        snprintf(tname, sizeof(tname), "RR&Output%d", pipe+1);
         thread_name = SCStrdup(tname);
         ThreadVars *tv_outputs =
             TmThreadCreatePacketHandler(thread_name,
-                                        verdict_queue[pipe],"simple", 
+                                        verdict_queue[pipe/2],"simple", 
                                         "packetpool", "packetpool", 
                                         "varslot");
         if (tv_outputs == NULL) {
             printf("ERROR: TmThreadsCreate failed\n");
             exit(EXIT_FAILURE);
         }
-        TmThreadSetCPUAffinity(tv_outputs, MapTile(tile++));
+        //TmThreadSetCPUAffinity(tv_outputs, MapTile(tile++));
+        TmThreadSetCPUAffinity(tv_outputs, MapTile((pipe_max * TILES_PER_PIPELINE) + (pipe / 2) + 1));
 
         tm_module = TmModuleGetByName("RespondReject");
         if (tm_module == NULL) {
@@ -441,7 +444,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             printf("ERROR: TmThreadSpawn failed\n");
             exit(EXIT_FAILURE);
         }
-
+	}
 #else
         sprintf(alert_queue[pipe], "alert-queue%d", pipe);
 
