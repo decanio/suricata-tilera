@@ -380,6 +380,12 @@ typedef struct Packet_
     uint8_t flowflags;
     struct Flow_ *flow;
 
+#ifdef __tile__
+    /* double linked list ptrs */
+    struct Packet_ *next;
+    struct Packet_ *prev;
+#endif
+
     struct timeval ts;
 
     union {
@@ -397,10 +403,11 @@ typedef struct Packet_
 
 #ifdef __tilegx__
         /* TileGX mpipe stuff */
-#if 1
+#if 0
         gxio_mpipe_idesc_t idesc;
 #else
         struct {
+            uint_reg_t bucket_id : 13;
             uint_reg_t cs : 1;
             uint_reg_t va : 42;
             uint_reg_t stack_idx : 5;
@@ -488,9 +495,11 @@ typedef struct Packet_
     /* engine events */
     PacketEngineEvents events;
 
+#ifndef __tile__
     /* double linked list ptrs */
     struct Packet_ *next;
     struct Packet_ *prev;
+#endif
 
     /* tunnel/encapsulation handling */
     struct Packet_ *root; /* in case of tunnel this is a ptr

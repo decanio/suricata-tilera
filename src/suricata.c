@@ -1688,8 +1688,9 @@ int main(int argc, char **argv)
     RunModeTileGetPipelineConfig();
     tmc_sync_barrier_init(&startup_barrier,
                           (TileNumPipelines * TILES_PER_PIPELINE) + 4 +
-                          (TileNumPipelines / 2) + /* Receibe tiles */
-                          (TileNumPipelines / 2)); /* Output tiles */
+                          ((TileNumPipelines+1) / 2) + /* Receive tiles */
+                          //((TileNumPipelines+2) / 3)); /* Output tiles */
+                          ((TileNumPipelines+1) / 2)); /* Output tiles */
     {
 #ifdef __tilegx__
     tmc_alloc_t alloc = TMC_ALLOC_INIT;

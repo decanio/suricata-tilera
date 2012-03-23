@@ -258,9 +258,10 @@ static inline void MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *
     p->pkt = pkt;
 
     /* copy only the fields we use later */
-#if 1
+#if 0
     p->idesc = *idesc;
 #else
+    p->idesc.bucket_id = idesc->bucket_id;
     p->idesc.cs = idesc->cs;
     p->idesc.va = idesc->va;
     p->idesc.stack_idx = idesc->stack_idx;
@@ -829,7 +830,7 @@ TmEcode ReceiveMpipeInit(void) {
     SCEnter();
 
     SCLogInfo("TileNumPipelines: %d", TileNumPipelines);
-    tmc_sync_barrier_init(&barrier, TileNumPipelines/2);
+    tmc_sync_barrier_init(&barrier, (TileNumPipelines+1)/2);
 
     SCReturnInt(TM_ECODE_OK);
 }

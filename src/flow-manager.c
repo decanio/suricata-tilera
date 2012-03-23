@@ -568,6 +568,8 @@ void FlowManagerThreadSpawn()
     int cpu = tmc_cpus_find_last_cpu(&s);
     SCLogInfo("Setting FlowManagerThread affinity to cpu %d", cpu);
     TmThreadSetCPUAffinity(tv_flowmgr, 0);
+#else
+    TmThreadSetCPUAffinity(tv_flowmgr, 0);
 #endif
     if (TmThreadSpawn(tv_flowmgr) != TM_ECODE_OK) {
         printf("ERROR: TmThreadSpawn failed\n");

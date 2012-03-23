@@ -159,6 +159,7 @@ static void RunModeTileMpipeMapCores(void)
 #endif
 }
 
+#if 0
 /* map from spawn order to affinity */
 static int MapTile(int cpu)
 {
@@ -169,6 +170,7 @@ static int MapTile(int cpu)
     return map[cpu-1];
 #endif
 }
+#endif
 
 /* unmap a thread so that source-mpipe can calculate ranks */
 int TileMpipeUnmapTile(int cpu)
@@ -378,9 +380,9 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
 
         //TmThreadSetCPUAffinity(tv_decode1, MapTile(tile++));
         TmThreadSetCPUAffinity(tv_decode1,
-                               1+(pipe_max/2)+(pipe*TILES_PER_PIPELINE));
+                               1+((pipe_max+1)/2)+(pipe*TILES_PER_PIPELINE));
 SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
-                               1+(pipe_max/2)+(pipe*TILES_PER_PIPELINE));
+                               1+((pipe_max+1)/2)+(pipe*TILES_PER_PIPELINE));
 
         if (TmThreadSpawn(tv_decode1) != TM_ECODE_OK) {
             printf("ERROR: TmThreadSpawn failed\n");
@@ -399,11 +401,12 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
 
             sprintf(verdict_queue[pipe], "verdict-queue%d", pipe);
 
+#define PIPELINES_PER_OUTPUT 2
             ThreadVars *tv_detect_ncpu =
                 TmThreadCreatePacketHandler(thread_name,
                                             stream_queue[(pool_detect_threads) ? 0 : pipe],"simple", 
 #if 1
-                                            verdict_queue[pipe/2],"simple",
+                                            verdict_queue[pipe/PIPELINES_PER_OUTPUT],"simple",
 #else
                                             "packetpool", "packetpool", 
 #endif
@@ -421,9 +424,9 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
 
             //TmThreadSetCPUAffinity(tv_detect_ncpu, MapTile(tile++));
             TmThreadSetCPUAffinity(tv_detect_ncpu,
-                               1+(pipe_max/2)+(pipe*TILES_PER_PIPELINE)+thread+1);
+                               1+((pipe_max+1)/2)+(pipe*TILES_PER_PIPELINE)+thread+1);
 SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
-                               1+(pipe_max/2)+(pipe*TILES_PER_PIPELINE)+thread+1);
+                               1+((pipe_max+1)/2)+(pipe*TILES_PER_PIPELINE)+thread+1);
 
             char *thread_group_name = SCStrdup("Detect");
             if (thread_group_name == NULL) {
@@ -444,12 +447,12 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
         }
 
 #ifdef COMBINE_RESPOND_REJECT_AND_OUTPUT
-	if ((pipe % 2) == 0) {
+	if ((pipe % PIPELINES_PER_OUTPUT) == 0) {
         snprintf(tname, sizeof(tname), "RR&Output%d", pipe+1);
         thread_name = SCStrdup(tname);
         ThreadVars *tv_outputs =
             TmThreadCreatePacketHandler(thread_name,
-                                        verdict_queue[pipe/2],"simple", 
+                                        verdict_queue[pipe/PIPELINES_PER_OUTPUT],"simple", 
                                         "packetpool", "packetpool", 
                                         "varslot");
         if (tv_outputs == NULL) {
@@ -459,7 +462,7 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
         //TmThreadSetCPUAffinity(tv_outputs, MapTile(tile++));
         //TmThreadSetCPUAffinity(tv_outputs, MapTile((pipe_max * TILES_PER_PIPELINE) + (pipe / 2) + 1));
         TmThreadSetCPUAffinity(tv_decode1,
-                               1+(pipe_max/2)+(pipe_max*TILES_PER_PIPELINE)+(pipe/2)+1);
+                               1+((pipe_max+1)/2)+(pipe_max*TILES_PER_PIPELINE)+(pipe/PIPELINES_PER_OUTPUT));
 
         tm_module = TmModuleGetByName("RespondReject");
         if (tm_module == NULL) {
