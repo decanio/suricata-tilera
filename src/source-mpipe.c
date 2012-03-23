@@ -369,17 +369,19 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
                             p = PacketAlloc(rank);
                         } while (p == NULL);
                         r = 1;
-                    } else {
-                        SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
-                    }
 #ifdef LATE_MPIPE_CREDIT
-                    gxio_mpipe_iqueue_advance(iqueue, 1);
+                        gxio_mpipe_iqueue_advance(iqueue, 1);
 #ifdef LATE_MPIPE_BUCKET_CREDIT
-                   gxio_mpipe_credit(iqueue->context, iqueue->ring, -1, 1);
+                        gxio_mpipe_credit(iqueue->context, iqueue->ring, -1, 1);
 #endif
 #else
-                    gxio_mpipe_iqueue_consume(iqueue, idesc);
+                        gxio_mpipe_iqueue_consume(iqueue, idesc);
 #endif
+
+                    } else {
+                        gxio_mpipe_iqueue_consume(iqueue, idesc);
+                        SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
+                    }
                 }
             } else {
                 tilera_fast_gettimeofday(&timeval);
