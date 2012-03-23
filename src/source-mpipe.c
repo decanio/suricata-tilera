@@ -124,6 +124,7 @@ typedef struct MpipeThreadVars_
 } MpipeThreadVars;
 
 TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot);
+TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot);
 TmEcode ReceiveMpipeThreadInit(ThreadVars *, void *, void **);
 void ReceiveMpipeThreadExitStats(ThreadVars *, void *);
 
@@ -166,7 +167,8 @@ void TmModuleReceiveMpipeRegister (void) {
     tmm_modules[TMM_RECEIVEMPIPE].name = "ReceiveMpipe";
     tmm_modules[TMM_RECEIVEMPIPE].ThreadInit = ReceiveMpipeThreadInit;
     tmm_modules[TMM_RECEIVEMPIPE].Func = NULL; /* was ReceiveMpipe; */
-    tmm_modules[TMM_RECEIVEMPIPE].PktAcqLoop = ReceiveMpipeLoop;
+    //tmm_modules[TMM_RECEIVEMPIPE].PktAcqLoop = ReceiveMpipeLoop;
+    tmm_modules[TMM_RECEIVEMPIPE].PktAcqLoop = ReceiveMpipeLoopPair;
     tmm_modules[TMM_RECEIVEMPIPE].ThreadExitPrintStats = ReceiveMpipeThreadExitStats;
     tmm_modules[TMM_RECEIVEMPIPE].ThreadDeinit = NULL;
     tmm_modules[TMM_RECEIVEMPIPE].RegisterTests = NULL;
@@ -396,6 +398,88 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
     SCReturnInt(TM_ECODE_OK);
 }
 
+TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
+    struct timeval timeval;
+    MpipeThreadVars *ptv = (MpipeThreadVars *)data;
+    gxio_mpipe_iqueue_t* iqueue;
+    TmSlot *s = (TmSlot *)slot;
+    gxio_mpipe_idesc_t *idesc;
+    ptv->slot = s->slot_next;
+    Packet *p[2];
+    int cpu = tmc_cpus_get_my_cpu();
+    int rank = cpu-1;
+
+    SCEnter();
+
+    SCLogInfo("cpu: %d rank: %d", cpu, rank);
+
+    tilera_fast_gettimeofday(&timeval);
+
+    p[0] = NULL; p[1] = NULL;
+
+    for (;;) {
+        int i;
+
+        if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
+            SCReturnInt(TM_ECODE_FAILED);
+        }
+
+        for (i = 0; i < 2; i++) {
+            int pool = (rank * 2) + i;
+
+            iqueue = iqueues[pool];
+
+            if (p[i] == NULL) {
+                if ((p[i] = PacketAlloc(pool)) == NULL) {
+                    continue;
+                }
+            }
+
+            //SCLogInfo("Polling pool %d rank %d queue %d", pool, rank, i);
+            int n = gxio_mpipe_iqueue_try_peek(iqueue, &idesc);
+            if (likely(n > 0)) {
+                int j; int m;
+
+                //SCLogInfo("Got %d packets for pool %d", n, pool);
+                m = min(n, 4);
+
+                /* Prefetch the idescs (64 bytes each). */
+                for (j = 0; j < m; j++) {
+                    __insn_prefetch(&idesc[j]);
+                }
+                SCPerfCounterSetUI64(ptv->mpipe_depth, tv->sc_perf_pca,
+                                     (uint64_t)n);
+                for (j = 0; j < m; j++, idesc++) {
+                    if (likely(!idesc->be)) {
+                        MpipeProcessPacket(ptv,  idesc, p[i], &timeval);
+                        TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p[i]);
+#ifdef LATE_MPIPE_CREDIT
+                        gxio_mpipe_iqueue_advance(iqueue, 1);
+#ifdef LATE_MPIPE_BUCKET_CREDIT
+                        gxio_mpipe_credit(iqueue->context, iqueue->ring, -1, 1);
+#endif
+#else
+                        gxio_mpipe_iqueue_consume(iqueue, idesc);
+#endif
+                        if ((p[i] = PacketAlloc(pool)) == NULL) {
+                            goto bail;
+                        }
+                    } else {
+                        gxio_mpipe_iqueue_consume(iqueue, idesc);
+                        SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
+                    }
+                }
+            } else {
+                tilera_fast_gettimeofday(&timeval);
+            }
+bail:
+            SCPerfSyncCountersIfSignalled(tv, 0);
+        }
+    }
+
+    SCReturnInt(TM_ECODE_OK);
+}
+
 TmEcode MpipeRegisterPipeStage(void *td) {
     SCEnter()
 
@@ -440,9 +524,13 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     SCEnter()
     int cpu = tmc_cpus_get_my_cpu();
 #if 1
+    int rank = (cpu-1);
+#else
+#if 1
     int rank = (TileMpipeUnmapTile(cpu)-1)/TILES_PER_MPIPE_PIPELINE;
 #else
     int rank = (cpu-1)/TILES_PER_MPIPE_PIPELINE;
+#endif
 #endif
     unsigned int num_buffers;
     //unsigned int total_buffers = max_pending_packets;
@@ -741,7 +829,7 @@ TmEcode ReceiveMpipeInit(void) {
     SCEnter();
 
     SCLogInfo("TileNumPipelines: %d", TileNumPipelines);
-    tmc_sync_barrier_init(&barrier, TileNumPipelines);
+    tmc_sync_barrier_init(&barrier, TileNumPipelines/2);
 
     SCReturnInt(TM_ECODE_OK);
 }

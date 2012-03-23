@@ -247,6 +247,7 @@ tm-queues.c tm-queues.h \
 tm-queuehandlers.c tm-queuehandlers.h \
 tm-threads.c tm-threads.h tm-threads-common.h \
 tmqh-simple.c tmqh-simple.h \
+tmqh-demux2.c tmqh-demux2.h \
 tmqh-nfq.c tmqh-nfq.h \
 tmqh-packetpool.c tmqh-packetpool.h \
 tmqh-flow.c tmqh-flow.h \

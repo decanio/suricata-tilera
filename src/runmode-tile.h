@@ -45,7 +45,9 @@ cycle_pause(unsigned int delay)
 #define TILES_PER_NETIO_PIPELINE (4 + TileDetectThreadPerPipeline)
 //#define TILES_PER_MPIPE_PIPELINE (3 + TileDetectThreadPerPipeline)
 /* NOTE Output stage shared between pairs of pipelines */
-#define TILES_PER_MPIPE_PIPELINE (2 + TileDetectThreadPerPipeline)
+//#define TILES_PER_MPIPE_PIPELINE (2 + TileDetectThreadPerPipeline)
+/* NOTE Receive + Output stages shared between pairs of pipelines */
+#define TILES_PER_MPIPE_PIPELINE (1 + TileDetectThreadPerPipeline)
 
 #ifdef __tilegx__
 #define TILES_PER_PIPELINE (TILES_PER_MPIPE_PIPELINE)

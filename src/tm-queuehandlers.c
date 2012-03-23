@@ -40,6 +40,7 @@ void TmqhSetup (void) {
     memset(&tmqh_table, 0, sizeof(tmqh_table));
 
     TmqhSimpleRegister();
+    TmqhDemux2Register();
     TmqhNfqRegister();
     TmqhPacketpoolRegister();
     TmqhFlowRegister();

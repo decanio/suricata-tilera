@@ -26,6 +26,7 @@
 
 enum {
     TMQH_SIMPLE,
+    TMQH_DEMUX2,
     TMQH_NFQ,
     TMQH_PACKETPOOL,
     TMQH_FLOW,
