@@ -731,6 +731,7 @@ static const struct {
         /* Init group and buckets, preserving packet order among flows. */
 #ifdef LATE_MPIPE_CREDIT
         gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_DYNAMIC_FLOW_AFFINITY;
+        //gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_STATIC_FLOW_AFFINITY;
 #else
         gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_STATIC_FLOW_AFFINITY;
 #endif

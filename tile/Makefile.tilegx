@@ -15,9 +15,9 @@
 # Default target.
 all:
 
-ifndef TILERA_ROOT
-$(error The 'TILERA_ROOT' environment variable is not set.)
-endif
+#ifndef TILERA_ROOT
+#$(error The 'TILERA_ROOT' environment variable is not set.)
+#endif
 
 #
 # Local environment configuation
@@ -25,6 +25,7 @@ endif
 BASE_DIR=/home/decanio
 #RULES_DIR=$(BASE_DIR)/work/TileGX/suricata
 RULES_DIR=$(BASE_DIR)/work/TileGX/emergingthreats
+INSTALL_DIR=$(BASE_DIR)/work/TileGX/suricata-install-dir
 #RULES_CONFIG=/opt/suricata/etc/suricata.yaml
 RULES_CONFIG=/opt/suricata/etc/suricata-etpro.yaml
 YAML_DIR=$(BASE_DIR)/work/TileGX/github/yaml
@@ -38,11 +39,31 @@ TILERA_ROOT_ALPHA11=$(TILERA_ROOT)/../../TileraMDE-4.0.alpha11.134874/tilegx
 .PHONY: all clean
 
 #
-# Rebuild everything from after autoconf.sh
+# Rebuild everything from after autoconf.sh (cross compilation)
 #
 build_static:
 	echo Running configure
-	LIBS="-lgxio -ltmc" ./configure --host=tile --disable-gccmarch-native \
+	LIBS="-lgxio -ltmc" ./configure --host=tile --prefix=$(INSTALL_DIR) \
+            --disable-gccmarch-native \
+	    --without-libpcap \
+	    --disable-af-packet \
+	    --with-libyaml-includes=$(YAML_DIR)/include \
+	    --with-libyaml-libraries=$(YAML_DIR)/src/.libs \
+	    --with-libmagic-includes=$(LIBMAGIC_DIR)/src \
+	    --with-libmagic-libraries=$(LIBMAGIC_DIR)/src/.libs
+	echo Patching results
+	patch config.h tile/config.h.diff
+	patch src/Makefile tile/Makefile.static.diff
+	echo building Suricata
+	make clean
+	make
+
+#
+# Rebuild everything from after autoconf.sh (native compilation)
+#
+build_native_static:
+	echo Running configure
+	LIBS="-lgxio -ltmc" ./configure --disable-gccmarch-native \
 	    --without-libpcap \
 	    --disable-af-packet \
 	    --with-libyaml-includes=$(YAML_DIR)/include \
@@ -164,6 +185,7 @@ TILE_MONITOR_WILDCAT_ARGS = \
 TILE_MONITOR_WILDCAT_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   --hvx "hugepagesz=1g hugepages=2" \
+  --hvd MEMPROF_TILE=5,5 \
   $(WILDCAT_SPEED) \
   --huge-pages 800 \
   --mount-tile /bin \
@@ -326,7 +348,9 @@ reimage_net:
 	$(TILE_MONITOR) \
         $(NET_ARGS) \
 	--hvx "dataplane=1-35" \
+        --hvx "hugepagesz=1g hugepages=2" \
 	--huge-pages 800 \
+        --hvd MEMPROF_TILE=5,5 \
 	--rootfs /dev/sda1 -- mount
 
 run_net: $(SIM_DEPS) $(IMAGE_FILE)
