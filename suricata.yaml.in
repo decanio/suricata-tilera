@@ -652,7 +652,11 @@ pcap:
 # Tilera mpipe configuration. for use on Tilera tilegx
 mpipe:
 
+  # Load balancing mode "static" or "dynamic".
+  load-balance: dynamic
+
   # List of interfaces we will listen on.
+  inputs:
   - interface: xgbe3
   - interface: xgbe4
 
