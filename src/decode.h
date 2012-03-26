@@ -408,6 +408,7 @@ typedef struct Packet_
 #else
         struct {
             uint_reg_t bucket_id : 13;
+            uint_reg_t nr : 1;
             uint_reg_t cs : 1;
             uint_reg_t va : 42;
             uint_reg_t stack_idx : 5;

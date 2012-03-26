@@ -1820,7 +1820,7 @@ printf("max_pending_packets %ld sizeof(Packet) %lu tile_vhuge_size %lu packet_si
                 exit(EXIT_FAILURE);
             }
         } else {
-            int ret = LiveBuildDeviceList("mpipe");
+            int ret = LiveBuildDeviceList("mpipe.inputs");
             if (ret == 0) {
                 fprintf(stderr, "ERROR: No interface found in config for mpipe\n");
                 exit(EXIT_FAILURE);

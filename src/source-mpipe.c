@@ -197,7 +197,9 @@ void MpipeFreePacket(Packet *p) {
 #ifdef LATE_MPIPE_BUCKET_CREDIT
     gxio_mpipe_credit(iqueue->context, -1, p->idesc.bucket_id, 1);
 #else
-    gxio_mpipe_iqueue_release(iqueue, &p->idesc);
+    //gxio_mpipe_iqueue_release(iqueue, &p->idesc);
+    int bucket = p->idesc.nr ? -1 : p->idesc.bucket_id;
+    gxio_mpipe_credit(iqueue->context, iqueue->ring, bucket, 1);
 #endif
 #endif
     gxio_mpipe_push_buffer(context,
@@ -262,6 +264,7 @@ static inline void MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *
     p->idesc = *idesc;
 #else
     p->idesc.bucket_id = idesc->bucket_id;
+    p->idesc.nr = idesc->nr;
     p->idesc.cs = idesc->cs;
     p->idesc.va = idesc->va;
     p->idesc.stack_idx = idesc->stack_idx;
@@ -730,8 +733,22 @@ static const struct {
 
         /* Init group and buckets, preserving packet order among flows. */
 #ifdef LATE_MPIPE_CREDIT
-        gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_DYNAMIC_FLOW_AFFINITY;
-        //gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_STATIC_FLOW_AFFINITY;
+        gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_STATIC_FLOW_AFFINITY;
+        char *balance;
+        if (ConfGet("mpipe.load-balance", &balance) == 1) {
+            if (balance) {
+                if (strcmp(balance, "static") == 0) {
+                    mode = GXIO_MPIPE_BUCKET_STATIC_FLOW_AFFINITY;
+                    SCLogInfo("Using \"static\" flow affinity.");
+                } else if (strcmp(balance, "dynamic") == 0) {
+                    mode = GXIO_MPIPE_BUCKET_DYNAMIC_FLOW_AFFINITY;
+                    SCLogInfo("Using \"dynamic\" flow affinity.");
+                } else {
+                    SCLogInfo("Illegal load balancing mode %s using \"static\"",
+                              balance);
+                }
+            }
+        }
 #else
         gxio_mpipe_bucket_mode_t mode = GXIO_MPIPE_BUCKET_STATIC_FLOW_AFFINITY;
 #endif
