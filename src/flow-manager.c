@@ -62,6 +62,10 @@
 
 #include "host-timeout.h"
 
+#ifdef __tile__
+#include <tmc/cpus.h>
+#endif
+
 /* Run mode selected at suricata.c */
 extern int run_mode;
 
@@ -567,7 +571,7 @@ void FlowManagerThreadSpawn()
     tmc_cpus_get_dataplane_cpus(&s);
     int cpu = tmc_cpus_find_last_cpu(&s);
     SCLogInfo("Setting FlowManagerThread affinity to cpu %d", cpu);
-    TmThreadSetCPUAffinity(tv_flowmgr, 0);
+    TmThreadSetCPUAffinity(tv_flowmgr, cpu);
 #else
     TmThreadSetCPUAffinity(tv_flowmgr, 0);
 #endif

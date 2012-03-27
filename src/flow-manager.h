@@ -24,12 +24,12 @@
 #ifndef __FLOW_MANAGER_H__
 #define __FLOW_MANAGER_H__
 
-//SCPtCondT flow_manager_cond;
-//SCPtMutex flow_manager_mutex;
-
 /** flow manager scheduling condition */
-SCCondT flow_manager_cond;
-SCMutex flow_manager_mutex;
+SCPtCondT flow_manager_cond;
+SCPtMutex flow_manager_mutex;
+
+//SCCondT flow_manager_cond;
+//SCMutex flow_manager_mutex;
 #define FlowWakeupFlowManagerThread() SCCondSignal(&flow_manager_cond)
 
 void FlowManagerThreadSpawn(void);
