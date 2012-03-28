@@ -344,7 +344,7 @@ extern tmc_mspace mpm_mspace;
             tile_vhuge_size = (size_t)size; \
         } \
     } \
-    printf("Tilera Huge Page Sizes %s\n", log); \
+    /*printf("Tilera Huge Page Sizes %s\n", log);*/ \
     for (int i = 0; i < sizeof(tile_vhuge_size)*8; i++) { \
         unsigned long size = 1UL<<i; \
         if (tile_vhuge_size & size) { \
@@ -358,7 +358,7 @@ extern tmc_mspace mpm_mspace;
             break; \
         } \
     } \
-    printf("Tilera Very Huge Page Size %s\n", log); \
+    /*printf("Tilera Very Huge Page Size %s\n", log);*/ \
     tmc_alloc_t attr = TMC_ALLOC_INIT; \
     tmc_alloc_set_huge(&attr); \
     tmc_alloc_set_home(&attr, TMC_ALLOC_HOME_HASH); \
