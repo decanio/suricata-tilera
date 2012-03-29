@@ -240,9 +240,14 @@ void MpipeFreePacket(Packet *p) {
  * \param h pointer to gxio packet header
  * \param pkt pointer to current packet
  */
-static inline void MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *idesc, Packet *p, struct timeval *tv) {
+static inline Packet *MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *idesc, struct timeval *tv) {
     int caplen = idesc->l2_size;
-    u_char *pkt = (void *)(intptr_t)idesc->va;
+    //u_char *pkt = (void *)(intptr_t)idesc->va;
+    u_char *pkt = gxio_mpipe_idesc_get_va(idesc);
+    Packet *p = (Packet *)(pkt - sizeof(Packet) - 2);
+
+//printf("MpipeProcessPkt pkt %p p %p\n", pkt, p);
+    //PACKET_INITIALIZE(p);
 
     ptv->bytes += caplen;
     ptv->pkts++;
@@ -260,17 +265,16 @@ static inline void MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *
     p->pkt = pkt;
 
     /* copy only the fields we use later */
-#if 0
-    p->idesc = *idesc;
-#else
     p->idesc.bucket_id = idesc->bucket_id;
     p->idesc.nr = idesc->nr;
     p->idesc.cs = idesc->cs;
     p->idesc.va = idesc->va;
     p->idesc.stack_idx = idesc->stack_idx;
-#endif
+
+    return p;
 }
 
+#if 0
 static inline Packet *PacketAlloc(int rank)
 {
 #if 1
@@ -283,6 +287,7 @@ static inline Packet *PacketAlloc(int rank)
     return PacketGetFromQueueOrAlloc(rank);
 #endif
 }
+#endif
 
 static uint16_t xlate_stack(MpipeThreadVars *ptv, int stack_idx) {
     uint16_t counter;
@@ -347,10 +352,6 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
             SCReturnInt(TM_ECODE_FAILED);
         }
 
-        while (p == NULL) {
-            p = PacketAlloc(rank);
-        }
-
         int r = 0;
         while (r == 0) {
             gxio_mpipe_idesc_t *idesc;
@@ -369,11 +370,9 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
                                      (uint64_t)n);
                 for (i = 0; i < m; i++, idesc++) {
                     if (likely(!idesc->be)) {
-                        MpipeProcessPacket(ptv,  idesc, p, &timeval);
+                        p = MpipeProcessPacket(ptv,  idesc, &timeval);
+                        p->pool = rank;
                         TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
-                        do {
-                            p = PacketAlloc(rank);
-                        } while (p == NULL);
                         r = 1;
 #ifdef LATE_MPIPE_CREDIT
                         gxio_mpipe_iqueue_advance(iqueue, 1);
@@ -409,7 +408,7 @@ TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
     TmSlot *s = (TmSlot *)slot;
     gxio_mpipe_idesc_t *idesc;
     ptv->slot = s->slot_next;
-    Packet *p[2];
+    Packet *p;
     int cpu = tmc_cpus_get_my_cpu();
     int rank = cpu-1;
 
@@ -418,8 +417,6 @@ TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
     SCLogInfo("cpu: %d rank: %d", cpu, rank);
 
     tilera_fast_gettimeofday(&timeval);
-
-    p[0] = NULL; p[1] = NULL;
 
     for (;;) {
         int i;
@@ -432,12 +429,6 @@ TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
             int pool = (rank * 2) + i;
 
             iqueue = iqueues[pool];
-
-            if (p[i] == NULL) {
-                if ((p[i] = PacketAlloc(pool)) == NULL) {
-                    continue;
-                }
-            }
 
             //SCLogInfo("Polling pool %d rank %d queue %d", pool, rank, i);
             int n = gxio_mpipe_iqueue_try_peek(iqueue, &idesc);
@@ -455,8 +446,9 @@ TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
                                      (uint64_t)n);
                 for (j = 0; j < m; j++, idesc++) {
                     if (likely(!idesc->be)) {
-                        MpipeProcessPacket(ptv,  idesc, p[i], &timeval);
-                        TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p[i]);
+                        p = MpipeProcessPacket(ptv,  idesc, &timeval);
+                        p->pool = pool;
+                        TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
 #ifdef LATE_MPIPE_CREDIT
                         gxio_mpipe_iqueue_advance(iqueue, 1);
 #ifdef LATE_MPIPE_BUCKET_CREDIT
@@ -465,9 +457,6 @@ TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
 #else
                         gxio_mpipe_iqueue_consume(iqueue, idesc);
 #endif
-                        if ((p[i] = PacketAlloc(pool)) == NULL) {
-                            goto bail;
-                        }
                     } else {
                         gxio_mpipe_iqueue_consume(iqueue, idesc);
                         SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
@@ -476,7 +465,6 @@ TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
             } else {
                 tilera_fast_gettimeofday(&timeval);
             }
-bail:
             SCPerfSyncCountersIfSignalled(tv, 0);
         }
     }
@@ -561,36 +549,19 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             10368,
             16384
         };
-#if 1
-static const struct {
-   int mul;
-   int div;
-} buffer_scale[] = {
-  { 1, 8 }, /* 128 */
-  { 1, 8 }, /* 256 */
-  { 1, 8 }, /* 512 */
-  { 1, 8 }, /* 1024 */
-  { 3, 8 }, /* 1664 */
-  { 0, 8 }, /* 4096 */
-  { 1, 8 }, /* 10386 */
-  { 0, 8 }  /* 16384 */
-};
-#else
-    /* sort of tuned these for expected traffic patterns.
-     * should make these configurable now that we have insight into
-     * no buffer conditions.
-     */
-    const unsigned int buffer_counts[] = {
-            125440,
-            64000,
-            10000,
-            10000,
-            60000,
-            0,
-            1000,
-            0
-        };
-#endif
+    static const struct {
+       int mul;
+       int div;
+    } buffer_scale[] = {
+      { 1, 8 }, /* 128 */
+      { 1, 8 }, /* 256 */
+      { 1, 8 }, /* 512 */
+      { 1, 8 }, /* 1024 */
+      { 3, 8 }, /* 1664 */
+      { 0, 8 }, /* 4096 */
+      { 1, 8 }, /* 10386 */
+      { 0, 8 }  /* 16384 */
+    };
 
     if (initdata == NULL) {
         SCLogError(SC_ERR_INVALID_ARGUMENT, "initdata == NULL");
@@ -697,11 +668,7 @@ static const struct {
         for (unsigned int i = 0;
              i < sizeof(gxio_buffer_sizes)/sizeof(gxio_buffer_sizes[0]);
              i++) {
-#if 1
             if (buffer_scale[i].mul != 0)
-#else
-            if (buffer_counts[i] != 0)
-#endif
                 ++stack_count;
         }
         SCLogInfo("DEBUG: %u non-zero sized stacks", stack_count);
@@ -770,20 +737,15 @@ static const struct {
              stackidx < stack + stack_count;
              stackidx++, i++) {
 
-#if 1
             for (;buffer_scale[i].mul == 0; i++) ;
-#else
-            for (;buffer_counts[i] == 0; i++) ;
-#endif
 
 	    size_t stack_mem = tile_vhuge_size * buffer_scale[i].mul / buffer_scale[i].div;
-            //total_buffers = buffer_counts[i];
-            //total_buffers = stack_mem / buffer_sizes[i];
-            num_buffers = stack_mem / buffer_sizes[i];
             unsigned buffer_size = buffer_sizes[i];
+            num_buffers = stack_mem / (buffer_size + sizeof(Packet));
 
-            SCLogInfo("Initializing stackidx %d i %d size %d buffers %d",
-                     stackidx, i, buffer_size, num_buffers);
+            SCLogInfo("Initializing stackidx %d i %d stack_mem %ld size %d buffers %d Packet size %ld",
+                     stackidx, i, stack_mem, buffer_size, num_buffers, 
+                     sizeof(Packet));
 
             /* Initialize the buffer stack. Must be aligned mod 64K. */
             ALIGN(mem, 0x10000);
@@ -807,7 +769,9 @@ static const struct {
                                               tile_vhuge_size, 0);
             VERIFY(result, "gxio_mpipe_register_page()");
 
-            num_buffers -= ((stack_bytes / buffer_sizes[i]) + 1);
+            num_buffers -= ((stack_bytes / (sizeof(Packet) +buffer_size)) + 1);
+            //num_buffers = ((stack_mem - stack_bytes) / 
+            //               (sizeof(Packet) + buffer_size)) - 1;
 
             total_buffers += num_buffers;
 
@@ -817,8 +781,8 @@ static const struct {
             /* Push some buffers onto the stack. */
             for (unsigned int j = 0; j < num_buffers; j++)
             {
-                gxio_mpipe_push_buffer(context, stackidx, mem);
-                mem += buffer_size;
+                gxio_mpipe_push_buffer(context, stackidx, mem + sizeof(Packet));
+                mem += (sizeof(Packet) + buffer_size);
             }
 
             /* Paranoia. */
@@ -923,9 +887,11 @@ TmEcode DecodeMpipe(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Pack
     /* call the decoder */
     switch(p->datalink) {
     case LINKTYPE_ETHERNET:
+        //printf("DecodeMpipe ETHERNET p %p datalink %x pkt %p len %d %04x\n", p, p->datalink, p->pkt, p->pktlen, *(uint16_t *)(&p->pkt[12]));
         DecodeEthernet(tv, dtv, p, p->pkt, p->pktlen, pq);
         break;
     default:
+        printf("DecodeMpipe INVALID datatype p %p datalink %x\n", p, p->datalink);
         break;
     }
  

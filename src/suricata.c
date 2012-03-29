@@ -1683,15 +1683,16 @@ int main(int argc, char **argv)
     /* pre allocate packets */
     SCLogDebug("preallocating packets... packet size %" PRIuMAX "", (uintmax_t)SIZE_OF_PACKET);
     SCLogInfo("preallocating packets... packet size %" PRIuMAX "", (uintmax_t)SIZE_OF_PACKET);
-    int i = 0;
 #ifdef __tile__
     RunModeTileGetPipelineConfig();
     tmc_sync_barrier_init(&startup_barrier,
                           (TileNumPipelines * TILES_PER_PIPELINE) + 4 +
                           ((TileNumPipelines+1) / 2) + /* Receive tiles */
                           //((TileNumPipelines+2) / 3)); /* Output tiles */
-                          //((TileNumPipelines+1) / 2)); /* Output tiles PIPELINES_PER_OUTPUT*/
+                          //((TileNumPipelines+1) / 2)); /* Output tiles */
                           TileNumPipelines); /* Output tiles */
+#ifdef __tilegx__
+#else
     {
 #ifdef __tilegx__
     tmc_alloc_t alloc = TMC_ALLOC_INIT;
@@ -1716,7 +1717,10 @@ printf("max_pending_packets %ld sizeof(Packet) %lu tile_vhuge_size %lu packet_si
         SCLogInfo("Fatal error encountered while allocating packet space. Exiting...");
         exit(EXIT_FAILURE);
     }
-#endif
+#endif // __tilegx__
+#endif // __tile__
+#ifndef __tilegx__
+    int i = 0;
     for (i = 0; i < max_pending_packets; i++) {
         /* XXX pkt alloc function */
 #ifndef __tile__
@@ -1743,8 +1747,8 @@ printf("max_pending_packets %ld sizeof(Packet) %lu tile_vhuge_size %lu packet_si
 #else
     SCLogInfo("preallocated %"PRIiMAX" packets. Total memory %"PRIuMAX"",
         max_pending_packets, (uintmax_t)(max_pending_packets*SIZE_OF_PACKET));
-#endif
-
+#endif // __tile__
+#endif // !__tilegx__
     HostInitConfig(HOST_VERBOSE);
     FlowInitConfig(FLOW_VERBOSE);
 

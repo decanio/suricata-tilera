@@ -25,6 +25,9 @@
 #define __SOURCE_MPIPE_H__
 
 #ifdef __tilegx__
+#if 1
+#define MPIPE_FREE_PACKET(p) MpipeFreePacket((p))
+#else
 #define MPIPE_FREE_PACKET(p) \
     { \
     if ((p)->flags & PKT_MPIPE) { \
@@ -32,6 +35,7 @@
         (p)->flags &= ~PKT_MPIPE; \
     } \
     }
+#endif
 #else
 #define MPIPE_FREE_PACKET(p)
 #endif

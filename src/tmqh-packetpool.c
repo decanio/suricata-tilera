@@ -52,6 +52,7 @@
 
 #ifdef __tile__
 #include "runmode-tile.h"
+#include <tmc/mem.h>
 #endif
 #include "source-mpipe.h"
 #include "source-netio.h"
@@ -201,8 +202,8 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
 
     SCEnter();
 #ifdef __tile__
-    int pool = p->pool;
-    RingBuffer16 *rb = ringbuffer[pool];
+    //int pool = p->pool;
+    //RingBuffer16 *rb = ringbuffer[pool];
 #endif
     SCLogDebug("Packet %p, p->root %p, alloced %s", p, p->root, p->flags & PKT_ALLOC ? "true" : "false");
 
@@ -294,8 +295,8 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
             SCFree(p->root->ext_pkt);
             p->root->ext_pkt = NULL;
         }
-        MPIPE_FREE_PACKET(p->root);
-        NETIO_FREE_PACKET(p->root)
+        //MPIPE_FREE_PACKET(p->root);
+        //NETIO_FREE_PACKET(p->root)
         if (p->root->flags & PKT_ALLOC) {
             PACKET_CLEANUP(p->root);
             SCFree(p->root);
@@ -303,7 +304,11 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
         } else {
             PACKET_RECYCLE(p->root);
 #ifdef __tile__
+#if 1
+            MPIPE_FREE_PACKET(p->root);
+#else
             RingBufferMrMwPut(rb, (void *)p->root);
+#endif
 #else
             RingBufferMrMwPut(ringbuffer, (void *)p->root);
 #endif
@@ -321,15 +326,19 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
     PACKET_PROFILING_END(p);
 
     SCLogDebug("getting rid of tunnel pkt... alloc'd %s (root %p)", p->flags & PKT_ALLOC ? "true" : "false", p->root);
-    MPIPE_FREE_PACKET(p);
-    NETIO_FREE_PACKET(p);
     if (p->flags & PKT_ALLOC) {
         PACKET_CLEANUP(p);
         SCFree(p);
     } else {
         PACKET_RECYCLE(p);
 #ifdef __tile__
+#if 1
+        //SCLogInfo("getting rid of mpipe pkt... alloc'd %s (root %p)", p->flags & PKT_MPIPE ? "true" : "false", p->root);
+        tmc_mem_fence();
+        MPIPE_FREE_PACKET(p);
+#else
         RingBufferMrMwPut(rb, (void *)p);
+#endif
 #else
         RingBufferMrMwPut(ringbuffer, (void *)p);
 #endif
