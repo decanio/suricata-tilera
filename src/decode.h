@@ -437,25 +437,37 @@ typedef struct Packet_
     EthernetHdr *ethh;
 
     IPV4Hdr *ip4h;
+#ifndef __tile__
     IPV4Vars ip4vars;
+#endif
 
     IPV6Hdr *ip6h;
+#ifndef __tile__
     IPV6Vars ip6vars;
     IPV6ExtHdrs ip6eh;
+#endif
 
     TCPHdr *tcph;
+#ifndef __tile__
     TCPVars tcpvars;
+#endif
 
     UDPHdr *udph;
+#ifndef __tile__
     UDPVars udpvars;
+#endif
 
     SCTPHdr *sctph;
 
     ICMPV4Hdr *icmpv4h;
+#ifndef __tile__
     ICMPV4Vars icmpv4vars;
+#endif
 
     ICMPV6Hdr *icmpv6h;
+#ifndef __tile__
     ICMPV6Vars icmpv6vars;
+#endif
 
     PPPHdr *ppph;
     PPPOESessionHdr *pppoesh;
@@ -477,6 +489,16 @@ typedef struct Packet_
 
     /* Incoming interface */
     struct LiveDevice_ *livedev;
+
+#ifdef __tile__
+    IPV4Vars ip4vars;
+    IPV6Vars ip6vars;
+    IPV6ExtHdrs ip6eh;
+    TCPVars tcpvars;
+    UDPVars udpvars;
+    ICMPV4Vars icmpv4vars;
+    ICMPV6Vars icmpv6vars;
+#endif
 
     PacketAlerts alerts;
 
@@ -638,6 +660,15 @@ typedef struct DecodeThreadVars_
  *  \brief Initialize a packet structure for use.
  */
 #ifndef __SC_CUDA_SUPPORT__
+#ifdef __tile__
+#define PACKET_INITIALIZE(p) { \
+    memset((p), 0x00, sizeof(Packet)); \
+    SCMutexInit(&(p)->tunnel_mutex, NULL); \
+    PACKET_RESET_CHECKSUMS((p)); \
+    (p)->pkt = ((uint8_t *)(p)) + sizeof(Packet); \
+    (p)->livedev = NULL; \
+}
+#else
 #define PACKET_INITIALIZE(p) { \
     memset((p), 0x00, SIZE_OF_PACKET); \
     SCMutexInit(&(p)->tunnel_mutex, NULL); \
@@ -645,6 +676,7 @@ typedef struct DecodeThreadVars_
     (p)->pkt = ((uint8_t *)(p)) + sizeof(Packet); \
     (p)->livedev = NULL; \
 }
+#endif
 #else
 #ifdef __tile__
 #define PACKET_INITIALIZE(p) { \
