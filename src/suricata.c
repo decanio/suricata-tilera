@@ -1690,7 +1690,8 @@ int main(int argc, char **argv)
                           (TileNumPipelines * TILES_PER_PIPELINE) + 4 +
                           ((TileNumPipelines+1) / 2) + /* Receive tiles */
                           //((TileNumPipelines+2) / 3)); /* Output tiles */
-                          ((TileNumPipelines+1) / 2)); /* Output tiles */
+                          //((TileNumPipelines+1) / 2)); /* Output tiles PIPELINES_PER_OUTPUT*/
+                          TileNumPipelines); /* Output tiles */
     {
 #ifdef __tilegx__
     tmc_alloc_t alloc = TMC_ALLOC_INIT;

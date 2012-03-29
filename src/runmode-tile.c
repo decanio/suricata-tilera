@@ -401,7 +401,8 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
 
             sprintf(verdict_queue[pipe], "verdict-queue%d", pipe);
 
-#define PIPELINES_PER_OUTPUT 2
+//#define PIPELINES_PER_OUTPUT 2
+#define PIPELINES_PER_OUTPUT 1
             ThreadVars *tv_detect_ncpu =
                 TmThreadCreatePacketHandler(thread_name,
                                             stream_queue[(pool_detect_threads) ? 0 : pipe],"simple", 
@@ -447,7 +448,8 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
         }
 
 #ifdef COMBINE_RESPOND_REJECT_AND_OUTPUT
-	if ((pipe % PIPELINES_PER_OUTPUT) == 0) {
+	//if ((pipe % PIPELINES_PER_OUTPUT) == 0) {
+	if (1) {
         snprintf(tname, sizeof(tname), "RR&Output%d", pipe+1);
         thread_name = SCStrdup(tname);
         ThreadVars *tv_outputs =
