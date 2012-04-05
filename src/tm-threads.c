@@ -80,6 +80,16 @@ __thread uint64_t rwr_lock_cnt;
 
 #ifdef __tilegx__
 #include "source-mpipe.h"
+#include <gxio/mica.h>
+
+#define VERIFY(VAL, WHAT)                                       \
+  do {                                                          \
+    int __val = (VAL);                                          \
+    if (__val < 0)                                              \
+      tmc_task_die("Failure in '%s': %d: %s.",                  \
+                   (WHAT), __val, gxio_strerror(__val));        \
+  } while (0)
+
 #endif
 
 /* prototypes */
@@ -162,7 +172,20 @@ static ThreadVars *TmCloneThreadVars(ThreadVars *td)
 #ifdef __tile__
 void *TmThreadsThreadWrap(void *td)
 {
+    int result;
+    extern int mica_memcpy_enabled;
+    extern void *tile_packet_page;
+    extern unsigned long tile_vhuge_size;
     ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
+    if (mica_memcpy_enabled) {
+        result = gxio_mica_init(&tv->mica_cb, GXIO_MICA_ACCEL_CRYPTO, 0);
+        VERIFY(result, "gxio_mica_init");
+        /* Register the page with MiCA so that it can perform DMA operations
+         * to and from this memory.
+         */
+        result = gxio_mica_register_page(&tv->mica_cb, tile_packet_page, tile_vhuge_size, 0);
+        VERIFY(result, "gxio_mica_register_page()");
+    }
     tmc_sync_barrier_wait(&startup_barrier);
     return (*tv->tm_func)(tv);
 }

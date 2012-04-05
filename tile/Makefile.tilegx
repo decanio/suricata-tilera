@@ -337,6 +337,8 @@ WILDCAT_ARGS=--dev usb1
 #WILDCAT_ARGS=--
 NET_ARGS=--net 192.168.0.6
 #NET_ARGS=--net 10.101.0.33
+# sclib-01b
+#NET_ARGS=--net 10.108.0.66
 
 run_wc: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \

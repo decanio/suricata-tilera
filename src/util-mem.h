@@ -326,6 +326,7 @@ extern tmc_mspace mpm_mspace;
 #define SCMallocInit() ({ \
     extern void *tile_pcre_malloc(size_t size); \
     extern void tile_pcre_free(void *ptr); \
+    extern void *tile_packet_page; \
     size_t global_capacity = 8ULL*1024ULL*1024ULL*1024ULL; \
     unsigned long pagesizes = tmc_alloc_get_pagesizes(); \
     char log[64]; char str[8]; \
@@ -358,6 +359,16 @@ extern tmc_mspace mpm_mspace;
             break; \
         } \
     } \
+    /* Allocate one very huge page to hold our buffer stack, notif ring, and \
+     * packets.  This should be more than enough space. */ \
+    tmc_alloc_t alloc = TMC_ALLOC_INIT; \
+    tmc_alloc_set_huge(&alloc); \
+    tmc_alloc_set_home(&alloc, TMC_ALLOC_HOME_HASH); \
+    if (tmc_alloc_set_pagesize_exact(&alloc, tile_vhuge_size) == NULL) { \
+        SCLogInfo("Could not allocate packet buffers from very huge page."); \
+        tmc_alloc_set_pagesize(&alloc, tile_vhuge_size); \
+    } \
+    tile_packet_page = tmc_alloc_map(&alloc, tile_vhuge_size); \
     /*printf("Tilera Very Huge Page Size %s\n", log);*/ \
     tmc_alloc_t attr = TMC_ALLOC_INIT; \
     tmc_alloc_set_huge(&attr); \

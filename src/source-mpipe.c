@@ -78,6 +78,8 @@
 extern uint8_t suricata_ctl_flags;
 extern intmax_t max_pending_packets;
 extern size_t tile_vhuge_size;
+void *tile_packet_page = NULL;
+Packet *empty_p = NULL;
 
 /** storage for mpipe device names */
 typedef struct MpipeDevice_ {
@@ -674,6 +676,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         SCLogInfo("DEBUG: %u non-zero sized stacks", stack_count);
         SCLogInfo("DEBUG: tile_vhuge_size %lu", tile_vhuge_size);
 
+#if 0
         /* Allocate one very huge page to hold our buffer stack, notif ring, and
          * packets.  This should be more than enough space. */
         tmc_alloc_t alloc = TMC_ALLOC_INIT;
@@ -686,6 +689,11 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         void *page = tmc_alloc_map(&alloc, tile_vhuge_size);
         assert(page);
         void* mem = page;
+        tile_packet_page = page;
+#else
+        void* page;
+        void* mem = page = tile_packet_page;
+#endif
 
         /* Allocate a NotifGroup. */
         result = gxio_mpipe_alloc_notif_groups(context, 1, 0, 0);
@@ -781,14 +789,18 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             /* Push some buffers onto the stack. */
             for (unsigned int j = 0; j < num_buffers; j++)
             {
+                PACKET_INITIALIZE((Packet *)mem);
                 gxio_mpipe_push_buffer(context, stackidx, mem + sizeof(Packet));
                 mem += (sizeof(Packet) + buffer_size);
             }
 
             /* Paranoia. */
-            assert(mem <= page + tile_vhuge_size);
+            assert(mem <= page + tile_vhuge_size - sizeof(Packet));
 
         }
+        ALIGN(mem, 64);
+        empty_p = mem;
+        PACKET_INITIALIZE(empty_p);
     	SCLogInfo("%d total packet buffers", total_buffers);
 
         /* Register for packets. */

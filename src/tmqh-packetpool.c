@@ -63,6 +63,8 @@ static RingBuffer16 *ringbuffer[MAX_TILERA_PIPELINES] = { NULL };
 static RingBuffer16 *ringbuffer = NULL;
 #endif
 
+int mica_memcpy_enabled = 0;
+
 /**
  * \brief TmqhPacketpoolRegister
  * \initonly
@@ -73,6 +75,15 @@ void TmqhPacketpoolRegister (void) {
     tmqh_table[TMQH_PACKETPOOL].OutHandler = TmqhOutputPacketpool;
 
 #ifdef __tile__
+    char *enable = NULL;
+    if (ConfGet("tile.mica-memcpy", &enable)) {
+        if (enable) {
+            if (strcmp(enable, "yes") == 0) {
+                SCLogInfo("mica memcpy enabled");
+                mica_memcpy_enabled = 1;
+            }
+        }
+    }
     for (int i = 0; i < MAX_TILERA_PIPELINES; i++) {
         ringbuffer[i] = RingBufferInit();
         if (ringbuffer[i] == NULL) {
@@ -199,12 +210,12 @@ Packet *TmqhInputPacketpool(ThreadVars *t)
 void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
 {
     int proot = 0;
+#ifdef __tilegx__
+    extern Packet *empty_p;
+#endif
 
     SCEnter();
-#ifdef __tile__
-    //int pool = p->pool;
-    //RingBuffer16 *rb = ringbuffer[pool];
-#endif
+
     SCLogDebug("Packet %p, p->root %p, alloced %s", p, p->root, p->flags & PKT_ALLOC ? "true" : "false");
 
     /* final alerts cleanup... return smsgs to pool if needed */
@@ -330,17 +341,27 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
         PACKET_CLEANUP(p);
         SCFree(p);
     } else {
-        PACKET_RECYCLE(p);
-#ifdef __tile__
-#if 1
-        //SCLogInfo("getting rid of mpipe pkt... alloc'd %s (root %p)", p->flags & PKT_MPIPE ? "true" : "false", p->root);
-        tmc_mem_fence();
-        MPIPE_FREE_PACKET(p);
-#else
-        RingBufferMrMwPut(rb, (void *)p);
+#ifdef __tilegx__
+        if (mica_memcpy_enabled) {
+            //SCLogInfo("getting rid of mpipe pkt...  %p inf %p (root %p)", p,  t->inflight_p, p->root);
+            if (likely(t->inflight_p)) {
+                while (gxio_mica_is_busy(&t->mica_cb)) ;
+                MPIPE_FREE_PACKET((Packet *)t->inflight_p);
+            } 
+            gxio_mica_memcpy_start(&t->mica_cb, p, empty_p, offsetof(Packet, idesc));
+            t->inflight_p = (void *)p;
+        } else {
 #endif
+            PACKET_RECYCLE(p);
+#ifdef __tilegx__
+            //SCLogInfo("getting rid of mpipe pkt... alloc'd %s (root %p)", p->flags & PKT_MPIPE ? "true" : "false", p->root);
+            tmc_mem_fence();
+            MPIPE_FREE_PACKET(p);
 #else
-        RingBufferMrMwPut(ringbuffer, (void *)p);
+            RingBufferMrMwPut(ringbuffer, (void *)p);
+#endif
+#ifdef __tilegx__
+        }
 #endif
     }
 

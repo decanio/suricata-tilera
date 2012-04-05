@@ -388,6 +388,7 @@ typedef struct Packet_
 
     struct timeval ts;
 
+#ifndef __tilegx__
     union {
         /* nfq stuff */
 #ifdef NFQ
@@ -403,9 +404,6 @@ typedef struct Packet_
 
 #ifdef __tilegx__
         /* TileGX mpipe stuff */
-#if 0
-        gxio_mpipe_idesc_t idesc;
-#else
         struct {
             uint_reg_t bucket_id : 13;
             uint_reg_t nr : 1;
@@ -413,12 +411,12 @@ typedef struct Packet_
             uint_reg_t va : 42;
             uint_reg_t stack_idx : 5;
         } idesc;
-#endif
 #elif defined(__tile__)
         /* Tile64 netio stuff */
     	netio_pkt_t netio_packet;
 #endif
     };
+#endif
 
 #ifdef __tile__
     uint16_t datalink;
@@ -429,6 +427,8 @@ typedef struct Packet_
     /* IPS action to take */
     uint8_t action;
 #endif
+
+    /* WARNING: memset to here on free */
 
     /* pkt vars */
     PktVar *pktvar;
@@ -500,7 +500,9 @@ typedef struct Packet_
     ICMPV6Vars icmpv6vars;
 #endif
 
+#ifndef __tile__
     PacketAlerts alerts;
+#endif
 
     /** packet number in the pcap file, matches wireshark */
     uint64_t pcap_cnt;
@@ -515,8 +517,20 @@ typedef struct Packet_
     /* tunnel packet ref count */
     uint16_t tunnel_tpr_cnt;
 
+#ifdef __tile__
+    /* tunnel/encapsulation handling */
+    struct Packet_ *root; /* in case of tunnel this is a ptr
+                           * to the 'real' packet, the one we
+                           * need to set the verdict on --
+                           * It should always point to the lowest
+                           * packet in a encapsulated packet */
+#endif
+
     /* engine events */
     PacketEngineEvents events;
+#ifdef __tile__
+    PacketAlerts alerts;
+#endif
 
 #ifndef __tile__
     /* double linked list ptrs */
@@ -524,12 +538,14 @@ typedef struct Packet_
     struct Packet_ *prev;
 #endif
 
+#ifndef __tile__
     /* tunnel/encapsulation handling */
     struct Packet_ *root; /* in case of tunnel this is a ptr
                            * to the 'real' packet, the one we
                            * need to set the verdict on --
                            * It should always point to the lowest
                            * packet in a encapsulated packet */
+#endif
 
     /* required for cuda support */
 #ifdef __SC_CUDA_SUPPORT__
@@ -554,8 +570,38 @@ typedef struct Packet_
 #ifdef PROFILING
     PktProfiling profile;
 #endif
+#ifdef __tilegx__
+    union {
+        /* nfq stuff */
+#ifdef NFQ
+        NFQPacketVars nfq_v;
+#endif /* NFQ */
+#ifdef IPFW
+        IPFWPacketVars ipfw_v;
+#endif /* IPFW */
+
+
+        /** libpcap vars: shared by Pcap Live mode and Pcap File mode */
+        PcapPacketVars pcap_v;
+
+#ifdef __tilegx__
+        /* TileGX mpipe stuff */
+        struct {
+            uint_reg_t bucket_id : 13;
+            uint_reg_t nr : 1;
+            uint_reg_t cs : 1;
+            uint_reg_t va : 42;
+            uint_reg_t stack_idx : 5;
+        } idesc;
+#elif defined(__tile__)
+        /* Tile64 netio stuff */
+    	netio_pkt_t netio_packet;
+#endif
+    };
+#endif
+
 #ifdef __tile__
-} __attribute__((aligned(64))) Packet;
+} __attribute__((aligned(128))) Packet;
 #else
 } Packet;
 #endif
@@ -707,6 +753,7 @@ typedef struct DecodeThreadVars_
  *  \todo the mutex destroy & init is necessary because of the memset, reconsider
  */
 #define PACKET_DO_RECYCLE(p) do {               \
+        /*memset((p), 0, offsetof(Packet, pktvar));*/\
         CLEAR_ADDR(&(p)->src);                  \
         CLEAR_ADDR(&(p)->dst);                  \
         (p)->sp = 0;                            \
@@ -754,17 +801,17 @@ typedef struct DecodeThreadVars_
         (p)->payload = NULL;                    \
         (p)->payload_len = 0;                   \
         (p)->pktlen = 0;                        \
-        (p)->alerts.cnt = 0;                    \
+        if ((p)->alerts.cnt) (p)->alerts.cnt = 0; \
         (p)->pcap_cnt = 0;                      \
         (p)->tunnel_rtv_cnt = 0;                \
         (p)->tunnel_tpr_cnt = 0;                \
         SCMutexDestroy(&(p)->tunnel_mutex);     \
         SCMutexInit(&(p)->tunnel_mutex, NULL);  \
-        (p)->events.cnt = 0;                    \
+        if ((p)->events.cnt) (p)->events.cnt = 0; \
         (p)->next = NULL;                       \
         (p)->prev = NULL;                       \
         (p)->root = NULL;                       \
-        (p)->livedev = NULL;                      \
+        (p)->livedev = NULL;                    \
         PACKET_RESET_CHECKSUMS((p));            \
         PACKET_PROFILING_RESET((p));            \
     } while (0)

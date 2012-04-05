@@ -35,6 +35,9 @@ struct ThreadVars_;
 #if defined(__tile__) && !defined(__tilegx__)
 #include <netio/netio.h>
 #endif
+#ifdef __tilegx__
+#include <gxio/mica.h>
+#endif
 
 struct TmSlot_;
 
@@ -97,6 +100,10 @@ typedef struct ThreadVars_ {
 
 #if defined(__tile__) && !defined(__tilegx__)
     netio_queue_t netio_queue;
+#endif
+#ifdef __tilegx__
+    gxio_mica_context_t mica_cb;
+    void *inflight_p; /* Really a Packet * */
 #endif
 
     /** slot functions */
