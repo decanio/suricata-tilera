@@ -24,10 +24,12 @@ all:
 # Go ahead and modify these:
 BASE_DIR=/home/decanio
 #RULES_DIR=$(BASE_DIR)/work/TileGX/suricata
-RULES_DIR=$(BASE_DIR)/work/TileGX/emergingthreats
+#RULES_DIR=$(BASE_DIR)/work/TileGX/emergingthreats
+RULES_DIR=$(BASE_DIR)/work/TileGX/emergingthreats-full
 INSTALL_DIR=$(BASE_DIR)/work/TileGX/suricata-install-dir
 #RULES_CONFIG=/opt/suricata/etc/suricata.yaml
-RULES_CONFIG=/opt/suricata/etc/suricata-etpro.yaml
+#RULES_CONFIG=/opt/suricata/etc/suricata-etpro.yaml
+RULES_CONFIG=/opt/suricata/suricata.yaml
 YAML_DIR=$(BASE_DIR)/work/TileGX/github/yaml
 LIBMAGIC_DIR=$(BASE_DIR)/work/TileGX/github/libmagic
 PCAPFILE=$(BASE_DIR)/work/napatech/suricata1.pcap
