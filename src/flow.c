@@ -153,10 +153,10 @@ int FlowUpdateSpareFlows(void)
   */
 void FlowSetIPOnlyFlag(Flow *f, char direction)
 {
-    SCMutexLock(&f->m);
+    FLOWLOCK_WRLOCK(f);
     direction ? (f->flags |= FLOW_TOSERVER_IPONLY_SET) :
         (f->flags |= FLOW_TOCLIENT_IPONLY_SET);
-    SCMutexUnlock(&f->m);
+    FLOWLOCK_UNLOCK(f);
     return;
 }
 
@@ -308,7 +308,7 @@ void FlowHandlePacket (ThreadVars *tv, Packet *p)
         DecodeSetNoPayloadInspectionFlag(p);
     }
 
-    SCMutexUnlock(&f->m);
+    FLOWLOCK_UNLOCK(f);
 
     /* set the flow in the packet */
     p->flow = f;
@@ -391,6 +391,16 @@ void FlowInitConfig(char quiet)
                flow_config.hash_size, flow_config.prealloc);
 
     /* alloc hash memory */
+    uint64_t hash_size = flow_config.hash_size * sizeof(FlowBucket);
+    if (!(FLOW_CHECK_MEMCAP(hash_size))) {
+        SCLogError(SC_ERR_FLOW_INIT, "allocating flow hash failed: "
+                "max flow memcap is smaller than projected hash size. "
+                "Memcap: %"PRIu64", Hash table size %"PRIu64". Calculate "
+                "total hash size by multiplying \"flow.hash-size\" with %"PRIuMAX", "
+                "which is the hash bucket size.", flow_config.memcap, hash_size,
+                (uintmax_t)sizeof(FlowBucket));
+        exit(EXIT_FAILURE);
+    }
     flow_hash = SCCalloc(flow_config.hash_size, sizeof(FlowBucket));
     if (flow_hash == NULL) {
         SCLogError(SC_ERR_FATAL, "Fatal error encountered in FlowInitConfig. Exiting...");
@@ -414,16 +424,20 @@ void FlowInitConfig(char quiet)
     FlowAllocPoolInit();
     /* pre allocate flows */
     for (i = 0; i < flow_config.prealloc; i++) {
-        if ((SC_ATOMIC_GET(flow_memuse) + sizeof(Flow)) > flow_config.memcap) {
-            printf("ERROR: FlowAlloc failed (max flow memcap reached): %s\n", strerror(errno));
-            exit(1);
+        if (!(FLOW_CHECK_MEMCAP(sizeof(Flow)))) {
+            SCLogError(SC_ERR_FLOW_INIT, "preallocating flows failed: "
+                    "max flow memcap reached. Memcap %"PRIu64", "
+                    "Memuse %"PRIu64".", flow_config.memcap,
+                    ((uint64_t)SC_ATOMIC_GET(flow_memuse) + (uint64_t)sizeof(Flow)));
+            exit(EXIT_FAILURE);
         }
 
         Flow *f = FlowAlloc();
         if (f == NULL) {
-            printf("ERROR: FlowAlloc failed: %s\n", strerror(errno));
-            exit(1);
+            SCLogError(SC_ERR_FLOW_INIT, "preallocating flow failed: %s", strerror(errno));
+            exit(EXIT_FAILURE);
         }
+
         FlowEnqueue(&flow_spare_q,f);
     }
 
@@ -948,7 +962,7 @@ static int FlowTest07 (void) {
     UTHBuildPacketOfFlows(ini, end, 0);
 
     /* And now let's try to reach the memcap val */
-    while (SC_ATOMIC_GET(flow_memuse) + sizeof(Flow) < flow_config.memcap) {
+    while (FLOW_CHECK_MEMCAP(sizeof(Flow))) {
         ini = end + 1;
         end = end + 2;
         UTHBuildPacketOfFlows(ini, end, 0);
@@ -995,7 +1009,7 @@ static int FlowTest08 (void) {
     UTHBuildPacketOfFlows(ini, end, 0);
 
     /* And now let's try to reach the memcap val */
-    while (SC_ATOMIC_GET(flow_memuse) + sizeof(Flow) < flow_config.memcap) {
+    while (FLOW_CHECK_MEMCAP(sizeof(Flow))) {
         ini = end + 1;
         end = end + 2;
         UTHBuildPacketOfFlows(ini, end, 0);
@@ -1042,7 +1056,7 @@ static int FlowTest09 (void) {
     UTHBuildPacketOfFlows(ini, end, 0);
 
     /* And now let's try to reach the memcap val */
-    while (SC_ATOMIC_GET(flow_memuse) + sizeof(Flow) < flow_config.memcap) {
+    while (FLOW_CHECK_MEMCAP(sizeof(Flow))) {
         ini = end + 1;
         end = end + 2;
         UTHBuildPacketOfFlows(ini, end, 0);

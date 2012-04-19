@@ -190,9 +190,7 @@ int DetectPcreALDoMatchMethod(DetectEngineThreadCtx *det_ctx, Signature *s,
 
     DetectPcreData *pe = (DetectPcreData *)m->ctx;
 
-    /* define ptr & len */
-    SCMutexLock(&f->m);
-    SCLogDebug("got lock %p", &f->m);
+    FLOWLOCK_RDLOCK(f);
 
     HtpState *htp_state = (HtpState *)state;
     if (htp_state == NULL) {
@@ -270,8 +268,7 @@ int DetectPcreALDoMatchMethod(DetectEngineThreadCtx *det_ctx, Signature *s,
     }
 
 end:
-    SCMutexUnlock(&f->m);
-    SCLogDebug("released lock %p", &f->m);
+    FLOWLOCK_UNLOCK(f);
 
     SCReturnInt(toret);
 }
@@ -305,9 +302,7 @@ int DetectPcreALDoMatchCookie(DetectEngineThreadCtx *det_ctx, Signature *s,
 
     DetectPcreData *pe = (DetectPcreData *)m->ctx;
 
-    /* define ptr & len */
-    SCMutexLock(&f->m);
-    SCLogDebug("got lock %p", &f->m);
+    FLOWLOCK_RDLOCK(f);
 
     HtpState *htp_state = (HtpState *)state;
     if (htp_state == NULL) {
@@ -401,9 +396,7 @@ int DetectPcreALDoMatchCookie(DetectEngineThreadCtx *det_ctx, Signature *s,
     }
 
 end:
-    SCMutexUnlock(&f->m);
-    SCLogDebug("released lock %p", &f->m);
-
+    FLOWLOCK_UNLOCK(f);
     SCReturnInt(toret);
 }
 
@@ -849,6 +842,10 @@ DetectPcreData *DetectPcreParse (char *regexstr)
                 case 'U': /* snort's option */
                     if (pd->flags & DETECT_PCRE_HTTP_RAW_URI) {
                         SCLogError(SC_ERR_INVALID_SIGNATURE, "regex modifier 'U' inconsistent with 'I'");
+                        goto error;
+                    }
+                    if (pd->flags & DETECT_PCRE_RAWBYTES) {
+                        SCLogError(SC_ERR_INVALID_SIGNATURE, "regex modifier 'U' inconsistent with 'B'");
                         goto error;
                     }
                     pd->flags |= DETECT_PCRE_URI;
@@ -3455,7 +3452,7 @@ static int DetectPcreTxBodyChunksTest01(void) {
     }
 
     HtpBodyChunk *cur = htud->request_body.first;
-    if (htud->request_body.nchunks == 0) {
+    if (htud->request_body.first == NULL) {
         SCLogDebug("No body data in t1 (it should be removed only when the tx is destroyed): ");
         goto end;
     }
@@ -3468,7 +3465,7 @@ static int DetectPcreTxBodyChunksTest01(void) {
     htud = (HtpTxUserData *) htp_tx_get_user_data(t2);
 
     cur = htud->request_body.first;
-    if (htud->request_body.nchunks == 0) {
+    if (htud->request_body.first == NULL) {
         SCLogDebug("No body data in t1 (it should be removed only when the tx is destroyed): ");
         goto end;
     }
@@ -3672,7 +3669,7 @@ static int DetectPcreTxBodyChunksTest02(void) {
     HtpTxUserData *htud = (HtpTxUserData *) htp_tx_get_user_data(t1);
 
     HtpBodyChunk *cur = htud->request_body.first;
-    if (htud->request_body.nchunks == 0) {
+    if (htud->request_body.first == NULL) {
         SCLogDebug("No body data in t1 (it should be removed only when the tx is destroyed): ");
         goto end;
     }
@@ -3685,7 +3682,7 @@ static int DetectPcreTxBodyChunksTest02(void) {
     htud = (HtpTxUserData *) htp_tx_get_user_data(t2);
 
     cur = htud->request_body.first;
-    if (htud->request_body.nchunks == 0) {
+    if (htud->request_body.first == NULL) {
         SCLogDebug("No body data in t1 (it should be removed only when the tx is destroyed): ");
         goto end;
     }

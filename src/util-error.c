@@ -223,6 +223,9 @@ const char * SCErrorToString(SCError err)
         CASE_CODE (SC_WARN_OUTDATED_LIBHTP);
         CASE_CODE (SC_WARN_DEPRECATED);
         CASE_CODE (SC_WARN_PROFILE);
+        CASE_CODE (SC_ERR_FLOW_INIT);
+        CASE_CODE (SC_ERR_HOST_INIT);
+        CASE_CODE (SC_ERR_MEM_BUFFER_API);
 
         default:
             return "UNKNOWN_ERROR";

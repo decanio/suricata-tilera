@@ -1064,12 +1064,9 @@ int Unified2IPv4TypeAlert (ThreadVars *tv, Packet *p, void *data, PacketQueue *p
             return -1;
         }
         fflush(aun->file_ctx->fp);
+        aun->file_ctx->alerts++;
         SCMutexUnlock(&aun->file_ctx->fp_mutex);
     }
-
-    SCMutexLock(&aun->file_ctx->fp_mutex);
-    aun->file_ctx->alerts += p->alerts.cnt;
-    SCMutexUnlock(&aun->file_ctx->fp_mutex);
 
     return 0;
 }
@@ -1746,6 +1743,7 @@ static int Unified2TestRotate01(void)
     OutputCtx *oc;
     LogFileCtx *lf;
     void *data = NULL;
+    char *filename = NULL;
 
     oc = Unified2AlertInitCtx(NULL);
     if (oc == NULL)
@@ -1753,7 +1751,9 @@ static int Unified2TestRotate01(void)
     lf = (LogFileCtx *)oc->data;
     if (lf == NULL)
         return 0;
-    char *filename = SCStrdup(lf->filename);
+    filename = SCStrdup(lf->filename);
+    if (filename == NULL)
+        return 0;
 
     memset(&tv, 0, sizeof(ThreadVars));
 

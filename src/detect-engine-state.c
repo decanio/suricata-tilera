@@ -305,9 +305,9 @@ int DeStateUpdateInspectTransactionId(Flow *f, char direction) {
 
     int r = 0;
 
-    SCMutexLock(&f->m);
+    FLOWLOCK_WRLOCK(f);
     r = AppLayerTransactionUpdateInspectId(f, direction);
-    SCMutexUnlock(&f->m);
+    FLOWLOCK_UNLOCK(f);
 
     SCReturnInt(r);
 }
@@ -739,10 +739,10 @@ int DeStateDetectStartDetection(ThreadVars *tv, DetectEngineCtx *de_ctx,
         if (DeStateStoreFilestoreSigsCantMatch(det_ctx->sgh, f->de_state, flags) == 1) {
             SCLogDebug("disabling file storage for transaction %u", det_ctx->tx_id);
 
-            SCMutexLock(&f->m);
+            FLOWLOCK_WRLOCK(f);
             FileDisableStoringForTransaction(f, flags & (STREAM_TOCLIENT|STREAM_TOSERVER),
                     det_ctx->tx_id);
-            SCMutexUnlock(&f->m);
+            FLOWLOCK_UNLOCK(f);
 
             f->de_state->flags |= DE_STATE_FILE_STORE_DISABLED;
         }
@@ -1207,10 +1207,10 @@ int DeStateDetectContinueDetection(ThreadVars *tv, DetectEngineCtx *de_ctx, Dete
         if (DeStateStoreFilestoreSigsCantMatch(det_ctx->sgh, f->de_state, flags) == 1) {
             SCLogDebug("disabling file storage for transaction");
 
-            SCMutexLock(&f->m);
+            FLOWLOCK_WRLOCK(f);
             FileDisableStoringForTransaction(f, flags & (STREAM_TOCLIENT|STREAM_TOSERVER),
                     det_ctx->tx_id);
-            SCMutexUnlock(&f->m);
+            FLOWLOCK_UNLOCK(f);
 
             f->de_state->flags |= DE_STATE_FILE_STORE_DISABLED;
         }
@@ -1257,7 +1257,7 @@ static void DeStateResetFileInspection(Flow *f, uint16_t alproto, void *alstate)
         SCReturn;
     }
 
-    SCMutexLock(&f->m);
+    FLOWLOCK_WRLOCK(f);
     HtpState *htp_state = (HtpState *)alstate;
 
     if (htp_state->flags & HTP_FLAG_NEW_FILE_TX_TC) {
@@ -1270,7 +1270,7 @@ static void DeStateResetFileInspection(Flow *f, uint16_t alproto, void *alstate)
         f->de_state->flags |= DE_STATE_FILE_TS_NEW;
     }
 
-    SCMutexUnlock(&f->m);
+    FLOWLOCK_UNLOCK(f);
 }
 
 #ifdef UNITTESTS

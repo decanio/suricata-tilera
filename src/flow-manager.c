@@ -264,7 +264,7 @@ static uint32_t FlowManagerHashRowTimeout(Flow *f, struct timeval *ts,
     uint32_t cnt = 0;
 
     do {
-        if (SCMutexTrylock(&f->m) != 0) {
+        if (FLOWLOCK_TRYWRLOCK(f) != 0) {
             f = f->hprev;
             continue;
         }
@@ -275,7 +275,7 @@ static uint32_t FlowManagerHashRowTimeout(Flow *f, struct timeval *ts,
 
         /* timeout logic goes here */
         if (FlowManagerFlowTimeout(f, state, ts, emergency) == 0) {
-            SCMutexUnlock(&f->m);
+            FLOWLOCK_UNLOCK(f);
             f = f->hprev;
             continue;
         }
@@ -300,7 +300,7 @@ static uint32_t FlowManagerHashRowTimeout(Flow *f, struct timeval *ts,
 
             /* no one is referring to this flow, use_cnt 0, removed from hash
              * so we can unlock it and move it back to the spare queue. */
-            SCMutexUnlock(&f->m);
+            FLOWLOCK_UNLOCK(f);
 
             /* move to spare list */
             FlowMoveToSpare(f);
@@ -320,7 +320,7 @@ static uint32_t FlowManagerHashRowTimeout(Flow *f, struct timeval *ts,
                     break;
             }
         } else {
-            SCMutexUnlock(&f->m);
+            FLOWLOCK_UNLOCK(f);
         }
 
         f = next_flow;
@@ -540,6 +540,7 @@ void *FlowManagerThread(void *td)
         SCPerfSyncCountersIfSignalled(th_v, 0);
     }
 
+    TmThreadsSetFlag(th_v, THV_RUNNING_DONE);
     TmThreadWaitForFlag(th_v, THV_DEINIT);
 
     FlowHashDebugDeinit();
@@ -817,7 +818,7 @@ static int FlowMgrTest05 (void) {
     UTHBuildPacketOfFlows(ini, end, 0);
 
     /* And now let's try to reach the memcap val */
-    while (SC_ATOMIC_GET(flow_memuse) + sizeof(Flow) < flow_config.memcap) {
+    while (FLOW_CHECK_MEMCAP(sizeof(Flow))) {
         ini = end + 1;
         end = end + 2;
         UTHBuildPacketOfFlows(ini, end, 0);

@@ -201,6 +201,7 @@ util-unittest.c util-unittest.h \
 util-unittest-helper.c util-unittest-helper.h \
 util-hash.c util-hash.h \
 util-hashlist.c util-hashlist.h \
+util-hash-lookup3.c util-hash-lookup3.h \
 util-bloomfilter.c util-bloomfilter.h \
 util-bloomfilter-counting.c util-bloomfilter-counting.h \
 util-pool.c util-pool.h \
@@ -242,6 +243,7 @@ util-checksum.c util-checksum.h \
 util-runmodes.c util-runmodes.h \
 util-file.c util-file.h \
 util-path.c util-path.h \
+util-buffer.c util-buffer.h \
 tm-modules.c tm-modules.h \
 tm-queues.c tm-queues.h \
 tm-queuehandlers.c tm-queuehandlers.h \
@@ -301,6 +303,8 @@ util-profiling-locks.c util-profiling-locks.h \
 cuda-packet-batcher.c cuda-packet-batcher.h \
 util-ioctl.h util-ioctl.c \
 util-logopenfile.h util-logopenfile.c
+
+EXTRA_DIST = util-mpm-b2g-cuda-kernel.cu ptxdump.py
 
 # set the include path found by configure
 INCLUDES= $(all_includes)

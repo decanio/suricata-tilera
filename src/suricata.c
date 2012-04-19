@@ -190,6 +190,7 @@
 #include "util-mem.h"
 #include "util-memcmp.h"
 #include "util-proto-name.h"
+#include "util-spm-bm.h"
 
 /*
  * we put this here, because we only use it here in main.
@@ -206,7 +207,7 @@ volatile sig_atomic_t sigterm_count = 0;
 SC_ATOMIC_DECLARE(unsigned int, engine_stage);
 
 /* Max packets processed simultaniously. */
-#define DEFAULT_MAX_PENDING_PACKETS 50
+#define DEFAULT_MAX_PENDING_PACKETS 1024
 
 /** suricata engine control flags */
 uint8_t suricata_ctl_flags = 0;
@@ -514,7 +515,7 @@ void usage(const char *progname)
 #endif /* HAVE_LIBCAP_NG */
     printf("\t--erf-in <path>              : process an ERF file\n");
 #ifdef HAVE_DAG
-    printf("\t--dag <dag0,dag1,...>        : process ERF records from 0,1,...,n DAG input streams\n");
+    printf("\t--dag <dagX:Y>               : process ERF records from DAG interface X, stream Y\n");
 #endif
 #ifdef HAVE_NAPATECH
     printf("\t--napatech <adapter>          : run Napatech feeds using <adapter>\n");
@@ -659,6 +660,7 @@ int main(int argc, char **argv)
     char pcap_dev[128];
     char *sig_file = NULL;
     int sig_file_exclusive = FALSE;
+    int conf_test = 0;
     char *conf_filename = NULL;
     char *pid_filename = NULL;
 #ifdef UNITTESTS
@@ -781,7 +783,7 @@ int main(int argc, char **argv)
     /* getopt_long stores the option index here. */
     int option_index = 0;
 
-    char short_opts[] = "c:Dhi:l:q:d:r:us:S:U:VF:";
+    char short_opts[] = "c:TDhi:l:q:d:r:us:S:U:VF:";
 
     while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
         switch (opt) {
@@ -982,17 +984,22 @@ int main(int argc, char **argv)
                     exit(EXIT_FAILURE);
                 }
             }
-			else if (strcmp((long_opts[option_index]).name, "dag") == 0) {
+            else if (strcmp((long_opts[option_index]).name, "dag") == 0) {
 #ifdef HAVE_DAG
-				run_mode = RUNMODE_DAG;
-                if (ConfSet("erf-dag.iface", optarg, 0) != 1) {
-                    fprintf(stderr, "ERROR: Failed to set erf_dag.iface\n");
+                if (run_mode == RUNMODE_UNKNOWN) {
+                    run_mode = RUNMODE_DAG;
+                }
+                else if (run_mode != RUNMODE_DAG) {
+                    SCLogError(SC_ERR_MULTIPLE_RUN_MODE,
+                        "more than one run mode has been specified");
+                    usage(argv[0]);
                     exit(EXIT_FAILURE);
                 }
+                LiveRegisterDevice(optarg);
 #else
-				SCLogError(SC_ERR_DAG_REQUIRED, "libdag and a DAG card are required"
+                SCLogError(SC_ERR_DAG_REQUIRED, "libdag and a DAG card are required"
 						" to receieve packets using --dag.");
-				exit(EXIT_FAILURE);
+                exit(EXIT_FAILURE);
 #endif /* HAVE_DAG */
 		}
                 else if (strcmp((long_opts[option_index]).name, "napatech") == 0) {
@@ -1063,6 +1070,14 @@ int main(int argc, char **argv)
             break;
         case 'c':
             conf_filename = optarg;
+            break;
+        case 'T':
+            SCLogInfo("Running suricata under test mode");
+            conf_test = 1;
+            if (ConfSet("engine.init-failure-fatal", "1", 0) != 1) {
+                fprintf(stderr, "ERROR: Failed to set engine init-failure-fatal.\n");
+                exit(EXIT_FAILURE);
+            }
             break;
 #ifndef OS_WIN32
         case 'D':
@@ -1398,7 +1413,7 @@ int main(int argc, char **argv)
     DefragInit();
 
     if (run_mode == RUNMODE_UNKNOWN) {
-        if (!engine_analysis && !list_keywords) {
+        if (!engine_analysis && !list_keywords && !conf_test) {
             usage(argv[0]);
             exit(EXIT_FAILURE);
         }
@@ -1868,6 +1883,11 @@ printf("max_pending_packets %ld sizeof(Packet) %lu tile_vhuge_size %lu packet_si
                 exit(EXIT_FAILURE);
             }
         }
+    }
+
+    if(conf_test == 1){
+        SCLogInfo("Configuration provided was successfully loaded. Exiting.");
+        exit(EXIT_SUCCESS);
     }
 
 #ifdef __tile__

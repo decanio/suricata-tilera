@@ -62,7 +62,11 @@ typedef struct Host_ {
     Address a;
 
     /** use cnt, reference counter */
-    uint16_t use_cnt;
+#ifdef __tile__
+    SC_ATOMIC_DECLARE(unsigned, use_cnt);
+#else
+    SC_ATOMIC_DECLARE(unsigned short, use_cnt);
+#endif
 
     /** pointers to tag and threshold storage */
     void *tag;
@@ -99,6 +103,16 @@ typedef struct HostConfig_ {
     uint32_t hash_size;
     uint32_t prealloc;
 } HostConfig;
+
+/** \brief check if a memory alloc would fit in the memcap
+ *
+ *  \param size memory allocation size to check
+ *
+ *  \retval 1 it fits
+ *  \retval 0 no fit
+ */
+#define HOST_CHECK_MEMCAP(size) \
+    ((((uint64_t)SC_ATOMIC_GET(host_memuse) + (uint64_t)(size)) <= host_config.memcap))
 
 HostConfig host_config;
 SC_ATOMIC_DECLARE(unsigned long long int,host_memuse);

@@ -240,9 +240,8 @@ static uint8_t DetectEngineCtxLoadConf(DetectEngineCtx *de_ctx) {
         } else if (strcmp(sgh_mpm_context, "full") == 0) {
             de_ctx->sgh_mpm_context = ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL;
         } else {
-           SCLogWarning(SC_ERR_INVALID_YAML_CONF_ENTRY, "You have supplied an "
-                        "invalid conf value for detect-engine.sgh-mpm-context-"
-                        "%s", sgh_mpm_context);
+           SCLogWarning(SC_ERR_INVALID_YAML_CONF_ENTRY, "invalid conf value "
+                   "for detect-engine.sgh-mpm-context -- %s", sgh_mpm_context);
         }
     }
 
@@ -486,6 +485,25 @@ TmEcode DetectEngineThreadCtxDeinit(ThreadVars *tv, void *data) {
 
     if (det_ctx->bj_values != NULL)
         SCFree(det_ctx->bj_values);
+
+    if (det_ctx->hsbd != NULL) {
+        SCLogDebug("det_ctx hsbd %u", det_ctx->hsbd_buffers_list_len);
+        for (i = 0; i < det_ctx->hsbd_buffers_list_len; i++) {
+            if (det_ctx->hsbd[i].buffer != NULL)
+                SCFree(det_ctx->hsbd[i].buffer);
+        }
+        SCFree(det_ctx->hsbd);
+    }
+
+    if (det_ctx->hcbd != NULL) {
+        SCLogDebug("det_ctx hcbd %u", det_ctx->hcbd_buffers_list_len);
+        for (i = 0; i < det_ctx->hcbd_buffers_list_len; i++) {
+            if (det_ctx->hcbd[i].buffer != NULL)
+                SCFree(det_ctx->hcbd[i].buffer);
+            SCLogDebug("det_ctx->hcbd[i].buffer_size %u", det_ctx->hcbd[i].buffer_size);
+        }
+        SCFree(det_ctx->hcbd);
+    }
 
     SCFree(det_ctx);
 

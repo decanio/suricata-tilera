@@ -119,7 +119,7 @@ int DetectUrilenMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx, Flow *f,
         SCReturnInt(ret);
     }
 
-    SCMutexLock(&f->m);
+    FLOWLOCK_RDLOCK(f);
     htp_tx_t *tx = NULL;
 
     idx = AppLayerTransactionGetInspectId(f);
@@ -155,7 +155,7 @@ int DetectUrilenMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx, Flow *f,
         }
     }
 end:
-    SCMutexUnlock(&f->m);
+    FLOWLOCK_UNLOCK(f);
     SCReturnInt(ret);
 }
 
@@ -289,10 +289,8 @@ DetectUrilenData *DetectUrilenParse (char *urilenstr)
         }
     }
 
-    if (arg1 != NULL)
-        pcre_free_substring(arg1);
-    if (arg2 != NULL)
-        pcre_free_substring(arg2);
+    pcre_free_substring(arg1);
+    pcre_free_substring(arg2);
     if (arg3 != NULL)
         pcre_free_substring(arg3);
     if (arg4 != NULL)

@@ -40,6 +40,8 @@
 #include "util-time.h"
 #include "util-debug.h"
 
+#include "util-hash-lookup3.h"
+
 #define FLOW_DEFAULT_FLOW_PRUNE 5
 
 SC_ATOMIC_EXTERN(unsigned int, flow_prune_idx);
@@ -143,6 +145,54 @@ void FlowHashDebugDeinit(void) {
 
 #endif /* FLOW_DEBUG_STATS */
 
+/** \brief compare two raw ipv6 addrs
+ *
+ *  \note we don't care about the real ipv6 ip's, this is just
+ *        to consistently fill the FlowHashKey6 struct, without all
+ *        the ntohl calls.
+ *
+ *  \warning do not use elsewhere unless you know what you're doing.
+ *           detect-engine-address-ipv6.c's AddressIPv6GtU32 is likely
+ *           what you are looking for.
+ */
+static inline int FlowHashRawAddressIPv6GtU32(uint32_t *a, uint32_t *b)
+{
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        if (a[i] > b[i])
+            return 1;
+        if (a[i] < b[i])
+            break;
+    }
+
+    return 0;
+}
+
+typedef struct FlowHashKey4_ {
+    union {
+        struct {
+            uint32_t src, dst;
+            uint16_t sp, dp;
+            uint16_t proto; /**< u16 so proto and recur add up to u32 */
+            uint16_t recur; /**< u16 so proto and recur add up to u32 */
+        };
+        uint32_t u32[4];
+    };
+} FlowHashKey4;
+
+typedef struct FlowHashKey6_ {
+    union {
+        struct {
+            uint32_t src[4], dst[4];
+            uint16_t sp, dp;
+            uint16_t proto; /**< u16 so proto and recur add up to u32 */
+            uint16_t recur; /**< u16 so proto and recur add up to u32 */
+        };
+        uint32_t u32[10];
+    };
+} FlowHashKey6;
+
 /* calculate the hash key for this packet
  *
  * we're using:
@@ -156,12 +206,14 @@ void FlowHashDebugDeinit(void) {
  *
  *  For ICMP we only consider UNREACHABLE errors atm.
  */
-uint32_t FlowGetKey(Packet *p) {
-    FlowKey *k = (FlowKey *)p;
+static inline uint32_t FlowGetKey(Packet *p) {
     uint32_t key;
 
     if (p->ip4h != NULL) {
         if (p->tcph != NULL || p->udph != NULL) {
+
+#ifdef OLDHASH
+
 #ifdef __tile__
             uint32_t src_hash = __insn_crc32_32(__insn_crc32_32(flow_config.hash_rand, k->src.addr_data32[0]), k->sp);
             uint32_t dst_hash = __insn_crc32_32(__insn_crc32_32(flow_config.hash_rand, k->dst.addr_data32[0]), k->dp);
@@ -180,24 +232,57 @@ uint32_t FlowGetKey(Packet *p) {
                     k->proto, k->sp, k->dp, k->src.addr_data32[0], k->dst.addr_data32[0],
                     k->recursion_level);
 */
+#else
+            FlowHashKey4 fhk;
+            if (p->src.addr_data32[0] > p->dst.addr_data32[0]) {
+                fhk.src = p->src.addr_data32[0];
+                fhk.dst = p->dst.addr_data32[0];
+            } else {
+                fhk.src = p->dst.addr_data32[0];
+                fhk.dst = p->src.addr_data32[0];
+            }
+            if (p->sp > p->dp) {
+                fhk.sp = p->sp;
+                fhk.dp = p->dp;
+            } else {
+                fhk.sp = p->dp;
+                fhk.dp = p->sp;
+            }
+            fhk.proto = (uint16_t)p->proto;
+            fhk.recur = (uint16_t)p->recursion_level;
+
+            uint32_t hash = hashword(fhk.u32, 4, flow_config.hash_rand);
+            key = hash % flow_config.hash_size;
+
+#endif // OLDHASH
         } else if (ICMPV4_DEST_UNREACH_IS_VALID(p)) {
-//            SCLogDebug("valid ICMPv4 DEST UNREACH error packet");
+            uint32_t psrc = IPV4_GET_RAW_IPSRC_U32(ICMPV4_GET_EMB_IPV4(p));
+            uint32_t pdst = IPV4_GET_RAW_IPDST_U32(ICMPV4_GET_EMB_IPV4(p));
+            FlowHashKey4 fhk;
+            if (psrc > pdst) {
+                fhk.src = psrc;
+                fhk.dst = pdst;
+            } else {
+                fhk.src = pdst;
+                fhk.dst = psrc;
+            }
+            if (p->icmpv4vars.emb_sport > p->icmpv4vars.emb_dport) {
+                fhk.sp = p->icmpv4vars.emb_sport;
+                fhk.dp = p->icmpv4vars.emb_dport;
+            } else {
+                fhk.sp = p->icmpv4vars.emb_dport;
+                fhk.dp = p->icmpv4vars.emb_sport;
+            }
+            fhk.proto = (uint16_t)ICMPV4_GET_EMB_PROTO(p);
+            fhk.recur = (uint16_t)p->recursion_level;
 
-            key = (flow_config.hash_rand + ICMPV4_GET_EMB_PROTO(p) +
-                    p->icmpv4vars.emb_sport + \
-                    p->icmpv4vars.emb_dport + \
-                    IPV4_GET_RAW_IPSRC_U32(ICMPV4_GET_EMB_IPV4(p)) + \
-                    IPV4_GET_RAW_IPDST_U32(ICMPV4_GET_EMB_IPV4(p)) + \
-                    k->recursion_level) % flow_config.hash_size;
-/*
-            SCLogDebug("ICMP DEST UNREACH key %"PRIu32, key);
+            uint32_t hash = hashword(fhk.u32, 4, flow_config.hash_rand);
+            key = hash % flow_config.hash_size;
 
-            SCLogDebug("proto %u, sp %u, dp %u, src %u, dst %u, reclvl %u",
-                    ICMPV4_GET_EMB_PROTO(p), p->icmpv4vars.emb_sport,
-                    p->icmpv4vars.emb_dport, IPV4_GET_RAW_IPSRC_U32(ICMPV4_GET_EMB_IPV4(p)),
-                    IPV4_GET_RAW_IPDST_U32(ICMPV4_GET_EMB_IPV4(p)), k->recursion_level);
-*/
         } else {
+
+#ifdef OLDHASH
+
 #ifdef __tile__
             uint32_t src_hash = __insn_crc32_32(flow_config.hash_rand, k->src.addr_data32[0]);
             uint32_t dst_hash = __insn_crc32_32(flow_config.hash_rand, k->dst.addr_data32[0]);
@@ -233,6 +318,57 @@ uint32_t FlowGetKey(Packet *p) {
                k->dst.addr_data32[2] + k->dst.addr_data32[3] + \
                k->recursion_level) % flow_config.hash_size;
 #endif
+#else // OLDHASH
+            FlowHashKey4 fhk;
+            if (p->src.addr_data32[0] > p->dst.addr_data32[0]) {
+                fhk.src = p->src.addr_data32[0];
+                fhk.dst = p->dst.addr_data32[0];
+            } else {
+                fhk.src = p->dst.addr_data32[0];
+                fhk.dst = p->src.addr_data32[0];
+            }
+            fhk.sp = 0xfeed;
+            fhk.dp = 0xbeef;
+            fhk.proto = (uint16_t)p->proto;
+            fhk.recur = (uint16_t)p->recursion_level;
+
+            uint32_t hash = hashword(fhk.u32, 4, flow_config.hash_rand);
+            key = hash % flow_config.hash_size;
+        }
+    } else if (p->ip6h != NULL) {
+        FlowHashKey6 fhk;
+        if (FlowHashRawAddressIPv6GtU32(p->src.addr_data32, p->dst.addr_data32)) {
+            fhk.src[0] = p->src.addr_data32[0];
+            fhk.src[1] = p->src.addr_data32[1];
+            fhk.src[2] = p->src.addr_data32[2];
+            fhk.src[3] = p->src.addr_data32[3];
+            fhk.dst[0] = p->dst.addr_data32[0];
+            fhk.dst[1] = p->dst.addr_data32[1];
+            fhk.dst[2] = p->dst.addr_data32[2];
+            fhk.dst[3] = p->dst.addr_data32[3];
+        } else {
+            fhk.src[0] = p->dst.addr_data32[0];
+            fhk.src[1] = p->dst.addr_data32[1];
+            fhk.src[2] = p->dst.addr_data32[2];
+            fhk.src[3] = p->dst.addr_data32[3];
+            fhk.dst[0] = p->src.addr_data32[0];
+            fhk.dst[1] = p->src.addr_data32[1];
+            fhk.dst[2] = p->src.addr_data32[2];
+            fhk.dst[3] = p->src.addr_data32[3];
+        }
+        if (p->sp > p->dp) {
+            fhk.sp = p->sp;
+            fhk.dp = p->dp;
+        } else {
+            fhk.sp = p->dp;
+            fhk.dp = p->sp;
+        }
+        fhk.proto = (uint16_t)p->proto;
+        fhk.recur = (uint16_t)p->recursion_level;
+
+        uint32_t hash = hashword(fhk.u32, 10, flow_config.hash_rand);
+        key = hash % flow_config.hash_size;
+#endif // OLDHASH
     } else
         key = 0;
 
@@ -344,7 +480,7 @@ static Flow *FlowGetNew(Packet *p) {
     f = FlowDequeue(&flow_spare_q);
     if (f == NULL) {
         /* If we reached the max memcap, we get a used flow */
-        if ((SC_ATOMIC_GET(flow_memuse) + sizeof(Flow)) > flow_config.memcap) {
+        if (!(FLOW_CHECK_MEMCAP(sizeof(Flow)))) {
             /* declare state of emergency */
             if (!(SC_ATOMIC_GET(flow_flags) & FLOW_EMERGENCY)) {
                 SC_ATOMIC_OR(flow_flags, FLOW_EMERGENCY);
@@ -375,7 +511,7 @@ static Flow *FlowGetNew(Packet *p) {
 
     FlowIncrUsecnt(f);
 
-    SCMutexLock(&f->m);
+    FLOWLOCK_WRLOCK(f);
     return f;
 }
 
@@ -483,7 +619,7 @@ Flow *FlowGetFlowFromHash (Packet *p)
 
                 /* found our flow, lock & return */
                 FlowIncrUsecnt(f);
-                SCMutexLock(&f->m);
+                FLOWLOCK_WRLOCK(f);
                 FBLOCK_UNLOCK(fb);
                 FlowHashCountUpdate;
                 return f;
@@ -493,7 +629,7 @@ Flow *FlowGetFlowFromHash (Packet *p)
 
     /* lock & return */
     FlowIncrUsecnt(f);
-    SCMutexLock(&f->m);
+    FLOWLOCK_WRLOCK(f);
     FBLOCK_UNLOCK(fb);
     FlowHashCountUpdate;
     return f;
@@ -532,7 +668,7 @@ static Flow *FlowGetUsedFlow(void) {
             continue;
         }
 
-        if (SCMutexTrylock(&f->m) != 0) {
+        if (FLOWLOCK_TRYWRLOCK(f) != 0) {
             FBLOCK_UNLOCK(fb);
             continue;
         }
@@ -541,7 +677,7 @@ static Flow *FlowGetUsedFlow(void) {
          *  we are currently processing in one of the threads */
         if (SC_ATOMIC_GET(f->use_cnt) > 0) {
             FBLOCK_UNLOCK(fb);
-            SCMutexUnlock(&f->m);
+            FLOWLOCK_UNLOCK(f);
             continue;
         }
 
@@ -562,7 +698,7 @@ static Flow *FlowGetUsedFlow(void) {
 
         FlowClearMemory (f, f->protomap);
 
-        SCMutexUnlock(&f->m);
+        FLOWLOCK_UNLOCK(f);
 
         SC_ATOMIC_ADD(flow_prune_idx, (flow_config.hash_size - cnt));
         return f;

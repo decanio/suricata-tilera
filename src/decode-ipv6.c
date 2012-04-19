@@ -89,8 +89,8 @@ DecodeIPV6ExtHdrs(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt
                 SCReturn;
 
             case IPPROTO_ROUTING:
-                hdrextlen = sizeof(IPV6RouteHdr);
-                hdrextlen += (*(pkt+1) * 8);  /* 8 octet units */
+                IPV6_SET_L4PROTO(p,nh);
+                hdrextlen = 8 + (*(pkt+1) * 8);  /* 8 bytes + length in 8 octet units */
 
                 SCLogDebug("hdrextlen %"PRIu8, hdrextlen);
 
@@ -150,6 +150,7 @@ DecodeIPV6ExtHdrs(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt
                 IPV6OptJumbo *jumbo = NULL;
                 uint8_t optslen = 0;
 
+                IPV6_SET_L4PROTO(p,nh);
                 hdrextlen =  (*(pkt+1) + 1) << 3;
                 if (hdrextlen > plen) {
                     ENGINE_SET_EVENT(p, IPV6_TRUNC_EXTHDR);
@@ -275,6 +276,7 @@ DecodeIPV6ExtHdrs(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt
             }
 
             case IPPROTO_FRAGMENT:
+                IPV6_SET_L4PROTO(p,nh);
                 /* store the offset of this extension into the packet
                  * past the ipv6 header. We use it in defrag for creating
                  * a defragmented packet without the frag header */
@@ -309,11 +311,25 @@ DecodeIPV6ExtHdrs(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt
                 /* set the header ptr first */
                 IPV6_EXTHDR_SET_FH(p, pkt);
 
+                /* if FH has offset 0 and no more fragments are coming, we
+                 * parse this packet further right away, no defrag will be
+                 * needed. It is a useless FH then though, so we do set an
+                 * decoder event. */
+                if (IPV6_EXTHDR_GET_FH_FLAG(p) == 0 && IPV6_EXTHDR_GET_FH_OFFSET(p) == 0) {
+                    ENGINE_SET_EVENT(p, IPV6_EXTHDR_USELESS_FH);
+
+                    nh = *pkt;
+                    pkt += hdrextlen;
+                    plen -= hdrextlen;
+                    break;
+                }
+
                 /* the rest is parsed upon reassembly */
                 SCReturn;
 
             case IPPROTO_ESP:
             {
+                IPV6_SET_L4PROTO(p,nh);
                 hdrextlen = sizeof(IPV6EspHdr);
                 if (hdrextlen > plen) {
                     ENGINE_SET_EVENT(p, IPV6_TRUNC_EXTHDR);
@@ -343,6 +359,7 @@ DecodeIPV6ExtHdrs(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt
             }
             case IPPROTO_AH:
             {
+                IPV6_SET_L4PROTO(p,nh);
                 /* we need the header as a minimum */
                 hdrextlen = sizeof(IPV6AuthHdr);
                 /* the payload len field is the number of extra 4 byte fields */
@@ -476,7 +493,7 @@ void DecodeIPV6(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt, 
     if (IPV6_EXTHDR_ISSET_FH(p)) {
         Packet *rp = Defrag(tv, dtv, NULL, p);
         if (rp != NULL) {
-            DecodeIPV6(tv, dtv, rp, GET_PKT_DATA(rp), GET_PKT_LEN(rp), pq);
+            DecodeIPV6(tv, dtv, rp, (uint8_t *)rp->ip6h, IPV6_GET_PLEN(rp) + IPV6_HEADER_LEN, pq);
             PacketEnqueue(pq, rp);
 
             /* Not really a tunnel packet, but we're piggybacking that
@@ -625,8 +642,10 @@ static int DecodeIPV6FragTest01 (void)   {
     if (p1 == NULL)
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL)
+    if (p2 == NULL) {
+        SCFree(p1);
         return 0;
+    }
     ThreadVars tv;
     DecodeThreadVars dtv;
     int result = 0;
@@ -677,6 +696,63 @@ end:
     return result;
 }
 
+/**
+ * \test routing header decode
+ */
+static int DecodeIPV6RouteTest01 (void)   {
+
+    uint8_t raw_pkt1[] = {
+        0x60, 0x00, 0x00, 0x00, 0x00, 0x1c, 0x2b, 0x40,
+        0x20, 0x01, 0xaa, 0xaa, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+        0x20, 0x01, 0xaa, 0xaa, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+        0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+        0xb2, 0xed, 0x00, 0x50, 0x1b, 0xc7, 0x6a, 0xdf,
+        0x00, 0x00, 0x00, 0x00, 0x50, 0x02, 0x20, 0x00,
+        0xfa, 0x87, 0x00, 0x00,
+    };
+    Packet *p1 = SCMalloc(SIZE_OF_PACKET);
+    if (p1 == NULL)
+        return 0;
+    ThreadVars tv;
+    DecodeThreadVars dtv;
+    int result = 0;
+    PacketQueue pq;
+
+    FlowInitConfig(FLOW_QUIET);
+
+    memset(&pq, 0, sizeof(PacketQueue));
+    memset(&tv, 0, sizeof(ThreadVars));
+    memset(p1, 0, SIZE_OF_PACKET);
+    p1->pkt = (uint8_t *)(p1 + 1);
+    memset(&dtv, 0, sizeof(DecodeThreadVars));
+
+    PACKET_INITIALIZE(p1);
+
+    PacketCopyData(p1, raw_pkt1, sizeof(raw_pkt1));
+
+    DecodeIPV6(&tv, &dtv, p1, GET_PKT_DATA(p1), GET_PKT_LEN(p1), &pq);
+
+    if (!(IPV6_EXTHDR_ISSET_RH(p1))) {
+        printf("ipv6 routing header not detected: ");
+        goto end;
+    }
+
+    if (p1->ip6eh.ip6_exthdrs[0].len != 8) {
+        printf("ipv6 routing length incorrect: ");
+        goto end;
+    }
+
+    result = 1;
+end:
+    PACKET_CLEANUP(p1);
+    SCFree(p1);
+    FlowShutdown();
+    return result;
+}
+
 #endif /* UNITTESTS */
 
 /**
@@ -686,6 +762,7 @@ end:
 void DecodeIPV6RegisterTests(void) {
 #ifdef UNITTESTS
     UtRegisterTest("DecodeIPV6FragTest01", DecodeIPV6FragTest01, 1);
+    UtRegisterTest("DecodeIPV6RouteTest01", DecodeIPV6RouteTest01, 1);
 #endif /* UNITTESTS */
 }
 

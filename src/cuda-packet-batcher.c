@@ -327,7 +327,7 @@ void *SCCudaPBTmThreadsSlot1(void *td)
         if (r != TM_ECODE_OK) {
             EngineKill();
 
-            TmThreadsSetFlag(tv, THV_CLOSED);
+            TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
             pthread_exit((void *) -1);
         }
     }
@@ -372,6 +372,7 @@ void *SCCudaPBTmThreadsSlot1(void *td)
         }
     }
 
+    TmThreadsSetFlag(tv, THV_RUNNING_DONE);
     TmThreadWaitForFlag(tv, THV_DEINIT);
 
     if (s->SlotThreadExitPrintStats != NULL) {
@@ -708,9 +709,15 @@ TmEcode SCCudaPBBatchPackets(ThreadVars *tv, Packet *p, void *data, PacketQueue 
 
     MpmCtx *mpm_ctx = NULL;
     if (p->proto == IPPROTO_TCP) {
-        mpm_ctx = sgh->mpm_proto_tcp_ctx;
+        if (p->flowflags & FLOW_PKT_TOSERVER)
+            mpm_ctx = sgh->mpm_proto_tcp_ctx_ts;
+        else
+            mpm_ctx = sgh->mpm_proto_tcp_ctx_tc;
     } else if (p->proto == IPPROTO_UDP) {
-        mpm_ctx = sgh->mpm_proto_udp_ctx;
+        if (p->flowflags & FLOW_PKT_TOSERVER)
+            mpm_ctx = sgh->mpm_proto_udp_ctx_ts;
+        else
+            mpm_ctx = sgh->mpm_proto_udp_ctx_tc;
     } else {
         mpm_ctx = sgh->mpm_proto_other_ctx;
     }

@@ -176,6 +176,7 @@ void TmModuleReceiveNFQRegister (void) {
     tmm_modules[TMM_RECEIVENFQ].ThreadExitPrintStats = ReceiveNFQThreadExitStats;
     tmm_modules[TMM_RECEIVENFQ].ThreadDeinit = ReceiveNFQThreadDeinit;
     tmm_modules[TMM_RECEIVENFQ].RegisterTests = NULL;
+    tmm_modules[TMM_RECEIVENFQ].flags = TM_FLAG_RECEIVE_TM;
 }
 
 void TmModuleVerdictNFQRegister (void) {
@@ -269,17 +270,15 @@ static inline void NFQMutexInit(NFQQueueVars *nq)
         SCMutexInit(&nq->mutex_qh, NULL);
 }
 
-static inline void NFQMutexLock(NFQQueueVars *nq)
-{
-    if (nq->use_mutex)
-        SCMutexLock(&nq->mutex_qh);
-}
+#define NFQMutexLock(nq) do {           \
+    if ((nq)->use_mutex)                \
+        SCMutexLock(&(nq)->mutex_qh);   \
+} while (0)
 
-static inline void NFQMutexUnlock(NFQQueueVars *nq)
-{
-    if (nq->use_mutex)
-        SCMutexUnlock(&nq->mutex_qh);
-}
+#define NFQMutexUnlock(nq) do {         \
+    if ((nq)->use_mutex)                \
+        SCMutexUnlock(&(nq)->mutex_qh); \
+} while (0)
 
 
 int NFQSetupPkt (Packet *p, struct nfq_q_handle *qh, void *data)
