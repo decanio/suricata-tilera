@@ -492,13 +492,29 @@ typedef struct Packet_
     struct LiveDevice_ *livedev;
 
 #ifdef __tile__
-    IPV4Vars ip4vars;
-    IPV6Vars ip6vars;
-    IPV6ExtHdrs ip6eh;
-    TCPVars tcpvars;
-    UDPVars udpvars;
-    ICMPV4Vars icmpv4vars;
-    ICMPV6Vars icmpv6vars;
+#if 1
+    union {
+        IPV4Vars ip4vars;
+        struct {
+            IPV6Vars ip6vars;
+            IPV6ExtHdrs ip6eh;
+        };
+    };
+    union {
+        TCPVars tcpvars;
+        UDPVars udpvars;
+        ICMPV4Vars icmpv4vars;
+        ICMPV6Vars icmpv6vars;
+    };
+#else
+    IPV4Vars ip4vars /*__attribute__((aligned(64)))*/;
+    IPV6Vars ip6vars /*__attribute__((aligned(64)))*/;
+    IPV6ExtHdrs ip6eh /*__attribute__((aligned(64)))*/;
+    TCPVars tcpvars /*__attribute__((aligned(64)))*/;
+    UDPVars udpvars /*__attribute__((aligned(64)))*/;
+    ICMPV4Vars icmpv4vars /*__attribute__((aligned(64)))*/;
+    ICMPV6Vars icmpv6vars /*__attribute__((aligned(64)))*/;
+#endif
 #endif
 
 #ifndef __tile__
