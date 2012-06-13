@@ -45,6 +45,9 @@ void TmqhSetup (void) {
     TmqhPacketpoolRegister();
     TmqhFlowRegister();
     TmqhRingBufferRegister();
+#ifdef __tile__
+    TmqhTmcQueueRegister();
+#endif
 }
 
 Tmqh* TmqhGetQueueHandlerByName(char *name) {

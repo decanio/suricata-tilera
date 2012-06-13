@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2010 Open Information Security Foundation
+/* Copyright (C) 2007-2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -56,6 +56,22 @@ Packet *TmqhInputTmcQueueSrMw(ThreadVars *t);
 void TmqhOutputTmcQueueSrMw(ThreadVars *t, Packet *p);
 void TmqhInputTmcQueueShutdownHandler(ThreadVars *);
 
+TmcPacketQueue *TmqhTmcQueueInit(void) {
+    TmcPacketQueue *q = SCMalloc(sizeof(TmcPacketQueue));
+    if (q == NULL) {
+        return NULL;
+    }
+
+    memset(q, 0x00, sizeof(TmcPacketQueue));
+
+    tmc_spin_queued_mutex_init(&q->enqueue_mutex); 
+    tmc_spin_queued_mutex_init(&q->dequeue_mutex); 
+
+    q->enqueue_count = q->dequeue_count = 0;
+
+    return q;
+}
+
 /**
  * \brief TmqhTmcQueueRegister
  * \initonly
@@ -78,27 +94,28 @@ void TmqhTmcQueueRegister (void) {
 
     memset(tmcqueues, 0, sizeof(tmcqueues));
 
-    int i = 0;
+    int i;
     for (i = 0; i < 256; i++) {
-        tmcqueues[i] = RingBuffer8Init();
+        tmcqueues[i] = TmqhTmcQueueInit();
         if (tmcqueues[i] == NULL) {
-            SCLogError(SC_ERR_FATAL, "Error allocating memory to register Ringbuffers. Exiting...");
+            SCLogError(SC_ERR_FATAL, "Error allocating memory to register TmcQueue. Exiting...");
             exit(EXIT_FAILURE);
         }
+
     }
 }
 
-void TmqhInputRingBufferShutdownHandler(ThreadVars *tv) {
+void TmqhInputTmcQueueShutdownHandler(ThreadVars *tv) {
     if (tv == NULL || tv->inq == NULL) {
         return;
     }
 
-    TmcPacketQueue *rb = tmcqueues[tv->inq->id];
-    if (rb == NULL) {
+    TmcPacketQueue *q = tmcqueues[tv->inq->id];
+    if (q == NULL) {
         return;
     }
 
-    RingBuffer8Shutdown(rb);
+    //RingBuffer8Shutdown(rb);
 }
 
 static void Enqueue (TmcPacketQueue *q, Packet *p) {
@@ -134,9 +151,11 @@ static Packet *Dequeue (TmcPacketQueue *q) {
 
 Packet *TmqhInputTmcQueueMrSw(ThreadVars *t)
 {
-    TmcPacketQueue *rb = tmcqueues[t->inq->id];
+    TmcPacketQueue *q = tmcqueues[t->inq->id];
 
-    Packet *p = (Packet *)Dequeue(rb);
+    tmc_spin_queued_mutex_lock(&q->dequeue_mutex);
+    Packet *p = (Packet *)Dequeue(q);
+    tmc_spin_queued_mutex_unlock(&q->dequeue_mutex);
 
     SCPerfSyncCountersIfSignalled(t, 0);
 
@@ -145,15 +164,15 @@ Packet *TmqhInputTmcQueueMrSw(ThreadVars *t)
 
 void TmqhOutputTmcQueueMrSw(ThreadVars *t, Packet *p)
 {
-    TmcPacketQueue *rb = tmcqueues[t->outq->id];
-    Enqueue(rb, (void *)p);
+    TmcPacketQueue *q = tmcqueues[t->outq->id];
+    Enqueue(q, (void *)p);
 }
 
 Packet *TmqhInputTmcQueueSrSw(ThreadVars *t)
 {
-    TmcPacketQueue *rb = tmcqueues[t->inq->id];
+    TmcPacketQueue *q = tmcqueues[t->inq->id];
 
-    Packet *p = (Packet *)Dequeue(rb);
+    Packet *p = (Packet *)Dequeue(q);
 
     SCPerfSyncCountersIfSignalled(t, 0);
 
@@ -162,15 +181,15 @@ Packet *TmqhInputTmcQueueSrSw(ThreadVars *t)
 
 void TmqhOutputTmcQueueSrSw(ThreadVars *t, Packet *p)
 {
-    TmcPacketQueue *rb = tmcqueues[t->outq->id];
-    Enqueue(rb, (void *)p);
+    TmcPacketQueue *q = tmcqueues[t->outq->id];
+    Enqueue(q, (void *)p);
 }
 
 Packet *TmqhInputTmcQueueSrMw(ThreadVars *t)
 {
-    TmcPacketQueue *rb = tmcqueues[t->inq->id];
+    TmcPacketQueue *q = tmcqueues[t->inq->id];
 
-    Packet *p = (Packet *)Dequeue(rb);
+    Packet *p = (Packet *)Dequeue(q);
 
     SCPerfSyncCountersIfSignalled(t, 0);
 
@@ -179,7 +198,9 @@ Packet *TmqhInputTmcQueueSrMw(ThreadVars *t)
 
 void TmqhOutputTmcQueueSrMw(ThreadVars *t, Packet *p)
 {
-    TmcPacketQueue *rb = tmcqueues[t->outq->id];
-    Enqueue(rb, (void *)p);
+    TmcPacketQueue *q = tmcqueues[t->outq->id];
+    tmc_spin_queued_mutex_lock(&q->dequeue_mutex);
+    Enqueue(q, (void *)p);
+    tmc_spin_queued_mutex_unlock(&q->dequeue_mutex);
 }
 #endif

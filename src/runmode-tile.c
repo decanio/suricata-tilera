@@ -358,7 +358,11 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
 	        TmThreadCreatePacketHandler(thread_name,
                                             //pickup_queue[pipe],"simple",
                                             pickup_queue[pipe],"demux2",
+#if 1
+                                            stream_queue[(pool_detect_threads) ? 0 : pipe],"tmc_mrsw",
+#else
                                             stream_queue[(pool_detect_threads) ? 0 : pipe],"simple",
+#endif
                                             "varslot");
         if (tv_decode1 == NULL) {
             printf("ERROR: TmThreadCreate failed for Decode1\n");
@@ -405,9 +409,17 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
 #define PIPELINES_PER_OUTPUT 1
             ThreadVars *tv_detect_ncpu =
                 TmThreadCreatePacketHandler(thread_name,
-                                            stream_queue[(pool_detect_threads) ? 0 : pipe],"simple", 
 #if 1
+                                            stream_queue[(pool_detect_threads) ? 0 : pipe],"tmc_mrsw", 
+#else
+                                            stream_queue[(pool_detect_threads) ? 0 : pipe],"simple", 
+#endif
+#if 1
+#if 1
+                                            verdict_queue[pipe/PIPELINES_PER_OUTPUT],"tmc_srmw",
+#else
                                             verdict_queue[pipe/PIPELINES_PER_OUTPUT],"simple",
+#endif
 #else
                                             "packetpool", "packetpool", 
 #endif
@@ -454,7 +466,11 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
         thread_name = SCStrdup(tname);
         ThreadVars *tv_outputs =
             TmThreadCreatePacketHandler(thread_name,
+#if 1
+                                        verdict_queue[pipe/PIPELINES_PER_OUTPUT],"tmc_srmw", 
+#else
                                         verdict_queue[pipe/PIPELINES_PER_OUTPUT],"simple", 
+#endif
                                         "packetpool", "packetpool", 
                                         "varslot");
         if (tv_outputs == NULL) {

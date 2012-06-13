@@ -254,6 +254,7 @@ tmqh-nfq.c tmqh-nfq.h \
 tmqh-packetpool.c tmqh-packetpool.h \
 tmqh-flow.c tmqh-flow.h \
 tmqh-ringbuffer.c tmqh-ringbuffer.h \
+tmqh-tmcqueue.c tmqh-tmcqueue.h \
 alert-fastlog.c alert-fastlog.h \
 alert-debuglog.c alert-debuglog.h \
 alert-prelude.c alert-prelude.h \
