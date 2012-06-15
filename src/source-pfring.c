@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2010 Open Information Security Foundation
+/* Copyright (C) 2007-2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -19,6 +19,7 @@
  * \file
  *
  * \author William Metcalf <william.metcalf@gmail.com>
+ * \author Eric Leblond <eric@regit.org>
  *
  * PF_RING packet acquisition support
  *
@@ -98,6 +99,9 @@ TmEcode NoPfringSupportExit(ThreadVars *tv, void *initdata, void **data)
 }
 
 #else /* implied we do have PF_RING support */
+
+/** protect pfring_set_bpf_filter, as it is not thread safe */
+static SCMutex pfring_bpf_set_filter_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* XXX replace with user configurable options */
 #define LIBPFRING_SNAPLEN     1518
@@ -183,6 +187,11 @@ static inline void PfringProcessPacket(void *user, struct pfring_pkthdr *h, Pack
     SC_ATOMIC_ADD(ptv->livedev->pkts, 1);
     p->livedev = ptv->livedev;
 
+    /* PF_RING may fail to set timestamp */
+    if (h->ts.tv_sec == 0) {
+        gettimeofday((struct timeval *)&h->ts, NULL);
+    }
+
     p->ts.tv_sec = h->ts.tv_sec;
     p->ts.tv_usec = h->ts.tv_usec;
 
@@ -260,6 +269,9 @@ TmEcode ReceivePfringLoop(ThreadVars *tv, void *data, void *slot)
             SCReturnInt(TM_ECODE_FAILED);
         }
 
+        /* Some flavours of PF_RING may fail to set timestamp - see PF-RING-enabled libpcap code*/
+        hdr.ts.tv_sec = hdr.ts.tv_usec = 0;
+
         /* Depending on what compile time options are used for pfring we either return 0 or -1 on error and always 1 for success */
 #ifdef HAVE_PFRING_RECV_UCHAR
         int r = pfring_recv(ptv->pd, (u_char**)&GET_PKT_DIRECT_DATA(p),
@@ -276,7 +288,9 @@ TmEcode ReceivePfringLoop(ThreadVars *tv, void *data, void *slot)
         if (r == 1) {
             //printf("RecievePfring src %" PRIu32 " sport %" PRIu32 " dst %" PRIu32 " dstport %" PRIu32 "\n",
             //        hdr.parsed_pkt.ipv4_src,hdr.parsed_pkt.l4_src_port, hdr.parsed_pkt.ipv4_dst,hdr.parsed_pkt.l4_dst_port);
+
             PfringProcessPacket(ptv, &hdr, p);
+
             if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
                 TmqhOutputPacketpool(ptv->tv, p);
                 SCReturnInt(TM_ECODE_FAILED);
@@ -334,7 +348,12 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
         SCReturnInt(TM_ECODE_FAILED);
     }
 
+#ifdef HAVE_PFRING_OPEN_NEW
+    ptv->pd = pfring_open(ptv->interface, (uint32_t)default_packet_size,
+                          PF_RING_REENTRANT | PF_RING_LONG_HEADER | PF_RING_PROMISC);
+#else
     ptv->pd = pfring_open(ptv->interface, LIBPFRING_PROMISC, (uint32_t)default_packet_size, LIBPFRING_REENTRANT);
+#endif
     if (ptv->pd == NULL) {
         SCLogError(SC_ERR_PF_RING_OPEN,"opening %s failed: pfring_open error",
                 ptv->interface);
@@ -379,7 +398,11 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
 #ifdef HAVE_PFRING_SET_BPF_FILTER
     if (pfconf->bpf_filter) {
         ptv->bpf_filter = SCStrdup(pfconf->bpf_filter);
+
+        SCMutexLock(&pfring_bpf_set_filter_lock);
         rc = pfring_set_bpf_filter(ptv->pd, ptv->bpf_filter);
+        SCMutexUnlock(&pfring_bpf_set_filter_lock);
+
         if (rc < 0) {
             SCLogInfo("Set PF_RING bpf filter \"%s\" failed.", ptv->bpf_filter);
         }

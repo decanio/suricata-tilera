@@ -282,12 +282,14 @@ typedef struct DetectPort_ {
 
 #define DETECT_ENGINE_THREAD_CTX_INSPECTING_PACKET 0x0001
 #define DETECT_ENGINE_THREAD_CTX_INSPECTING_STREAM 0x0002
+#define DETECT_ENGINE_THREAD_CTX_STREAM_CONTENT_MATCH 0x0004
 
 #define FILE_SIG_NEED_FILE          0x01
 #define FILE_SIG_NEED_FILENAME      0x02
 #define FILE_SIG_NEED_TYPE          0x04
 #define FILE_SIG_NEED_MAGIC         0x08    /**< need the start of the file */
 #define FILE_SIG_NEED_FILECONTENT   0x10
+#define FILE_SIG_NEED_FILEMD5       0x20
 
 /* Detection Engine flags */
 #define DE_QUIET           0x01     /**< DE is quiet (esp for unittests) */
@@ -648,6 +650,10 @@ typedef struct DetectEngineCtx_ {
     /** sgh for signatures that match against invalid packets. In those cases
      *  we can't lookup by proto, address, port as we don't have these */
     struct SigGroupHead_ *decoder_event_sgh;
+
+    /** Store rule file and line so that parsers can use them in errors. */
+    char *rule_file;
+    int rule_line;
 } DetectEngineCtx;
 
 /* Engine groups profiles (low, medium, high, custom) */
@@ -1013,6 +1019,7 @@ enum {
     DETECT_FILEEXT,
     DETECT_FILESTORE,
     DETECT_FILEMAGIC,
+    DETECT_FILEMD5,
 
     /* make sure this stays last */
     DETECT_TBLSIZE,
@@ -1035,6 +1042,7 @@ int SigGroupBuild(DetectEngineCtx *);
 int SigGroupCleanup (DetectEngineCtx *de_ctx);
 void SigAddressPrepareBidirectionals (DetectEngineCtx *);
 
+char *DetectLoadCompleteSigPath(char *sig_file);
 int SigLoadSignatures (DetectEngineCtx *, char *, int);
 void SigTableList(void);
 void SigTableSetup(void);

@@ -320,7 +320,7 @@ SCError SCLogMessage(SCLogLevel log_level, char **msg, const char *file,
 
                 gettimeofday(&tval, NULL);
                 struct tm local_tm;
-                tms = localtime_r(&tval.tv_sec, &local_tm);
+                tms = SCLocalTime(tval.tv_sec, &local_tm);
 
                 cw = snprintf(temp, SC_LOG_MAX_LOG_MSG_LEN - (temp - *msg),
                               "%s%d/%d/%04d -- %02d:%02d:%02d",
@@ -862,8 +862,6 @@ static inline void SCLogSetOPIface(SCLogInitData *sc_lid, SCLogConfig *sc_lc)
 
                 op_ifaces_ctx = SCLogInitSyslogOPIface(SCMapEnumNameToValue(s, SCSyslogGetFacilityMap()), NULL, -1);
                 break;
-            default:
-                break;
         }
         sc_lc->op_ifaces = op_ifaces_ctx;
         sc_lc->op_ifaces_cnt++;
@@ -1280,8 +1278,6 @@ void SCLogInitLogModuleIfEnvSet(void)
                 s = SC_LOG_DEF_SYSLOG_FACILITY_STR;
 
             op_ifaces_ctx = SCLogInitSyslogOPIface(SCMapEnumNameToValue(s, SCSyslogGetFacilityMap()), NULL, -1);
-            break;
-        default:
             break;
     }
     sc_lc->op_ifaces = op_ifaces_ctx;

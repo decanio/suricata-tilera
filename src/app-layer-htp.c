@@ -452,6 +452,7 @@ struct {
  *  \retval id the id or 0 in case of not found
  */
 static int HTPHandleWarningGetId(const char *msg) {
+    SCLogDebug("received warning \"%s\"", msg);
     size_t idx;
     for (idx = 0; idx < HTP_WARNING_MAX; idx++) {
         if (strncmp(htp_warnings[idx].msg, msg,
@@ -474,6 +475,8 @@ static int HTPHandleWarningGetId(const char *msg) {
  *  \retval id the id or 0 in case of not found
  */
 static int HTPHandleErrorGetId(const char *msg) {
+    SCLogDebug("received error \"%s\"", msg);
+
     size_t idx;
     for (idx = 0; idx < HTP_ERROR_MAX; idx++) {
         if (strncmp(htp_errors[idx].msg, msg,
@@ -686,12 +689,13 @@ static int HTPHandleRequestData(Flow *f, void *htp_state,
 
     /* if the TCP connection is closed, then close the HTTP connection */
     if ((pstate->flags & APP_LAYER_PARSER_EOF) &&
-            ! (hstate->flags & HTP_FLAG_STATE_CLOSED) &&
-            ! (hstate->flags & HTP_FLAG_STATE_DATA))
-    {
-        htp_connp_close(hstate->connp, 0);
-        hstate->flags |= HTP_FLAG_STATE_CLOSED;
-        SCLogDebug("stream eof encountered, closing htp handle");
+        !(hstate->flags & HTP_FLAG_STATE_CLOSED_TS)) {
+        hstate->connp->in_status = STREAM_STATE_CLOSED;
+        // Call the parsers one last time, which will allow them
+        // to process the events that depend on stream closure
+        htp_connp_req_data(hstate->connp, 0, NULL, 0);
+        hstate->flags |= HTP_FLAG_STATE_CLOSED_TS;
+        SCLogDebug("stream eof encountered, closing htp handle for ts");
     }
 
     SCLogDebug("hstate->connp %p", hstate->connp);
@@ -766,11 +770,12 @@ static int HTPHandleResponseData(Flow *f, void *htp_state,
 
     /* if we the TCP connection is closed, then close the HTTP connection */
     if ((pstate->flags & APP_LAYER_PARSER_EOF) &&
-            ! (hstate->flags & HTP_FLAG_STATE_CLOSED) &&
-            ! (hstate->flags & HTP_FLAG_STATE_DATA))
-    {
-        htp_connp_close(hstate->connp, 0);
-        hstate->flags |= HTP_FLAG_STATE_CLOSED;
+        !(hstate->flags & HTP_FLAG_STATE_CLOSED_TC)) {
+        hstate->connp->out_status = STREAM_STATE_CLOSED;
+        // Call the parsers one last time, which will allow them
+        // to process the events that depend on stream closure
+        htp_connp_res_data(hstate->connp, 0, NULL, 0);
+        hstate->flags |= HTP_FLAG_STATE_CLOSED_TC;
     }
 
     SCLogDebug("hstate->connp %p", hstate->connp);
@@ -2392,15 +2397,20 @@ void RegisterHTPParsers(void)
 void AppLayerHtpRegisterExtraCallbacks(void) {
     SCEnter();
     SCLogDebug("Registering extra htp callbacks");
-    if (need_htp_request_body == 1) {
-        SCLogDebug("Registering callback htp_config_register_request_body_data on htp");
-        htp_config_register_request_body_data(cfglist.cfg,
-                                              HTPCallbackRequestBodyData);
-    }
-    if (need_htp_response_body == 1) {
-        SCLogDebug("Registering callback htp_config_register_response_body_data on htp");
-        htp_config_register_response_body_data(cfglist.cfg,
-                                              HTPCallbackResponseBodyData);
+
+    HTPCfgRec *p_cfglist = &cfglist;
+    while (p_cfglist != NULL) {
+        if (need_htp_request_body == 1) {
+            SCLogDebug("Registering callback htp_config_register_request_body_data on htp");
+            htp_config_register_request_body_data(p_cfglist->cfg,
+                                                  HTPCallbackRequestBodyData);
+        }
+        if (need_htp_response_body == 1) {
+            SCLogDebug("Registering callback htp_config_register_response_body_data on htp");
+            htp_config_register_response_body_data(p_cfglist->cfg,
+                                                   HTPCallbackResponseBodyData);
+        }
+        p_cfglist = p_cfglist->next;
     }
     SCReturn;
 }
@@ -3142,6 +3152,93 @@ end:
     return result;
 }
 
+/** \test Host:www.google.com <- missing space between name:value (rfc violation)
+ */
+int HTPParserTest10(void) {
+    int result = 0;
+    Flow *f = NULL;
+    uint8_t httpbuf1[] = "GET / HTTP/1.0\r\nHost:www.google.com\r\n\r\n";
+    uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
+    TcpSession ssn;
+    HtpState *htp_state =  NULL;
+    int r = 0;
+
+    memset(&ssn, 0, sizeof(ssn));
+
+    f = UTHBuildFlow(AF_INET, "1.2.3.4", "1.2.3.5", 1024, 80);
+    if (f == NULL)
+        goto end;
+    f->protoctx = &ssn;
+
+    StreamTcpInitConfig(TRUE);
+
+    uint32_t u;
+    for (u = 0; u < httplen1; u++) {
+        uint8_t flags = 0;
+
+        if (u == 0)
+            flags = STREAM_TOSERVER|STREAM_START;
+        else if (u == (httplen1 - 1))
+            flags = STREAM_TOSERVER|STREAM_EOF;
+        else
+            flags = STREAM_TOSERVER;
+
+        r = AppLayerParse(NULL, f, ALPROTO_HTTP, flags, &httpbuf1[u], 1);
+        if (r != 0) {
+            printf("toserver chunk %" PRIu32 " returned %" PRId32 ", expected"
+                    " 0: ", u, r);
+            goto end;
+        }
+    }
+
+    htp_state = f->alstate;
+    if (htp_state == NULL) {
+        printf("no http state: ");
+        goto end;
+    }
+
+    htp_tx_t *tx = list_get(htp_state->connp->conn->transactions, 0);
+    htp_header_t *h = NULL;
+    table_iterator_reset(tx->request_headers);
+    table_iterator_next(tx->request_headers, (void **) & h);
+
+    if (h == NULL) {
+        goto end;
+    }
+
+    char *name = bstr_tocstr(h->name);
+    if (name == NULL) {
+        goto end;
+    }
+
+    if (strcmp(name, "Host") != 0) {
+        printf("header name not \"Host\", instead \"%s\": ", name);
+        free(name);
+        goto end;
+    }
+    free(name);
+
+    char *value = bstr_tocstr(h->value);
+    if (value == NULL) {
+        goto end;
+    }
+
+    if (strcmp(value, "www.google.com") != 0) {
+        printf("header value not \"www.google.com\", instead \"%s\": ", value);
+        free(value);
+        goto end;
+    }
+    free(value);
+
+    result = 1;
+end:
+    StreamTcpFreeConfig(TRUE);
+    if (htp_state != NULL)
+        HTPStateFree(htp_state);
+    UTHFreeFlow(f);
+    return result;
+}
+
 /** \test Test basic config */
 int HTPParserConfigTest01(void)
 {
@@ -3549,6 +3646,7 @@ void HTPParserRegisterTests(void) {
     UtRegisterTest("HTPParserTest07", HTPParserTest07, 1);
     UtRegisterTest("HTPParserTest08", HTPParserTest08, 1);
     UtRegisterTest("HTPParserTest09", HTPParserTest09, 1);
+    UtRegisterTest("HTPParserTest10", HTPParserTest10, 1);
     UtRegisterTest("HTPParserConfigTest01", HTPParserConfigTest01, 1);
     UtRegisterTest("HTPParserConfigTest02", HTPParserConfigTest02, 1);
     UtRegisterTest("HTPParserConfigTest03", HTPParserConfigTest03, 1);

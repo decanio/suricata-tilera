@@ -5,6 +5,9 @@ noinst_HEADERS = action-globals.h \
 	suricata-common.h threadvars.h util-binsearch.h \
     util-atomic.h util-validate.h
 bin_PROGRAMS = suricata
+
+AM_CPPFLAGS = -DCONFIG_DIR=\"$(sysconfdir)\"
+
 suricata_SOURCES = suricata.c suricata.h \
 runmodes.c runmodes.h \
 runmode-pcap.c runmode-pcap.h \
@@ -94,6 +97,7 @@ detect-engine-hsmd.c detect-engine-hsmd.h \
 detect-engine-hscd.c detect-engine-hscd.h \
 detect-engine-state.c detect-engine-state.h \
 detect-engine-file.c detect-engine-file.h \
+detect-engine-analyzer.c detect-engine-analyzer.h \
 detect-parse.c detect-parse.h \
 detect-ack.c detect-ack.h \
 detect-seq.c detect-seq.h \
@@ -167,6 +171,7 @@ detect-filename.c detect-filename.h \
 detect-fileext.c detect-fileext.h \
 detect-filestore.c detect-filestore.h \
 detect-filemagic.c detect-filemagic.h \
+detect-filemd5.c detect-filemd5.h \
 detect-http-stat-code.c detect-http-stat-code.h \
 detect-ssl-version.c detect-ssl-version.h \
 detect-ssl-state.c detect-ssl-state.h \
@@ -202,6 +207,7 @@ util-unittest-helper.c util-unittest-helper.h \
 util-hash.c util-hash.h \
 util-hashlist.c util-hashlist.h \
 util-hash-lookup3.c util-hash-lookup3.h \
+util-rohash.c util-rohash.h \
 util-bloomfilter.c util-bloomfilter.h \
 util-bloomfilter-counting.c util-bloomfilter-counting.h \
 util-pool.c util-pool.h \

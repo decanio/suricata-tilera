@@ -1234,6 +1234,7 @@ void AppLayerListSupportedProtocols(void)
 {
     uint32_t i;
     uint32_t temp_alprotos_buf[ALPROTO_MAX];
+    memset(temp_alprotos_buf, 0, sizeof(temp_alprotos_buf));
 
     printf("=========Supported App Layer Protocols=========\n");
 

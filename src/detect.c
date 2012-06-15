@@ -46,6 +46,7 @@
 #include "detect-engine-dcepayload.h"
 #include "detect-engine-uri.h"
 #include "detect-engine-state.h"
+#include "detect-engine-analyzer.h"
 
 #include "detect-http-cookie.h"
 #include "detect-http-method.h"
@@ -93,6 +94,7 @@
 #include "detect-fileext.h"
 #include "detect-filestore.h"
 #include "detect-filemagic.h"
+#include "detect-filemd5.h"
 #include "detect-dsize.h"
 #include "detect-flowvar.h"
 #include "detect-flowint.h"
@@ -181,6 +183,7 @@ extern uint8_t engine_mode;
 
 extern int engine_analysis;
 static int fp_engine_analysis_set = 0;
+static int rule_engine_analysis_set = 0;
 static FILE *fp_engine_analysis_FD = NULL;
 
 SigMatch *SigMatchAlloc(void);
@@ -513,11 +516,17 @@ int DetectLoadSigFile(DetectEngineCtx *de_ctx, char *sig_file, int *sigs_tot) {
         /* Reset offset. */
         offset = 0;
 
+        de_ctx->rule_file = sig_file;
+        de_ctx->rule_line = lineno - multiline;
+
         sig = DetectEngineAppendSig(de_ctx, line);
         (*sigs_tot)++;
         if (sig != NULL) {
             if (fp_engine_analysis_set) {
                 EngineAnalysisFastPattern(sig);
+            }
+            if (rule_engine_analysis_set) {
+                EngineAnalysisRules(sig, line);
             }
             SCLogDebug("signature %"PRIu32" loaded", sig->id);
             good++;
@@ -567,7 +576,6 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
                       "report.");
             fp_engine_analysis_set = 0;
         }
-
         if (fp_engine_analysis_set) {
             char *log_dir;
             if (ConfGet("default-log-dir", &log_dir) != 1)
@@ -584,7 +592,7 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
             struct tm *tms;
             gettimeofday(&tval, NULL);
             struct tm local_tm;
-            tms = (struct tm *)localtime_r(&tval.tv_sec, &local_tm);
+            tms = (struct tm *)SCLocalTime(tval.tv_sec, &local_tm);
             fprintf(fp_engine_analysis_FD, "----------------------------------------------"
                     "---------------------\n");
             fprintf(fp_engine_analysis_FD, "Date: %" PRId32 "/%" PRId32 "/%04d -- "
@@ -593,9 +601,11 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
                     tms->tm_min, tms->tm_sec);
             fprintf(fp_engine_analysis_FD, "----------------------------------------------"
                     "---------------------\n");
-        } else {
+        }
+        else {
             SCLogInfo("Engine-Analysis for fast_pattern disabled in conf file.");
         }
+        rule_engine_analysis_set = SetupRuleAnalyzer(log_path);
     }
 
     /* ok, let's load signature files from the general config */
@@ -693,6 +703,9 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
                 fclose(fp_engine_analysis_FD);
                 fp_engine_analysis_FD = NULL;
             }
+        }
+        if (rule_engine_analysis_set) {
+            CleanupRuleAnalyzer(log_path);
         }
     }
 
@@ -1480,7 +1493,6 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
     PACKET_PROFILING_DETECT_START(p, PROF_DETECT_RULES);
     /* inspect the sigs against the packet */
     for (idx = 0; idx < det_ctx->match_array_cnt; idx++) {
-        StreamMsg *alert_msg = NULL;
         RULE_PROFILING_START;
 
         s = det_ctx->match_array[idx];
@@ -1557,36 +1569,25 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                     uint8_t pmq_idx = 0;
                     StreamMsg *smsg_inspect = smsg;
                     for ( ; smsg_inspect != NULL; smsg_inspect = smsg_inspect->next, pmq_idx++) {
-                        //if (det_ctx->smsg_pmq[pmq_idx].pattern_id_array_cnt == 0) {
-                        //    SCLogDebug("no match in smsg_inspect %p (%u), idx %d", smsg_inspect, smsg_inspect->data.data_len, pmq_idx);
-                        //    continue;
-                        //}
+                        /* filter out sigs that want pattern matches, but
+                         * have no matches */
+                        if ((s->flags & SIG_FLAG_MPM_STREAM) && !(s->flags & SIG_FLAG_MPM_STREAM_NEG) &&
+                            !(det_ctx->smsg_pmq[pmq_idx].pattern_id_bitarray[(s->mpm_pattern_id_div_8)] & s->mpm_pattern_id_mod_8)) {
+                            SCLogDebug("no match in this smsg");
+                            continue;
+                        }
 
-                        if (det_ctx->smsg_pmq[pmq_idx].pattern_id_bitarray != NULL) {
-                            /* filter out sigs that want pattern matches, but
-                             * have no matches */
-                            if (!(det_ctx->smsg_pmq[pmq_idx].pattern_id_bitarray[(s->mpm_pattern_id_div_8)] & s->mpm_pattern_id_mod_8) &&
-                                (s->flags & SIG_FLAG_MPM_STREAM) && !(s->flags & SIG_FLAG_MPM_STREAM_NEG)) {
-                                SCLogDebug("no match in this smsg");
-                                continue;
-                            }
+                        if (DetectEngineInspectStreamPayload(de_ctx, det_ctx, s, p->flow, smsg_inspect->data.data, smsg_inspect->data.data_len) == 1) {
+                            SCLogDebug("match in smsg %p", smsg);
+                            pmatch = 1;
+                            det_ctx->flags |= DETECT_ENGINE_THREAD_CTX_STREAM_CONTENT_MATCH;
+                            /* Tell the engine that this reassembled stream can drop the
+                             * rest of the pkts with no further inspection */
+                            if (s->action & ACTION_DROP)
+                                alert_flags |= PACKET_ALERT_FLAG_DROP_FLOW;
 
-                            if (DetectEngineInspectStreamPayload(de_ctx, det_ctx, s, p->flow, smsg_inspect->data.data, smsg_inspect->data.data_len) == 1) {
-                                SCLogDebug("match in smsg %p", smsg);
-                                pmatch = 1;
-                                /* Tell the engine that this reassembled stream can drop the
-                                 * rest of the pkts with no further inspection */
-                                if (s->action & ACTION_DROP)
-                                    alert_flags |= PACKET_ALERT_FLAG_DROP_FLOW;
-
-                                /* store ptr to current smsg */
-                                if (alert_msg == NULL) {
-                                    alert_msg = smsg_inspect;
-                                    p->alerts.alert_msgs = smsg;
-                                }
-
-                                break;
-                            }
+                            alert_flags |= PACKET_ALERT_FLAG_STREAM_MATCH;
+                            break;
                         }
                     }
 
@@ -1695,12 +1696,14 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
         SigMatchSignaturesRunPostMatch(th_v, de_ctx, det_ctx, p, s);
 
         if (!(s->flags & SIG_FLAG_NOALERT)) {
-            PacketAlertAppend(det_ctx, s, p, alert_flags, alert_msg);
+            PacketAlertAppend(det_ctx, s, p, alert_flags);
         }
 next:
         DetectReplaceFree(det_ctx->replist);
         det_ctx->replist = NULL;
         RULE_PROFILING_END(s, match);
+
+        det_ctx->flags = 0;
         continue;
     }
     PACKET_PROFILING_DETECT_END(p, PROF_DETECT_RULES);
@@ -1788,10 +1791,7 @@ end:
 
         /* if we had no alerts that involved the smsgs,
          * we can get rid of them now. */
-        if (p->alerts.alert_msgs == NULL) {
-            /* if we have (a) smsg(s), return to the pool */
-            StreamMsgReturnListToPool(smsg);
-        }
+        StreamMsgReturnListToPool(smsg);
 
         FLOWLOCK_UNLOCK(p->flow);
 
@@ -2072,7 +2072,7 @@ static int SignatureIsDEOnly(DetectEngineCtx *de_ctx, Signature *s) {
             SCReturnInt(0);
     }
 
-    /* need at least one decode event keyword to be condered decode event. */
+    /* need at least one decode event keyword to be considered decode event. */
     sm = s->sm_lists[DETECT_SM_LIST_MATCH];
     for ( ;sm != NULL; sm = sm->next) {
         if (sm->type == DETECT_DECODE_EVENT)
@@ -4545,6 +4545,7 @@ void SigTableSetup(void) {
     DetectFileextRegister();
     DetectFilestoreRegister();
     DetectFilemagicRegister();
+    DetectFileMd5Register();
     DetectAppLayerEventRegister();
 
     uint8_t i = 0;

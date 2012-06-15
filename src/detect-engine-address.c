@@ -34,6 +34,8 @@
 #include "util-cidr.h"
 #include "util-unittest.h"
 #include "util-rule-vars.h"
+#include "conf.h"
+#include "conf-yaml-loader.h"
 
 #include "detect-engine-siggroup.h"
 #include "detect-engine-address.h"
@@ -823,8 +825,8 @@ int DetectAddressSetup(DetectAddressHead *gh, char *s)
     ad = DetectAddressParseSingle(s);
     if (ad == NULL) {
         SCLogError(SC_ERR_ADDRESS_ENGINE_GENERIC,
-                   "DetectAddressParse error \"%s\"", s);
-        goto error;
+                "failed to parse address \"%s\"", s);
+        return -1;
     }
 
     if (ad->flags & ADDRESS_FLAG_ANY)
@@ -919,13 +921,19 @@ int DetectAddressParse2(DetectAddressHead *gh, DetectAddressHead *ghn, char *s,
     int o_set = 0, n_set = 0, d_set = 0;
     int depth = 0;
     size_t size = strlen(s);
-    char address[1024] = "";
+    char address[8196] = "";
     char *rule_var_address = NULL;
     char *temp_rule_var_address = NULL;
 
     SCLogDebug("s %s negate %s", s, negate ? "true" : "false");
 
     for (u = 0, x = 0; u < size && x < sizeof(address); u++) {
+        if (x == (sizeof(address) - 1)) {
+            SCLogError(SC_ERR_ADDRESS_ENGINE_GENERIC, "Hit the address buffer"
+                       " limit for the supplied address.  Invalidating sig.  "
+                       "Please file a bug report on this.");
+            goto error;
+        }
         address[x] = s[u];
         x++;
 
@@ -995,7 +1003,7 @@ int DetectAddressParse2(DetectAddressHead *gh, DetectAddressHead *ghn, char *s,
         } else if (depth == 0 && s[u] == '$') {
             d_set = 1;
         } else if (depth == 0 && u == size - 1) {
-            if (x == 1024) {
+            if (x == sizeof(address)) {
                 address[x - 1] = '\0';
             } else {
                 address[x] = '\0';
@@ -1100,7 +1108,9 @@ int DetectAddressMergeNot(DetectAddressHead *gh, DetectAddressHead *ghn)
     /* check if the negated list covers the entire ip space. If so
      * the user screwed up the rules/vars. */
     if (DetectAddressIsCompleteIPSpace(ghn) == 1) {
-        SCLogDebug("DetectAddressMergeNot: complete IP space negated");
+        SCLogError(SC_ERR_INVALID_SIGNATURE, "Complete IP space negated. "
+                   "Rule address range is NIL. Probably have a !any or "
+                   "an address range that supplies a NULL address range");
         goto error;
     }
 
@@ -1216,6 +1226,56 @@ int DetectAddressMergeNot(DetectAddressHead *gh, DetectAddressHead *ghn)
     return 0;
 
 error:
+    return -1;
+}
+
+int DetectAddressTestConfVars(void)
+{
+    SCLogDebug("Testing address conf vars for any misconfigured values");
+
+    ConfNode *address_vars_node = ConfGetNode("vars.address-groups");
+    if (address_vars_node == NULL) {
+        return 0;
+    }
+
+    ConfNode *seq_node;
+    TAILQ_FOREACH(seq_node, &address_vars_node->head, next) {
+        SCLogDebug("Testing %s - %s", seq_node->name, seq_node->val);
+
+        DetectAddressHead *gh = DetectAddressHeadInit();
+        if (gh == NULL) {
+            goto error;
+        }
+        DetectAddressHead *ghn = DetectAddressHeadInit();
+        if (ghn == NULL) {
+            goto error;
+        }
+
+        int r = DetectAddressParse2(gh, ghn, seq_node->val, /* start with negate no */0);
+        if (r < 0) {
+            SCLogError(SC_ERR_INVALID_YAML_CONF_ENTRY,
+                        "failed to parse address var \"%s\" with value \"%s\". "
+                        "Please check it's syntax", seq_node->name, seq_node->val);
+            goto error;
+        }
+
+        if (DetectAddressIsCompleteIPSpace(ghn)) {
+            SCLogError(SC_ERR_INVALID_YAML_CONF_ENTRY,
+                       "address var - \"%s\" has the complete IP space negated "
+                       "with it's value \"%s\".  Rule address range is NIL. "
+                       "Probably have a !any or an address range that supplies "
+                       "a NULL address range", seq_node->name, seq_node->val);
+            goto error;
+        }
+
+        if (gh != NULL)
+            DetectAddressHeadFree(gh);
+        if (ghn != NULL)
+            DetectAddressHeadFree(ghn);
+    }
+
+    return 0;
+ error:
     return -1;
 }
 
@@ -4109,6 +4169,150 @@ int AddressTestParseInvalidMask03(void)
     return result;
 }
 
+int AddressConfVarsTest01(void)
+{
+    static const char *dummy_conf_string =
+        "%YAML 1.1\n"
+        "---\n"
+        "\n"
+        "vars:\n"
+        "\n"
+        "  address-groups:\n"
+        "\n"
+        "    HOME_NET: \"any\"\n"
+        "\n"
+        "    EXTERNAL_NET: \"!any\"\n"
+        "\n"
+        "  port-groups:\n"
+        "\n"
+        "    HTTP_PORTS: \"any\"\n"
+        "\n"
+        "    SHELLCODE_PORTS: \"!any\"\n"
+        "\n";
+
+    int result = 0;
+
+    ConfCreateContextBackup();
+    ConfInit();
+    ConfYamlLoadString(dummy_conf_string, strlen(dummy_conf_string));
+
+    if (DetectAddressTestConfVars() < 0 && DetectPortTestConfVars() < 0)
+        result = 1;
+
+    ConfDeInit();
+    ConfRestoreContextBackup();
+
+    return result;
+}
+
+int AddressConfVarsTest02(void)
+{
+    static const char *dummy_conf_string =
+        "%YAML 1.1\n"
+        "---\n"
+        "\n"
+        "vars:\n"
+        "\n"
+        "  address-groups:\n"
+        "\n"
+        "    HOME_NET: \"any\"\n"
+        "\n"
+        "    EXTERNAL_NET: \"any\"\n"
+        "\n"
+        "  port-groups:\n"
+        "\n"
+        "    HTTP_PORTS: \"any\"\n"
+        "\n"
+        "    SHELLCODE_PORTS: \"!any\"\n"
+        "\n";
+
+    int result = 0;
+
+    ConfCreateContextBackup();
+    ConfInit();
+    ConfYamlLoadString(dummy_conf_string, strlen(dummy_conf_string));
+
+    if (DetectAddressTestConfVars() == 0 && DetectPortTestConfVars() < 0)
+        result = 1;
+
+    ConfDeInit();
+    ConfRestoreContextBackup();
+
+    return result;
+}
+
+int AddressConfVarsTest03(void)
+{
+    static const char *dummy_conf_string =
+        "%YAML 1.1\n"
+        "---\n"
+        "\n"
+        "vars:\n"
+        "\n"
+        "  address-groups:\n"
+        "\n"
+        "    HOME_NET: \"any\"\n"
+        "\n"
+        "    EXTERNAL_NET: \"!$HOME_NET\"\n"
+        "\n"
+        "  port-groups:\n"
+        "\n"
+        "    HTTP_PORTS: \"any\"\n"
+        "\n"
+        "    SHELLCODE_PORTS: \"!$HTTP_PORTS\"\n"
+        "\n";
+
+    int result = 0;
+
+    ConfCreateContextBackup();
+    ConfInit();
+    ConfYamlLoadString(dummy_conf_string, strlen(dummy_conf_string));
+
+    if (DetectAddressTestConfVars() < 0 && DetectPortTestConfVars() < 0)
+        result = 1;
+
+    ConfDeInit();
+    ConfRestoreContextBackup();
+
+    return result;
+}
+
+int AddressConfVarsTest04(void)
+{
+    static const char *dummy_conf_string =
+        "%YAML 1.1\n"
+        "---\n"
+        "\n"
+        "vars:\n"
+        "\n"
+        "  address-groups:\n"
+        "\n"
+        "    HOME_NET: \"any\"\n"
+        "\n"
+        "    EXTERNAL_NET: \"$HOME_NET\"\n"
+        "\n"
+        "  port-groups:\n"
+        "\n"
+        "    HTTP_PORTS: \"any\"\n"
+        "\n"
+        "    SHELLCODE_PORTS: \"$HTTP_PORTS\"\n"
+        "\n";
+
+    int result = 0;
+
+    ConfCreateContextBackup();
+    ConfInit();
+    ConfYamlLoadString(dummy_conf_string, strlen(dummy_conf_string));
+
+    if (DetectAddressTestConfVars() == 0 && DetectPortTestConfVars() == 0)
+        result = 1;
+
+    ConfDeInit();
+    ConfRestoreContextBackup();
+
+    return result;
+}
+
 #endif /* UNITTESTS */
 
 void DetectAddressTests(void)
@@ -4281,5 +4485,11 @@ void DetectAddressTests(void)
                    AddressTestParseInvalidMask02, 1);
     UtRegisterTest("AddressTestParseInvalidMask03",
                    AddressTestParseInvalidMask03, 1);
+
+    UtRegisterTest("AddressConfVarsTest01 ", AddressConfVarsTest01, 1);
+    UtRegisterTest("AddressConfVarsTest02 ", AddressConfVarsTest02, 1);
+    UtRegisterTest("AddressConfVarsTest03 ", AddressConfVarsTest03, 1);
+    UtRegisterTest("AddressConfVarsTest04 ", AddressConfVarsTest04, 1);
+
 #endif /* UNITTESTS */
 }

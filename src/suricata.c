@@ -29,6 +29,7 @@
 #include <pthread.h>
 
 #ifdef HAVE_NSS
+#include <prinit.h>
 #include <nss.h>
 #endif
 
@@ -450,13 +451,8 @@ void usage(const char *progname)
 #endif
     printf("USAGE: %s\n\n", progname);
     printf("\t-c <path>                    : path to configuration file\n");
-#ifdef __tilegx__
-    printf("\t-i <dev>                     : run in tilera mpipe mode\n");
-#elif defined(__tile__)
-    printf("\t-i <dev>                     : run in tilera netio mode\n");
-#else
+    printf("\t-T                           : test configuration file (use with -c)\n");
     printf("\t-i <dev or ip>               : run in pcap live mode\n");
-#endif
     printf("\t-F <bpf filter file>         : bpf filter file\n");
     printf("\t-r <path>                    : run in pcap file/offline mode\n");
 #ifdef NFQ
@@ -519,6 +515,9 @@ void usage(const char *progname)
 #endif
 #ifdef HAVE_NAPATECH
     printf("\t--napatech <adapter>          : run Napatech feeds using <adapter>\n");
+#endif
+#ifdef __tilegx__
+    printf("\t--mpipe                      : run with tilegx mpipe interface(s)\n");
 #endif
     printf("\n");
     printf("\nTo run the engine with default configuration on "
@@ -696,10 +695,6 @@ int main(int argc, char **argv)
     SC_ATOMIC_INIT(engine_stage);
 
     SCMallocInit();
-#ifdef HAVE_NSS
-    /* init NSS for md5 */
-    NSS_NoDB_Init(NULL);
-#endif
 
     /* initialize the logging subsys */
     SCLogInitLogModule(NULL);
@@ -1290,6 +1285,13 @@ int main(int argc, char **argv)
     /* load the pattern matchers */
     MpmTableSetup();
 
+    if (run_mode != RUNMODE_UNITTEST &&
+            !list_keywords &&
+            !list_app_layer_protocols) {
+        if (conf_filename == NULL)
+            conf_filename = DEFAULT_CONF_FILE;
+    }
+
     /** \todo we need an api for these */
     /* Load yaml configuration file if provided. */
     if (conf_filename != NULL) {
@@ -1317,13 +1319,6 @@ int main(int argc, char **argv)
                 }
             }
         }
-
-    } else if (run_mode != RUNMODE_UNITTEST &&
-                !list_keywords &&
-                !list_app_layer_protocols) {
-        SCLogError(SC_ERR_OPENING_FILE, "Configuration file has not been provided");
-        usage(argv[0]);
-        exit(EXIT_FAILURE);
     }
 
     AppLayerDetectProtoThreadInit();
@@ -1461,6 +1456,18 @@ int main(int argc, char **argv)
     SCProtoNameInit();
 
     TagInitCtx();
+
+    if (DetectAddressTestConfVars() < 0) {
+        SCLogError(SC_ERR_INVALID_YAML_CONF_ENTRY,
+                "basic address vars test failed. Please check %s for errors", conf_filename);
+        exit(EXIT_FAILURE);
+    }
+    if (DetectPortTestConfVars() < 0) {
+        SCLogError(SC_ERR_INVALID_YAML_CONF_ENTRY,
+                "basic port vars test failed. Please check %s for errors", conf_filename);
+        exit(EXIT_FAILURE);
+    }
+
 
     TmModuleReceiveNFQRegister();
     TmModuleVerdictNFQRegister();
@@ -1665,6 +1672,12 @@ int main(int argc, char **argv)
             exit(EXIT_FAILURE);
         }
     }
+
+#ifdef HAVE_NSS
+    /* init NSS for md5 */
+    PR_Init(PR_USER_THREAD, PR_PRIORITY_NORMAL, 0);
+    NSS_NoDB_Init(NULL);
+#endif
 
     /* registering signals we use */
     SignalHandlerSetup(SIGINT, SignalHandlerSigint);

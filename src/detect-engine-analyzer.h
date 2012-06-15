@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2011 Open Information Security Foundation
+/* Copyright (C) 2007-2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -18,21 +18,18 @@
 /**
  * \file
  *
- * \author Victor Julien <victor@inliniac.net>
+ * \author Eileen Donlon <emdonlo@gmail.com>
  */
 
-#ifndef __DETECT_ENGINE_ALERT_H__
-#define __DETECT_ENGINE_ALERT_H__
+#ifndef __DETECT_ENGINE_ANALYZER_H__
+#define __DETECT_ENGINE_ANALYZER_H__
 
-#include "suricata-common.h"
-#include "decode.h"
-#include "detect.h"
+#include <stdint.h>
 
-void PacketAlertFinalize(DetectEngineCtx *, DetectEngineThreadCtx *, Packet *);
-int PacketAlertAppend(DetectEngineThreadCtx *, Signature *, Packet *, uint8_t);
-int PacketAlertCheck(Packet *, uint32_t);
-int PacketAlertRemove(Packet *, uint16_t);
-void PacketAlertTagInit(void);
-PacketAlert *PacketAlertGetTag(void);
+int SetupRuleAnalyzer(char *log_path);
+void CleanupRuleAnalyzer (char *log_path);
+int PerCentEncodingSetup ();
+int PerCentEncodingMatch (uint8_t *content, uint8_t content_len);
+void EngineAnalysisRules(Signature *s, char *line);
 
-#endif /* __DETECT_ENGINE_ALERT_H__ */
+#endif /* __DETECT_ENGINE_ANALYZER_H__ */

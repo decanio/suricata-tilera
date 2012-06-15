@@ -280,7 +280,7 @@ TmEcode PcapLog (ThreadVars *t, Packet *p, void *data, PacketQueue *pq,
 
     if (pl->mode == LOGMODE_SGUIL) {
         struct tm local_tm;
-        struct tm *tms = (struct tm *)localtime_r(&p->ts.tv_sec, &local_tm);
+        struct tm *tms = (struct tm *)SCLocalTime(p->ts.tv_sec, &local_tm);
         if (tms->tm_mday != pl->prev_day) {
             rotate = 1;
             pl->prev_day = tms->tm_mday;
@@ -350,7 +350,7 @@ TmEcode PcapLogDataInit(ThreadVars *t, void *initdata, void **data)
     memset(&ts, 0x00, sizeof(struct timeval));
     TimeGet(&ts);
     struct tm local_tm;
-    struct tm *tms = (struct tm *)localtime_r(&ts.tv_sec, &local_tm);
+    struct tm *tms = (struct tm *)SCLocalTime(ts.tv_sec, &local_tm);
     pl->prev_day = tms->tm_mday;
 
     *data = (void *)pl;
@@ -417,8 +417,7 @@ OutputCtx *PcapLogInitCtx(ConfNode *conf)
         filename = DEFAULT_LOG_FILENAME;
 
     if ((pl->prefix = SCStrdup(filename)) == NULL) {
-        SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory for directory name");
-        return NULL;
+        exit(EXIT_FAILURE);
     }
 
     pl->size_limit = DEFAULT_LIMIT;
@@ -576,15 +575,14 @@ OutputCtx *PcapLogInitCtx(ConfNode *conf)
 
 static void PcapLogFileDeInitCtx(OutputCtx *output_ctx)
 {
+    if (output_ctx == NULL)
+        return;
+
     PcapLogData *pl = output_ctx->data;
 
     PcapFileName *pf = NULL;
     TAILQ_FOREACH(pf, &pl->pcap_file_list, next) {
         SCLogDebug("PCAP files left at exit: %s\n", pf->filename);
-    }
-
-    if (output_ctx != NULL) {
-        SCFree(output_ctx);
     }
 
     return;
@@ -625,7 +623,7 @@ int PcapLogOpenFileCtx(PcapLogData *pl)
 
     if (pl->mode == LOGMODE_SGUIL) {
         struct tm local_tm;
-        struct tm *tms = (struct tm *)localtime_r(&ts.tv_sec, &local_tm);
+        struct tm *tms = (struct tm *)SCLocalTime(ts.tv_sec, &local_tm);
 
         char dirname[32], dirfull[PATH_MAX] = "";
 

@@ -13,7 +13,7 @@ SUBDIRS = $(HTP_DIR) src qa rules doc
 install-data-am:
 	@echo "Run 'make install-conf' if you want to install initial configuration files. Or 'make install-full' to install configuration and rules";
 
-install-full: install-conf install-rules
+install-full: install install-conf install-rules
 
 install-conf:
 	install -d $(e_sysconfdir)
@@ -24,7 +24,7 @@ install-conf:
 
 install-rules:
 	install -d $(e_sysconfdir)/rules
-	wget -qO - http://rules.emergingthreats.net/open/suricata/emerging.rules.tar.gz | tar zkx -C $(e_sysconfdir)
+	wget -qO - http://rules.emergingthreats.net/open/suricata/emerging.rules.tar.gz | tar -x -z -C $(e_sysconfdir) -f -
 	@test -e $(e_sysconfdir)/rules/decoder-events.rules || install -m 600 $(top_srcdir)/rules/decoder-events.rules $(e_sysconfdir)/rules/
 	@test -e $(e_sysconfdir)/rules/stream-events.rules || install -m 600 $(top_srcdir)/rules/stream-events.rules $(e_sysconfdir)/rules/
 	@test -e $(e_sysconfdir)/rules/smtp-events.rules || install -m 600 $(top_srcdir)/rules/smtp-events.rules $(e_sysconfdir)/rules/

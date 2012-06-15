@@ -99,6 +99,8 @@ const char * SCErrorToString(SCError err)
         CASE_CODE (SC_ERR_REASSEMBLY);
         CASE_CODE (SC_ERR_POOL_INIT);
         CASE_CODE (SC_ERR_UNIMPLEMENTED);
+        CASE_CODE (SC_ERR_ADDRESS_ENGINE_GENERIC);
+        CASE_CODE (SC_ERR_PORT_ENGINE_GENERIC);
         CASE_CODE (SC_ERR_FAST_LOG_GENERIC);
         CASE_CODE (SC_ERR_IPONLY_RADIX);
         CASE_CODE (SC_ERR_DEBUG_LOG_GENERIC);
@@ -226,6 +228,8 @@ const char * SCErrorToString(SCError err)
         CASE_CODE (SC_ERR_FLOW_INIT);
         CASE_CODE (SC_ERR_HOST_INIT);
         CASE_CODE (SC_ERR_MEM_BUFFER_API);
+        CASE_CODE (SC_ERR_INVALID_MD5);
+        CASE_CODE (SC_ERR_NO_MD5_SUPPORT);
 
         default:
             return "UNKNOWN_ERROR";

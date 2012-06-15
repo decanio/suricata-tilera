@@ -75,7 +75,7 @@ typedef enum ThresholdRuleType {
 #define DETECT_SUPPRESS_REGEX "^,\\s*track\\s*(by_dst|by_src)\\s*,\\s*ip\\s*([\\d.:/]+)*\\s*$"
 
 /* Default path for the threshold.config file */
-#define THRESHOLD_CONF_DEF_CONF_FILEPATH "threshold.config"
+#define THRESHOLD_CONF_DEF_CONF_FILEPATH CONFIG_DIR "/threshold.config"
 
 static pcre *regex_base = NULL;
 static pcre_extra *regex_base_study = NULL;
@@ -479,6 +479,10 @@ int SCThresholdConfAddThresholdtype(char *rawstr, DetectEngineCtx *de_ctx)
             }
 
             if (ByteExtractStringUint32(&parsed_count, 10, strlen(th_count), th_count) <= 0) {
+                goto error;
+            }
+            if (parsed_count == 0) {
+                SCLogError(SC_ERR_INVALID_VALUE, "rate filter count should be > 0");
                 goto error;
             }
 
@@ -1515,7 +1519,6 @@ int SCThresholdConfTest09(void)
     Packet *p = UTHBuildPacket((uint8_t*)"lalala", 6, IPPROTO_TCP);
     ThreadVars th_v;
     DetectEngineThreadCtx *det_ctx = NULL;
-    int alerts = 0;
 
     memset(&th_v, 0, sizeof(th_v));
 
@@ -1543,18 +1546,26 @@ int SCThresholdConfTest09(void)
 
     TimeGet(&p->ts);
 
+    p->alerts.cnt = 0;
+    p->action = 0;
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
-    alerts = PacketAlertCheck(p, 10);
-    SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
-    alerts += PacketAlertCheck(p, 10);
-    if (alerts > 0) {
+    if (p->alerts.cnt != 1 || p->action & ACTION_DROP) {
         result = 0;
         goto end;
     }
 
+    p->alerts.cnt = 0;
+    p->action = 0;
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
-    alerts += PacketAlertCheck(p, 10);
-    if (alerts != 1) {
+    if (p->alerts.cnt != 1 || p->action & ACTION_DROP) {
+        result = 0;
+        goto end;
+    }
+
+    p->alerts.cnt = 0;
+    p->action = 0;
+    SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
+    if (p->alerts.cnt != 1 || p->action & ACTION_DROP) {
         result = 0;
         goto end;
     }
@@ -1562,9 +1573,21 @@ int SCThresholdConfTest09(void)
     TimeSetIncrementTime(2);
     TimeGet(&p->ts);
 
+    p->alerts.cnt = 0;
+    p->action = 0;
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
-    alerts += PacketAlertCheck(p, 10);
-    if (alerts != 2) {
+    if (p->alerts.cnt != 1 || !(p->action & ACTION_DROP)) {
+        result = 0;
+        goto end;
+    }
+
+    TimeSetIncrementTime(3);
+    TimeGet(&p->ts);
+
+    p->alerts.cnt = 0;
+    p->action = 0;
+    SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
+    if (p->alerts.cnt != 1 || !(p->action & ACTION_DROP)) {
         result = 0;
         goto end;
     }
@@ -1572,13 +1595,23 @@ int SCThresholdConfTest09(void)
     TimeSetIncrementTime(10);
     TimeGet(&p->ts);
 
+    p->alerts.cnt = 0;
+    p->action = 0;
     SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
-    alerts += PacketAlertCheck(p, 10);
-    SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
-    alerts += PacketAlertCheck(p, 10);
+    if (p->alerts.cnt != 1 || p->action & ACTION_DROP) {
+        result = 0;
+        goto end;
+    }
 
-    if (alerts == 2)
-        result = 1;
+    p->alerts.cnt = 0;
+    p->action = 0;
+    SigMatchSignatures(&th_v, de_ctx, det_ctx, p);
+    if (p->alerts.cnt != 1 || p->action & ACTION_DROP) {
+        result = 0;
+        goto end;
+    }
+
+    result = 1;
 
 end:
     UTHFreePacket(p);

@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2011 Open Information Security Foundation
+/* Copyright (C) 2007-2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -21,18 +21,17 @@
  * \author Victor Julien <victor@inliniac.net>
  */
 
-#ifndef __DETECT_ENGINE_ALERT_H__
-#define __DETECT_ENGINE_ALERT_H__
+#ifndef __DETECT_FILEMD5_H__
+#define __DETECT_FILEMD5_H__
 
-#include "suricata-common.h"
-#include "decode.h"
-#include "detect.h"
+#include "util-rohash.h"
 
-void PacketAlertFinalize(DetectEngineCtx *, DetectEngineThreadCtx *, Packet *);
-int PacketAlertAppend(DetectEngineThreadCtx *, Signature *, Packet *, uint8_t);
-int PacketAlertCheck(Packet *, uint32_t);
-int PacketAlertRemove(Packet *, uint16_t);
-void PacketAlertTagInit(void);
-PacketAlert *PacketAlertGetTag(void);
+typedef struct DetectFileMd5Data {
+    ROHashTable *hash;
+    int negated;
+} DetectFileMd5Data;
 
-#endif /* __DETECT_ENGINE_ALERT_H__ */
+/* prototypes */
+void DetectFileMd5Register (void);
+
+#endif /* __DETECT_FILEMD5_H__ */

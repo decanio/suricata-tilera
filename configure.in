@@ -92,6 +92,7 @@ AC_INIT(configure.in)
     AC_CHECK_HEADERS([arpa/inet.h inttypes.h limits.h netdb.h poll.h signal.h stdint.h stdlib.h string.h syslog.h sys/ioctl.h sys/prctl.h sys/socket.h sys/syscall.h netinet/in.h sys/time.h unistd.h windows.h winsock2.h ws2tcpip.h])
     AC_CHECK_HEADERS([sys/socket.h net/if.h sys/mman.h], [], [],
     [[#ifdef HAVE_SYS_SOCKET_H
+#include <sys/types.h>
 #include <sys/socket.h>
 #endif
     ]])
@@ -125,6 +126,7 @@ AC_INIT(configure.in)
     fi
     echo -n "installation for $host OS... \c"
 
+    e_magic_file="/usr/share/file/magic"
     case "$host" in
 	    *-*-*freebsd*)
 		    CFLAGS="${CFLAGS} -DOS_FREEBSD"
@@ -132,9 +134,10 @@ AC_INIT(configure.in)
                     LDFLAGS="${LDFLAGS} -L/usr/local/lib -L/usr/local/lib/libnet11"
                     ;;
            *-*-openbsd*)
-                    CFLAGS="${CFLAGS} -D__OpenBSD__"
+                    CFLAGS="${CFLAGS} -D__OpenBSD__ -fgnu89-inline"
                     CPPFLAGS="${CPPFLAGS} -I/usr/local/include -I/usr/local/include/libnet-1.1"
                     LDFLAGS="${LDFLAGS} -L/usr/local/lib -I/usr/local/lib/libnet-1.1"
+		    e_magic_file="/usr/local/share/file/magic.mgc"
                     ;;
     	   *darwin*|*Darwin*)
                     CFLAGS="${CFLAGS} -DOS_DARWIN"
@@ -744,10 +747,7 @@ AC_INIT(configure.in)
                 ],
                 [
                     u_char *buffer;
-                    struct pfring_pkthdr hdr;
-                    pfring *pd; memset(&hdr, 0, sizeof(hdr));
-                    pd = pfring_open("eth1", 1,  1515, 1);
-                    pfring_recv(pd, &buffer, 0, &hdr, 1);
+                    pfring_recv(NULL, &buffer, 0, NULL, 1);
                 ],
                 [ pfring_recv_uchar_buff=yes ], [:])
 
@@ -759,6 +759,27 @@ AC_INIT(configure.in)
         else
             AC_MSG_RESULT(no)
         fi
+
+        # check if the argument to nfq_get_payload is signed or unsigned
+        AC_MSG_CHECKING([for post 5.4.0 pfring_open function])
+        STORECFLAGS="${CFLAGS}"
+        CFLAGS="${CFLAGS} -Werror"
+        AC_COMPILE_IFELSE(
+            [AC_LANG_PROGRAM(
+                [
+                #include <pfring.h>
+                ],
+                [
+                pfring_open(NULL, 0, 0);
+                ])],
+            [pfring_new_open="yes"],
+            [pfring_new_open="no"])
+        AC_MSG_RESULT($pfring_new_open)
+        if test "x$pfring_new_open" = "xyes"; then
+            AC_DEFINE([HAVE_PFRING_OPEN_NEW], [1], [For post 5.4.0 version of pfring_open])
+        fi
+        CFLAGS="${STORECFLAGS}"
+
     ])
 
 
@@ -831,7 +852,6 @@ AC_INIT(configure.in)
             AC_DEFINE([HAVE_PACKET_FANOUT],[1],[Packet fanout support is available]),
             [],
             [[#include <linux/if_packet.h>]])
-        CFLAGS="${CFLAGS} -DUNITTESTS"
     ])
 
 
@@ -1014,18 +1034,18 @@ AC_INIT(configure.in)
 
     if test "$enable_dag" = "yes"; then
 
-	    if test "$with_dag_includes" != "no"; then
+	if test "$with_dag_includes" != "no"; then
             CPPFLAGS="${CPPFLAGS} -I${with_dag_includes}"
         fi
 
         if test "$with_dag_libraries" != "no"; then
-            LDFLAGS="${LDFLAGS} -I${with_dag_libraries}"
+            LDFLAGS="${LDFLAGS} -L${with_dag_libraries}"
         fi
 
         AC_CHECK_HEADER(dagapi.h,DAG="yes",DAG="no")
         if test "$DAG" != "no"; then
             DAG=""
-	        AC_CHECK_LIB(dag,dag_open,DAG="yes",DAG="no")
+	    AC_CHECK_LIB(dag,dag_open,,DAG="no",)
         fi
 
         if test "$DAG" != "no"; then
@@ -1238,7 +1258,6 @@ if test "$WINDOWS_PATH" = "yes"; then
 else
   EXPAND_VARIABLE(localstatedir, e_logdir, "/log/suricata/")
   EXPAND_VARIABLE(sysconfdir, e_sysconfdir, "/suricata/")
-  e_magic_file="/usr/share/file/magic"
 fi
 AC_SUBST(e_logdir)
 AC_SUBST(e_sysconfdir)

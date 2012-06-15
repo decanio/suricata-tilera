@@ -44,6 +44,7 @@
 #include "detect-engine-siggroup.h"
 #include "detect-engine-port.h"
 
+#include "conf.h"
 #include "util-debug.h"
 #include "util-error.h"
 
@@ -913,8 +914,8 @@ static int DetectPortParseInsertString(DetectPort **head, char *s) {
     /** parse the address */
     ad = PortParse(s);
     if (ad == NULL) {
-        SCLogError(SC_ERR_INVALID_ARGUMENT,"PortParse error \"%s\"",s);
-        goto error;
+        SCLogError(SC_ERR_INVALID_ARGUMENT," failed to parse port \"%s\"",s);
+        return -1;
     }
 
     if (ad->flags & PORT_FLAG_ANY) {
@@ -1287,6 +1288,51 @@ error:
         DetectPortFree(ad);
     return -1;
 }
+
+int DetectPortTestConfVars(void)
+{
+    SCLogDebug("Testing port conf vars for any misconfigured values");
+
+    ConfNode *port_vars_node = ConfGetNode("vars.port-groups");
+    if (port_vars_node == NULL) {
+        return 0;
+    }
+
+    ConfNode *seq_node;
+    TAILQ_FOREACH(seq_node, &port_vars_node->head, next) {
+        SCLogDebug("Testing %s - %s\n", seq_node->name, seq_node->val);
+
+        DetectPort *gh =  DetectPortInit();
+        if (gh == NULL) {
+            goto error;
+        }
+        DetectPort *ghn = NULL;
+
+        int r = DetectPortParseDo(&gh, &ghn, seq_node->val, /* start with negate no */0);
+        if (r < 0) {
+            goto error;
+        }
+
+        if (DetectPortIsCompletePortSpace(ghn)) {
+            SCLogError(SC_ERR_INVALID_YAML_CONF_ENTRY,
+                       "Port var - \"%s\" has the complete Port range negated "
+                       "with it's value \"%s\".  Port space range is NIL. "
+                       "Probably have a !any or a port range that supplies "
+                       "a NULL address range", seq_node->name, seq_node->val);
+            goto error;
+        }
+
+        if (gh != NULL)
+            DetectPortFree(gh);
+        if (ghn != NULL)
+            DetectPortFree(ghn);
+    }
+
+    return 0;
+ error:
+    return -1;
+}
+
 
 /**
  * \brief Function for parsing port strings

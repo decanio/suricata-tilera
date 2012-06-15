@@ -450,7 +450,10 @@ TmEcode DetectEngineThreadCtxInit(ThreadVars *tv, void *initdata, void **data) {
     SCPerfAddToClubbedTMTable((tv->thread_group_name != NULL) ? tv->thread_group_name : tv->name,
                               &tv->sc_perf_pctx);
 
-    det_ctx->bj_values = SCThreadMalloc(tv, sizeof(*det_ctx->bj_values) * byte_extract_max_local_id);
+    /* this detection engine context belongs to this thread instance */
+    det_ctx->tv = tv;
+
+    det_ctx->bj_values = SCThreadMalloc(tv, sizeof(*det_ctx->bj_values) * (byte_extract_max_local_id + 1));
     if (det_ctx->bj_values == NULL) {
         return TM_ECODE_FAILED;
     }
