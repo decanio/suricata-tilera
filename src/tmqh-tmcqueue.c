@@ -34,7 +34,7 @@
 #ifdef __tile__
 
 /* modeled after Tilera TMC queue */
-#define LOG2_PACKETQ_ENTRIES 11 /* 2048 entries */
+#define LOG2_PACKETQ_ENTRIES 10 /* 2048 entries */
 typedef struct TmcPacketQueue_ {
     tmc_spin_queued_mutex_t enqueue_mutex;
     unsigned int enqueue_count;

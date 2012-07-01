@@ -55,10 +55,12 @@
 /*
  * Compiler is telling us we are building for Tilera
  */
+typedef enum { simple, tmc } queue_t;
 
 unsigned int TileNumPipelines;    /* number of configured parallel pipelines */
 unsigned int TileDetectThreadPerPipeline; /* detect threads per pipeline */
 unsigned int TilesPerPipelines; /* total tiles per pipeline */
+static queue_t queue_type = simple;
 
 #ifdef __tilegx__
 
@@ -194,6 +196,7 @@ int TileMpipeUnmapTile(int cpu)
 void RunModeTileGetPipelineConfig(void) {
     intmax_t pipelines;
     intmax_t detect_per_pipe;
+    char *s;
 
     if (ConfGetInt("tile.pipelines", &pipelines) == 1) {
         TileNumPipelines = pipelines;
@@ -206,8 +209,16 @@ void RunModeTileGetPipelineConfig(void) {
     } else {
         TileDetectThreadPerPipeline = DFLT_DETECT_THREADS_PER_PIPELINE;
     }
+    if (ConfGet("tile.queue", &s) == 1) {
+        if (strcmp(s, "simple") == 0) {
+            queue_type = simple;
+        } else if (strcmp(s, "tmc") == 0) {
+            queue_type = tmc;
+        }
+    }
     SCLogInfo("%d detect threads per pipeline", TileDetectThreadPerPipeline);
     SCLogInfo("%d utilized dataplane tiles", (TILES_PER_PIPELINE * TileNumPipelines) + (TileNumPipelines / 2));
+    SCLogInfo("%s queueing between tiles", (queue_type == simple) ? "simple" : "tmc");
 }
 
 /**
@@ -358,11 +369,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
 	        TmThreadCreatePacketHandler(thread_name,
                                             //pickup_queue[pipe],"simple",
                                             pickup_queue[pipe],"demux2",
-#if 1
-                                            stream_queue[(pool_detect_threads) ? 0 : pipe],"tmc_mrsw",
-#else
-                                            stream_queue[(pool_detect_threads) ? 0 : pipe],"simple",
-#endif
+                                            stream_queue[(pool_detect_threads) ? 0 : pipe], (queue_type == simple) ? "simple" : "tmc_mrsw",
                                             "varslot");
         if (tv_decode1 == NULL) {
             printf("ERROR: TmThreadCreate failed for Decode1\n");
@@ -409,17 +416,9 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
 #define PIPELINES_PER_OUTPUT 1
             ThreadVars *tv_detect_ncpu =
                 TmThreadCreatePacketHandler(thread_name,
+                                            stream_queue[(pool_detect_threads) ? 0 : pipe], (queue_type == simple) ? "simple" : "tmc_mrsw", 
 #if 1
-                                            stream_queue[(pool_detect_threads) ? 0 : pipe],"tmc_mrsw", 
-#else
-                                            stream_queue[(pool_detect_threads) ? 0 : pipe],"simple", 
-#endif
-#if 1
-#if 1
-                                            verdict_queue[pipe/PIPELINES_PER_OUTPUT],"tmc_srmw",
-#else
-                                            verdict_queue[pipe/PIPELINES_PER_OUTPUT],"simple",
-#endif
+                                            verdict_queue[pipe/PIPELINES_PER_OUTPUT], (queue_type == simple) ? "simple" : "tmc_srmw",
 #else
                                             "packetpool", "packetpool", 
 #endif
@@ -466,11 +465,7 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
         thread_name = SCStrdup(tname);
         ThreadVars *tv_outputs =
             TmThreadCreatePacketHandler(thread_name,
-#if 1
-                                        verdict_queue[pipe/PIPELINES_PER_OUTPUT],"tmc_srmw", 
-#else
-                                        verdict_queue[pipe/PIPELINES_PER_OUTPUT],"simple", 
-#endif
+                                        verdict_queue[pipe/PIPELINES_PER_OUTPUT], (queue_type == simple) ? "simple" : "tmc_srmw", 
                                         "packetpool", "packetpool", 
                                         "varslot");
         if (tv_outputs == NULL) {
