@@ -109,6 +109,7 @@ void *ParseAFPConfig(const char *iface)
     char *tmpctype;
     intmax_t value;
     int boolval;
+    char *bpf_filter = NULL;
 
     if (aconf == NULL) {
         return NULL;
@@ -122,7 +123,7 @@ void *ParseAFPConfig(const char *iface)
     strlcpy(aconf->iface, iface, sizeof(aconf->iface));
     aconf->threads = 1;
     SC_ATOMIC_INIT(aconf->ref);
-    SC_ATOMIC_ADD(aconf->ref, 1);
+    (void) SC_ATOMIC_ADD(aconf->ref, 1);
     aconf->buffer_size = 0;
     aconf->cluster_id = 1;
     aconf->cluster_type = PACKET_FANOUT_HASH;
@@ -130,6 +131,15 @@ void *ParseAFPConfig(const char *iface)
     aconf->checksum_mode = CHECKSUM_VALIDATION_KERNEL;
     aconf->DerefFunc = AFPDerefConfig;
     aconf->flags = 0;
+    aconf->bpf_filter = NULL;
+
+    if (ConfGet("bpf-filter", &bpf_filter) == 1) {
+        if (strlen(bpf_filter) > 0) {
+            aconf->bpf_filter = bpf_filter;
+            SCLogInfo("Going to use command-line provided bpf filter '%s'",
+                       aconf->bpf_filter);
+        }
+    }
 
     /* Find initial node */
     af_packet_node = ConfGetNode("af-packet");
@@ -158,7 +168,7 @@ void *ParseAFPConfig(const char *iface)
     }
 
     SC_ATOMIC_RESET(aconf->ref);
-    SC_ATOMIC_ADD(aconf->ref, aconf->threads);
+    (void) SC_ATOMIC_ADD(aconf->ref, aconf->threads);
 
     if (ConfGetChildValue(if_root, "cluster-id", &tmpclusterid) != 1) {
         SCLogError(SC_ERR_INVALID_ARGUMENT,"Could not get cluster-id from config");
@@ -194,6 +204,17 @@ void *ParseAFPConfig(const char *iface)
         SCLogError(SC_ERR_INVALID_CLUSTER_TYPE,"invalid cluster-type %s",tmpctype);
         SCFree(aconf);
         return NULL;
+    }
+
+    /*load af_packet bpf filter*/
+    /* command line value has precedence */
+    if (ConfGet("bpf-filter", &bpf_filter) != 1) {
+        if (ConfGetChildValue(if_root, "bpf-filter", &bpf_filter) == 1) {
+            if (strlen(bpf_filter) > 0) {
+                aconf->bpf_filter = bpf_filter;
+                SCLogInfo("Going to use bpf filter %s", aconf->bpf_filter);
+            }
+        }
     }
 
     if ((ConfGetChildValueInt(if_root, "buffer-size", &value)) == 1) {

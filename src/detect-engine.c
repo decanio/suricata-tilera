@@ -22,11 +22,14 @@
  */
 
 #include "suricata-common.h"
+#include "suricata.h"
 #include "debug.h"
 #include "detect.h"
 #include "flow.h"
 #include "conf.h"
 #include "conf-yaml-loader.h"
+
+#include "app-layer-htp.h"
 
 #include "detect-parse.h"
 #include "detect-engine-sigorder.h"
@@ -46,12 +49,17 @@
 #include "detect-uricontent.h"
 #include "detect-engine-threshold.h"
 
-//#include "util-mpm.h"
+#include "util-classification-config.h"
+#include "util-reference-config.h"
+#include "util-threshold-config.h"
 #include "util-error.h"
 #include "util-hash.h"
 #include "util-byte.h"
 #include "util-debug.h"
 #include "util-unittest.h"
+#include "util-action.h"
+#include "util-magic.h"
+#include "util-signal.h"
 
 #include "util-var-name.h"
 
@@ -59,7 +67,281 @@
 
 #define DETECT_ENGINE_DEFAULT_INSPECTION_RECURSION_LIMIT 3000
 
+static uint32_t detect_engine_ctx_id = 1;
+
+static TmEcode DetectEngineThreadCtxInitForLiveRuleSwap(ThreadVars *, void *, void **);
+
 static uint8_t DetectEngineCtxLoadConf(DetectEngineCtx *);
+
+static void *DetectEngineLiveRuleSwap(void *arg)
+{
+    SCEnter();
+
+    SCLogInfo("===== Starting live rule swap triggered by user signal USR2 =====");
+
+    ThreadVars *tv_local = (ThreadVars *)arg;
+
+    /* block usr2.  usr2 to be handled by the main thread only */
+    UtilSignalBlock(SIGUSR2);
+
+    ConfDeInit();
+    ConfInit();
+
+    /* re-load the yaml file */
+    if (conf_filename != NULL) {
+        if (ConfYamlLoadFile(conf_filename) != 0) {
+            /* Error already displayed. */
+            exit(EXIT_FAILURE);
+        }
+
+        ConfNode *file;
+        ConfNode *includes = ConfGetNode("include");
+        if (includes != NULL) {
+            TAILQ_FOREACH(file, &includes->head, next) {
+                char *ifile = ConfLoadCompleteIncludePath(file->val);
+                SCLogInfo("Live Rule Swap: Including: %s", ifile);
+
+                if (ConfYamlLoadFile(ifile) != 0) {
+                    /* Error already displayed. */
+                    exit(EXIT_FAILURE);
+                }
+            }
+        }
+    } /* if (conf_filename != NULL) */
+
+#if 0
+    ConfDump();
+#endif
+
+    DetectEngineCtx *de_ctx = DetectEngineCtxInit();
+
+    SCClassConfLoadClassficationConfigFile(de_ctx);
+    SCRConfLoadReferenceConfigFile(de_ctx);
+
+    if (ActionInitConfig() < 0) {
+        exit(EXIT_FAILURE);
+    }
+
+    uint8_t local_need_htp_request_body = need_htp_request_body;
+    uint8_t local_need_htp_request_multipart_hdr = need_htp_request_multipart_hdr;
+    uint8_t local_need_htp_request_file = need_htp_request_file;
+    uint8_t local_need_htp_response_body = need_htp_response_body;
+
+    if (SigLoadSignatures(de_ctx, NULL, FALSE) < 0) {
+        SCLogError(SC_ERR_NO_RULES_LOADED, "Loading signatures failed.");
+        if (de_ctx->failure_fatal)
+            exit(EXIT_FAILURE);
+    }
+
+    if (local_need_htp_request_body != need_htp_request_body ||
+        local_need_htp_request_multipart_hdr != need_htp_request_multipart_hdr ||
+        local_need_htp_request_file != need_htp_request_file ||
+        local_need_htp_response_body != need_htp_response_body) {
+        SCLogInfo("===== New ruleset requires enabling htp features that "
+                  "can't be enabled at runtime.  You will have to restart "
+                  "engine to load the new ruleset =====");
+        DetectEngineCtxFree(de_ctx);
+        UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2);
+
+        TmThreadsSetFlag(tv_local, THV_CLOSED);
+
+        pthread_exit(NULL);
+    }
+
+    SCThresholdConfInitContext(de_ctx, NULL);
+
+    /* start the process of swapping detect threads ctxs */
+
+    SCMutexLock(&tv_root_lock);
+
+    int no_of_detect_tvs = 0;
+    ThreadVars *tv = tv_root[TVT_PPT];
+    while (tv) {
+        /* obtain the slots for this TV */
+        TmSlot *slots = tv->tm_slots;
+        while (slots != NULL) {
+            TmModule *tm = TmModuleGetById(slots->tm_id);
+
+            if (suricata_ctl_flags != 0) {
+                TmThreadsSetFlag(tv_local, THV_CLOSED);
+
+                SCLogInfo("===== Live rule swap premature exit, since "
+                          "engine is in shutdown phase =====");
+
+                UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2);
+                SCMutexUnlock(&tv_root_lock);
+                pthread_exit(NULL);
+            }
+
+            if (!(tm->flags & TM_FLAG_DETECT_TM)) {
+                slots = slots->slot_next;
+                continue;
+            }
+
+            no_of_detect_tvs++;
+
+            slots = slots->slot_next;
+        }
+
+        tv = tv->next;
+    }
+
+    DetectEngineThreadCtx *old_det_ctx[no_of_detect_tvs];
+    DetectEngineThreadCtx *new_det_ctx[no_of_detect_tvs];
+
+    /* all receive threads are part of packet processing threads */
+    tv = tv_root[TVT_PPT];
+    int i = 0;
+    while (tv) {
+        /* obtain the slots for this TV */
+        TmSlot *slots = tv->tm_slots;
+        while (slots != NULL) {
+            TmModule *tm = TmModuleGetById(slots->tm_id);
+
+            if (!(tm->flags & TM_FLAG_DETECT_TM)) {
+                slots = slots->slot_next;
+                continue;
+            }
+
+            old_det_ctx[i] = SC_ATOMIC_GET(slots->slot_data);
+
+            DetectEngineThreadCtx *det_ctx = NULL;
+            DetectEngineThreadCtxInitForLiveRuleSwap(tv, (void *)de_ctx,
+                                                     (void **)&det_ctx);
+            SCLogDebug("live rule swap done with new det_ctx - %p and de_ctx "
+                       "- %p\n", det_ctx, de_ctx);
+
+            new_det_ctx[i] = det_ctx;
+            i++;
+
+            SCLogDebug("swapping new det_ctx - %p with older one - %p", det_ctx,
+                       SC_ATOMIC_GET(slots->slot_data));
+            SC_ATOMIC_SET(slots->slot_data, det_ctx);
+
+            slots = slots->slot_next;
+        }
+
+        tv = tv->next;
+    }
+
+    SCMutexUnlock(&tv_root_lock);
+
+    SCLogInfo("Live rule swap has swapped %d old det_ctx's with new ones, "
+              "along with the new de_ctx", no_of_detect_tvs);
+
+    for (i = 0; i < no_of_detect_tvs; i++) {
+        int break_out = 0;
+        while (SC_ATOMIC_GET(new_det_ctx[i]->so_far_used_by_detect) != 1) {
+            if (suricata_ctl_flags != 0) {
+                break_out = 1;
+                break;
+            }
+
+            usleep(1000);
+        }
+        if (break_out)
+            break;
+        SCLogDebug("new_det_ctx - %p used by detect engine", new_det_ctx[i]);
+    }
+
+    /* this is to make sure that if someone initiated shutdown during a live
+     * rule swap, the live rule swap won't clean up the old det_ctx and
+     * de_ctx, till all detect threads have stopped working and sitting
+     * silently after setting RUNNING_DONE flag and while waiting for
+     * THV_DEINIT flag */
+    if (i != no_of_detect_tvs) {
+        ThreadVars *tv = tv_root[TVT_PPT];
+        while (tv) {
+            /* obtain the slots for this TV */
+            TmSlot *slots = tv->tm_slots;
+            while (slots != NULL) {
+                TmModule *tm = TmModuleGetById(slots->tm_id);
+
+                if (!(tm->flags & TM_FLAG_DETECT_TM)) {
+                    slots = slots->slot_next;
+                    continue;
+                }
+
+                while (!TmThreadsCheckFlag(tv, THV_RUNNING_DONE)) {
+                    usleep(100);
+                }
+
+                slots = slots->slot_next;
+            }
+
+            tv = tv->next;
+        }
+    }
+
+    /* free all the ctxs */
+    DetectEngineCtx *old_de_ctx = old_det_ctx[0]->de_ctx;
+    for (i = 0; i < no_of_detect_tvs; i++) {
+        SCLogDebug("Freeing old_det_ctx - %p used by detect",
+                   old_det_ctx[i]);
+        DetectEngineThreadCtxDeinit(NULL, old_det_ctx[i]);
+    }
+    DetectEngineCtxFree(old_de_ctx);
+
+    /* reset the handler */
+    UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2);
+
+    TmThreadsSetFlag(tv_local, THV_CLOSED);
+
+    SCLogInfo("===== Live rule swap DONE =====");
+
+    pthread_exit(NULL);
+}
+
+void DetectEngineSpawnLiveRuleSwapMgmtThread(void)
+{
+    SCEnter();
+
+    SCLogDebug("Spawning mgmt thread for live rule swap");
+
+    ThreadVars *tv = TmThreadCreateMgmtThread("DetectEngineLiveRuleSwap",
+                                              DetectEngineLiveRuleSwap, 0);
+    if (tv == NULL) {
+        SCLogError(SC_ERR_THREAD_CREATE, "Live rule swap thread spawn failed");
+        exit(EXIT_FAILURE);
+    }
+    if (TmThreadSpawn(tv) != 0) {
+        SCLogError(SC_ERR_THREAD_SPAWN, "TmThreadSpawn failed for "
+                   "DetectEngineLiveRuleSwap");
+        exit(EXIT_FAILURE);
+    }
+
+    SCReturn;
+}
+
+DetectEngineCtx *DetectEngineGetGlobalDeCtx(void)
+{
+    DetectEngineCtx *de_ctx = NULL;
+
+    SCMutexLock(&tv_root_lock);
+
+    ThreadVars *tv = tv_root[TVT_PPT];
+    while (tv) {
+        /* obtain the slots for this TV */
+        TmSlot *slots = tv->tm_slots;
+        while (slots != NULL) {
+            TmModule *tm = TmModuleGetById(slots->tm_id);
+
+            if (tm->flags & TM_FLAG_DETECT_TM) {
+                DetectEngineThreadCtx *det_ctx = SC_ATOMIC_GET(slots->slot_data);
+                de_ctx = det_ctx->de_ctx;
+                SCMutexUnlock(&tv_root_lock);
+                return de_ctx;
+            }
+
+            slots = slots->slot_next;
+        }
+
+        tv = tv->next;
+    }
+
+    SCMutexUnlock(&tv_root_lock);
+    return NULL;
+}
 
 DetectEngineCtx *DetectEngineCtxInit(void) {
     DetectEngineCtx *de_ctx;
@@ -123,13 +405,15 @@ DetectEngineCtx *DetectEngineCtxInit(void) {
     DetectPortSpHashInit(de_ctx);
     DetectPortDpHashInit(de_ctx);
     ThresholdHashInit(de_ctx);
-    VariableNameInitHash();
+    VariableNameInitHash(de_ctx);
     DetectParseDupSigHashInit(de_ctx);
 
     de_ctx->mpm_pattern_id_store = MpmPatternIdTableInitHash();
     if (de_ctx->mpm_pattern_id_store == NULL) {
         goto error;
     }
+
+    de_ctx->id = detect_engine_ctx_id++;
 
     return de_ctx;
 error:
@@ -159,12 +443,19 @@ void DetectEngineCtxFree(DetectEngineCtx *de_ctx) {
     ThresholdContextDestroy(de_ctx);
     SigCleanSignatures(de_ctx);
 
-    VariableNameFreeHash();
+    VariableNameFreeHash(de_ctx);
     if (de_ctx->sig_array)
         SCFree(de_ctx->sig_array);
 
-    if (de_ctx->class_conf_ht != NULL)
-        HashTableFree(de_ctx->class_conf_ht);
+    SCClassConfDeInitContext(de_ctx);
+    SCRConfDeInitContext(de_ctx);
+
+    SigGroupCleanup(de_ctx);
+
+    if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
+        MpmFactoryDeRegisterAllMpmCtxProfiles(de_ctx);
+    }
+
     SCFree(de_ctx);
     //DetectAddressGroupPrintMemory();
     //DetectSigGroupPrintMemory();
@@ -240,8 +531,10 @@ static uint8_t DetectEngineCtxLoadConf(DetectEngineCtx *de_ctx) {
         } else if (strcmp(sgh_mpm_context, "full") == 0) {
             de_ctx->sgh_mpm_context = ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL;
         } else {
-           SCLogWarning(SC_ERR_INVALID_YAML_CONF_ENTRY, "invalid conf value "
-                   "for detect-engine.sgh-mpm-context -- %s", sgh_mpm_context);
+           SCLogError(SC_ERR_INVALID_YAML_CONF_ENTRY, "You have supplied an "
+                      "invalid conf value for detect-engine.sgh-mpm-context-"
+                      "%s", sgh_mpm_context);
+           exit(EXIT_FAILURE);
         }
     }
 
@@ -453,10 +746,93 @@ TmEcode DetectEngineThreadCtxInit(ThreadVars *tv, void *initdata, void **data) {
     /* this detection engine context belongs to this thread instance */
     det_ctx->tv = tv;
 
-    det_ctx->bj_values = SCThreadMalloc(tv, sizeof(*det_ctx->bj_values) * (byte_extract_max_local_id + 1));
+    det_ctx->bj_values = SCThreadMalloc(tv, sizeof(*det_ctx->bj_values) *
+                                  (de_ctx->byte_extract_max_local_id + 1));
     if (det_ctx->bj_values == NULL) {
         return TM_ECODE_FAILED;
     }
+
+    SC_ATOMIC_INIT(det_ctx->so_far_used_by_detect);
+
+    *data = (void *)det_ctx;
+
+    return TM_ECODE_OK;
+}
+
+/**
+ * \internal
+ * \brief This thread is an exact duplicate of DetectEngineThreadCtxInit(),
+ *        except that the counters API 2 calls doesn't let us use the same
+ *        init function.  Once we have the new counters API it should let
+ *        us use the same init function.
+ */
+static TmEcode DetectEngineThreadCtxInitForLiveRuleSwap(ThreadVars *tv, void *initdata, void **data)
+{
+    DetectEngineCtx *de_ctx = (DetectEngineCtx *)initdata;
+    if (de_ctx == NULL)
+        return TM_ECODE_FAILED;
+
+    DetectEngineThreadCtx *det_ctx = SCMalloc(sizeof(DetectEngineThreadCtx));
+    if (det_ctx == NULL)
+        return TM_ECODE_FAILED;
+    memset(det_ctx, 0, sizeof(DetectEngineThreadCtx));
+
+    det_ctx->de_ctx = de_ctx;
+
+    /** \todo we still depend on the global mpm_ctx here
+     *
+     * Initialize the thread pattern match ctx with the max size
+     * of the content and uricontent id's so our match lookup
+     * table is always big enough
+     */
+    PatternMatchThreadPrepare(tv, &det_ctx->mtc, de_ctx->mpm_matcher, DetectContentMaxId(de_ctx));
+    PatternMatchThreadPrepare(tv, &det_ctx->mtcs, de_ctx->mpm_matcher, DetectContentMaxId(de_ctx));
+    PatternMatchThreadPrepare(tv, &det_ctx->mtcu, de_ctx->mpm_matcher, DetectUricontentMaxId(de_ctx));
+
+    //PmqSetup(&det_ctx->pmq, DetectEngineGetMaxSigId(de_ctx), DetectContentMaxId(de_ctx));
+    PmqSetup(tv, &det_ctx->pmq, 0, DetectContentMaxId(de_ctx));
+    int i;
+    for (i = 0; i < 256; i++) {
+        PmqSetup(tv, &det_ctx->smsg_pmq[i], 0, DetectContentMaxId(de_ctx));
+    }
+
+    /* IP-ONLY */
+    DetectEngineIPOnlyThreadInit(de_ctx,&det_ctx->io_ctx);
+
+    /* DeState */
+    if (de_ctx->sig_array_len > 0) {
+        det_ctx->de_state_sig_array_len = de_ctx->sig_array_len;
+        det_ctx->de_state_sig_array = SCMalloc(det_ctx->de_state_sig_array_len * sizeof(uint8_t));
+        if (det_ctx->de_state_sig_array == NULL) {
+            return TM_ECODE_FAILED;
+        }
+        memset(det_ctx->de_state_sig_array, 0,
+               det_ctx->de_state_sig_array_len * sizeof(uint8_t));
+
+        det_ctx->match_array_len = de_ctx->sig_array_len;
+        det_ctx->match_array = SCMalloc(det_ctx->match_array_len * sizeof(Signature *));
+        if (det_ctx->match_array == NULL) {
+            return TM_ECODE_FAILED;
+        }
+        memset(det_ctx->match_array, 0,
+               det_ctx->match_array_len * sizeof(Signature *));
+    }
+
+    /** alert counter setup */
+    det_ctx->counter_alerts = SCPerfTVRegisterCounter("detect.alert", tv,
+                                                      SC_PERF_TYPE_UINT64, "NULL");
+    //tv->sc_perf_pca = SCPerfGetAllCountersArray(&tv->sc_perf_pctx);
+    //SCPerfAddToClubbedTMTable((tv->thread_group_name != NULL) ? tv->thread_group_name : tv->name, &tv->sc_perf_pctx);
+
+    /* this detection engine context belongs to this thread instance */
+    det_ctx->tv = tv;
+
+    det_ctx->bj_values = SCMalloc(sizeof(*det_ctx->bj_values) * (de_ctx->byte_extract_max_local_id + 1));
+    if (det_ctx->bj_values == NULL) {
+        return TM_ECODE_FAILED;
+    }
+
+    SC_ATOMIC_INIT(det_ctx->so_far_used_by_detect);
 
     *data = (void *)det_ctx;
 

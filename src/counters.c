@@ -33,6 +33,7 @@
 #include "util-unittest.h"
 #include "util-debug.h"
 #include "util-privs.h"
+#include "util-signal.h"
 
 /** \todo Get the default log directory from some global resource. */
 #define SC_PERF_DEFAULT_LOG_FILENAME "stats.log"
@@ -433,12 +434,17 @@ static void SCPerfReleaseOPCtx()
  */
 static void *SCPerfMgmtThread(void *arg)
 {
+    /* block usr2.  usr2 to be handled by the main thread only */
+    UtilSignalBlock(SIGUSR2);
+
     ThreadVars *tv_local = (ThreadVars *)arg;
     uint8_t run = 1;
     struct timespec cond_time;
 
     /* Set the thread name */
-    SCSetThreadName(tv_local->name);
+    if (SCSetThreadName(tv_local->name) < 0) {
+        SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
+    }
 
     /* Set the threads capability */
     tv_local->cap_flags = 0;
@@ -487,6 +493,9 @@ static void *SCPerfMgmtThread(void *arg)
  */
 static void *SCPerfWakeupThread(void *arg)
 {
+    /* block usr2.  usr2 to be handled by the main thread only */
+    UtilSignalBlock(SIGUSR2);
+
     ThreadVars *tv_local = (ThreadVars *)arg;
     uint8_t run = 1;
     ThreadVars *tv = NULL;
@@ -494,7 +503,9 @@ static void *SCPerfWakeupThread(void *arg)
     struct timespec cond_time;
 
     /* Set the thread name */
-    SCSetThreadName(tv_local->name);
+    if (SCSetThreadName(tv_local->name) < 0) {
+        SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
+    }
 
     /* Set the threads capability */
     tv_local->cap_flags = 0;

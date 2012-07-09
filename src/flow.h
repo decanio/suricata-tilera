@@ -101,6 +101,10 @@
 /** flow is ipv6 */
 #define FLOW_IPV6                         0x08000000
 
+/** no md5 on files in this flow */
+#define FLOW_FILE_NO_MD5_TS               0x10000000
+#define FLOW_FILE_NO_MD5_TC               0x20000000
+
 #define FLOW_IS_IPV4(f) \
     (((f)->flags & FLOW_IPV4) == FLOW_IPV4)
 #define FLOW_IS_IPV6(f) \
@@ -321,6 +325,11 @@ typedef struct Flow_
     uint8_t pad0;
 
     uint16_t alproto; /**< \brief application level protocol */
+
+    /** detection engine ctx id used to inspect this flow. Set at initial
+     *  inspection. If it doesn't match the currently in use de_ctx, the
+     *  de_state and stored sgh ptrs are reset. */
+    uint32_t de_ctx_id;
 
     /** application level storage ptrs.
      *

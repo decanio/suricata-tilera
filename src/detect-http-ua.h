@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2010 Open Information Security Foundation
+/* Copyright (C) 2007-2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -18,17 +18,12 @@
 /**
  * \file
  *
- * \author Victor Julien <victor@inliniac.net>
+ * \author Anoop Saldanha <anoopsaldanha@gmail.com>
  */
 
-#ifndef __UTIL_VAR_NAME_H__
-#define __UTIL_VAR_NAME_H__
+#ifndef __DETECT_HTTP_UA_H__
+#define __DETECT_HTTP_UA_H__
 
-int VariableNameInitHash(DetectEngineCtx *);
-void VariableNameFreeHash(DetectEngineCtx *);
+void DetectHttpUARegister(void);
 
-uint16_t VariableNameGetIdx(DetectEngineCtx *, char *, uint8_t);
-char * VariableIdxGetName(DetectEngineCtx *, uint16_t , uint8_t);
-
-#endif
-
+#endif /* __DETECT_HTTP_UA_H__ */

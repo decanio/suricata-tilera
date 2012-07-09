@@ -29,6 +29,7 @@
 #include "detect.h"
 #include "flow.h"
 #include "flow-private.h"
+#include "flow-bit.h"
 
 #include "detect-parse.h"
 #include "detect-engine.h"
@@ -50,6 +51,7 @@
 
 #include "detect-http-cookie.h"
 #include "detect-http-method.h"
+#include "detect-http-ua.h"
 
 #include "detect-engine-event.h"
 #include "decode.h"
@@ -131,6 +133,7 @@
 #include "detect-engine-hrud.h"
 #include "detect-engine-hsmd.h"
 #include "detect-engine-hscd.h"
+#include "detect-engine-hua.h"
 #include "detect-byte-extract.h"
 #include "detect-file-data.h"
 #include "detect-replace.h"
@@ -163,6 +166,7 @@
 #include "stream-tcp.h"
 #include "stream-tcp-inline.h"
 
+#include "util-var-name.h"
 #include "util-classification-config.h"
 #include "util-print.h"
 #include "util-unittest.h"
@@ -178,6 +182,8 @@
 #include "util-optimize.h"
 #include "util-vector.h"
 #include "util-path.h"
+
+#include "runmodes.h"
 
 extern uint8_t engine_mode;
 
@@ -206,6 +212,7 @@ void TmModuleDetectRegister (void) {
     tmm_modules[TMM_DETECT].ThreadDeinit = DetectThreadDeinit;
     tmm_modules[TMM_DETECT].RegisterTests = SigRegisterTests;
     tmm_modules[TMM_DETECT].cap_flags = 0;
+    tmm_modules[TMM_DETECT].flags = TM_FLAG_DETECT_TM;
 
     PacketAlertTagInit();
 }
@@ -369,7 +376,7 @@ void EngineAnalysisFastPattern(Signature *s)
          * if we have a fast_pattern set in this Signature */
         for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
             /* this keyword isn't registered for fp support */
-            if (!FastPatternSupportEnabledForSigMatchType(sm->type))
+            if (sm->type != DETECT_CONTENT)
                 continue;
 
             DetectContentData *cd = (DetectContentData *)sm->ctx;
@@ -393,7 +400,7 @@ void EngineAnalysisFastPattern(Signature *s)
                 continue;
 
             for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
-                if (!FastPatternSupportEnabledForSigMatchType(sm->type))
+                if (sm->type != DETECT_CONTENT)
                     continue;
 
                 DetectContentData *cd = (DetectContentData *)sm->ctx;
@@ -409,7 +416,7 @@ void EngineAnalysisFastPattern(Signature *s)
             continue;
 
         for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
-            if (!FastPatternSupportEnabledForSigMatchType(sm->type))
+            if (sm->type != DETECT_CONTENT)
                 continue;
 
             /* skip in case of:
@@ -1202,20 +1209,48 @@ static inline void DetectMpmPrefilter(DetectEngineCtx *de_ctx,
 
         /* all http based mpms */
         if (alproto == ALPROTO_HTTP && alstate != NULL) {
-            if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_URI) {
-                PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_URI);
-                DetectUricontentInspectMpm(det_ctx, p->flow, alstate, flags);
-                PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_URI);
-            }
-            if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HCBD) {
-                PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HCBD);
-                DetectEngineRunHttpClientBodyMpm(de_ctx, det_ctx, p->flow, alstate, flags);
-                PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HCBD);
-            }
-            if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSBD) {
-                PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HSBD);
-                DetectEngineRunHttpServerBodyMpm(de_ctx, det_ctx, p->flow, alstate, flags);
-                PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HSBD);
+            if (p->flowflags & FLOW_PKT_TOSERVER) {
+                if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_URI) {
+                    PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_URI);
+                    DetectUricontentInspectMpm(det_ctx, p->flow, alstate, flags);
+                    PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_URI);
+                }
+                if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HRUD) {
+                    PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HRUD);
+                    DetectEngineRunHttpRawUriMpm(det_ctx, p->flow, alstate, flags);
+                    PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HRUD);
+                }
+                if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HCBD) {
+                    PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HCBD);
+                    DetectEngineRunHttpClientBodyMpm(de_ctx, det_ctx, p->flow, alstate, flags);
+                    PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HCBD);
+                }
+                if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HMD) {
+                    PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HMD);
+                    DetectEngineRunHttpMethodMpm(det_ctx, p->flow, alstate, flags);
+                    PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HMD);
+                }
+                if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HUAD) {
+                    PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HUAD);
+                    DetectEngineRunHttpUAMpm(det_ctx, p->flow, alstate, flags);
+                    PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HUAD);
+                }
+            } else { /* implied FLOW_PKT_TOCLIENT */
+                if (p->flowflags & FLOW_PKT_TOCLIENT && det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSBD) {
+                    PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HSBD);
+                    DetectEngineRunHttpServerBodyMpm(de_ctx, det_ctx, p->flow, alstate, flags);
+                    PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HSBD);
+                }
+                if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSMD) {
+                    PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HSMD);
+                    DetectEngineRunHttpStatMsgMpm(det_ctx, p->flow, alstate, flags);
+                    PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HSMD);
+                }
+                if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSCD) {
+                    PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HSCD);
+                    DetectEngineRunHttpStatCodeMpm(det_ctx, p->flow, alstate, flags);
+                    PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HSCD);
+                }
             }
             if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HHD) {
                 PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HHD);
@@ -1227,30 +1262,10 @@ static inline void DetectMpmPrefilter(DetectEngineCtx *de_ctx,
                 DetectEngineRunHttpRawHeaderMpm(det_ctx, p->flow, alstate, flags);
                 PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HRHD);
             }
-            if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HMD) {
-                PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HMD);
-                DetectEngineRunHttpMethodMpm(det_ctx, p->flow, alstate, flags);
-                PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HMD);
-            }
             if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HCD) {
                 PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HCD);
                 DetectEngineRunHttpCookieMpm(det_ctx, p->flow, alstate, flags);
                 PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HCD);
-            }
-            if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HRUD) {
-                PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HRUD);
-                DetectEngineRunHttpRawUriMpm(det_ctx, p->flow, alstate, flags);
-                PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HRUD);
-            }
-            if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSMD) {
-                PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HSMD);
-                DetectEngineRunHttpStatMsgMpm(det_ctx, p->flow, alstate, flags);
-                PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HSMD);
-            }
-            if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSCD) {
-                PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HSCD);
-                DetectEngineRunHttpStatCodeMpm(det_ctx, p->flow, alstate, flags);
-                PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HSCD);
             }
         }
     } else {
@@ -1275,6 +1290,68 @@ static void DebugInspectIds(Packet *p, Flow *f, StreamMsg *smsg)
 }
 #endif
 
+static void AlertDebugLogModeSyncFlowbitsNamesToPacketStruct(Packet *p, DetectEngineCtx *de_ctx)
+{
+#define MALLOC_JUMP 5
+
+    int i = 0;
+
+    GenericVar *gv = p->flow->flowvar;
+
+    while (gv != NULL) {
+        i++;
+        gv = gv->next;
+    }
+    if (i == 0)
+        return;
+
+    p->debuglog_flowbits_names_len = i;
+
+    p->debuglog_flowbits_names = SCMalloc(sizeof(char *) *
+                                          p->debuglog_flowbits_names_len);
+    if (p->debuglog_flowbits_names == NULL) {
+        return;
+    }
+    memset(p->debuglog_flowbits_names, 0,
+           sizeof(char *) * p->debuglog_flowbits_names_len);
+
+    i = 0;
+    gv = p->flow->flowvar;
+    while (gv != NULL) {
+        if (gv->type != DETECT_FLOWBITS) {
+            gv = gv->next;
+            continue;
+        }
+
+        FlowBit *fb = (FlowBit *) gv;
+        char *name = VariableIdxGetName(de_ctx, fb->idx, fb->type);
+        if (name != NULL) {
+            p->debuglog_flowbits_names[i] = SCStrdup(name);
+            if (p->debuglog_flowbits_names[i] == NULL) {
+                return;
+            }
+            i++;
+        }
+
+        if (i == p->debuglog_flowbits_names_len) {
+            p->debuglog_flowbits_names_len += MALLOC_JUMP;
+            p->debuglog_flowbits_names = SCRealloc(p->debuglog_flowbits_names,
+                                                   sizeof(char *) *
+                                                   p->debuglog_flowbits_names_len);
+            if (p->debuglog_flowbits_names == NULL) {
+                return;
+            }
+            memset(p->debuglog_flowbits_names +
+                   p->debuglog_flowbits_names_len - MALLOC_JUMP,
+                   0, sizeof(char *) * MALLOC_JUMP);
+        }
+
+        gv = gv->next;
+    }
+
+    return;
+}
+
 /**
  *  \brief Signature match function
  *
@@ -1295,6 +1372,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
     Signature *s = NULL;
     SigMatch *sm = NULL;
     uint16_t alversion = 0;
+    int reset_de_state = 0;
 
     SCEnter();
 
@@ -1319,6 +1397,23 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
         FLOWLOCK_WRLOCK(p->flow);
         {
+            /* live ruleswap check for flow updates */
+            if (p->flow->de_ctx_id == 0) {
+                /* first time this flow is inspected, set id */
+                p->flow->de_ctx_id = de_ctx->id;
+            } else if (p->flow->de_ctx_id != de_ctx->id) {
+                /* first time we inspect flow with this de_ctx, reset */
+                p->flow->flags &= ~FLOW_SGH_TOSERVER;
+                p->flow->flags &= ~FLOW_SGH_TOCLIENT;
+                p->flow->sgh_toserver = NULL;
+                p->flow->sgh_toclient = NULL;
+                reset_de_state = 1;
+
+                p->flow->de_ctx_id = de_ctx->id;
+                GenericVarFree(p->flow->flowvar);
+                p->flow->flowvar = NULL;
+            }
+
             /* set the iponly stuff */
             if (p->flow->flags & FLOW_TOCLIENT_IPONLY_SET)
                 p->flowflags |= FLOW_PKT_TOCLIENT_IPONLY_SET;
@@ -1375,8 +1470,13 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
         }
         SCLogDebug("p->flowflags 0x%02x", p->flowflags);
 
+        /* reset because of ruleswap */
+        if (reset_de_state) {
+            SCMutexLock(&p->flow->de_state_m);
+            DetectEngineStateReset(p->flow->de_state);
+            SCMutexUnlock(&p->flow->de_state_m);
         /* see if we need to increment the inspect_id and reset the de_state */
-        if (alstate != NULL && alproto == ALPROTO_HTTP) {
+        } else if (alstate != NULL && alproto == ALPROTO_HTTP) {
             PACKET_PROFILING_DETECT_START(p, PROF_DETECT_STATEFUL);
             SCLogDebug("getting de_state_status");
             int de_state_status = DeStateUpdateInspectTransactionId(p->flow,
@@ -1563,7 +1663,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
         if (s->sm_lists[DETECT_SM_LIST_PMATCH] != NULL) {
             /* if we have stream msgs, inspect against those first,
              * but not for a "dsize" signature */
-            if (!(s->flags & SIG_FLAG_REQUIRE_PACKET)) {
+            if (s->flags & SIG_FLAG_REQUIRE_STREAM) {
                 char pmatch = 0;
                 if (smsg != NULL) {
                     uint8_t pmq_idx = 0;
@@ -1597,8 +1697,10 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                 if (pmatch == 0) {
                     SCLogDebug("no match in smsg, fall back to packet payload");
 
-                    if (p->flags & PKT_STREAM_ADD)
-                        goto next;
+                    if (!(s->flags & SIG_FLAG_REQUIRE_PACKET)) {
+                        if (p->flags & PKT_STREAM_ADD)
+                            goto next;
+                    }
 
                     if (sms_runflags & SMS_USED_PM) {
                         if (s->flags & SIG_FLAG_MPM_PACKET && !(s->flags & SIG_FLAG_MPM_PACKET_NEG) &&
@@ -1753,6 +1855,12 @@ end:
         }
 
         FLOWLOCK_WRLOCK(p->flow);
+        if (debuglog_enabled) {
+            if (p->alerts.cnt > 0) {
+                AlertDebugLogModeSyncFlowbitsNamesToPacketStruct(p, de_ctx);
+            }
+        }
+
         if (!(sms_runflags & SMS_USE_FLOW_SGH)) {
             if (p->flowflags & FLOW_PKT_TOSERVER && !(p->flow->flags & FLOW_SGH_TOSERVER)) {
                 /* first time we see this toserver sgh, store it */
@@ -1771,6 +1879,14 @@ end:
                     SCLogDebug("disabling magic for flow");
                     FileDisableMagic(p->flow, STREAM_TOSERVER);
                 }
+
+                /* see if this sgh requires us to consider file md5 */
+                if (!FileForceMd5() && (p->flow->sgh_toserver == NULL ||
+                            !(p->flow->sgh_toserver->flags & SIG_GROUP_HEAD_HAVEFILEMD5)))
+                {
+                    SCLogDebug("disabling md5 for flow");
+                    FileDisableMd5(p->flow, STREAM_TOSERVER);
+                }
             } else if (p->flowflags & FLOW_PKT_TOCLIENT && !(p->flow->flags & FLOW_SGH_TOCLIENT)) {
                 p->flow->sgh_toclient = det_ctx->sgh;
                 p->flow->flags |= FLOW_SGH_TOCLIENT;
@@ -1785,6 +1901,14 @@ end:
                 {
                     SCLogDebug("disabling magic for flow");
                     FileDisableMagic(p->flow, STREAM_TOCLIENT);
+                }
+
+                /* check if this flow needs md5, if not disable it */
+                if (!FileForceMd5() && (p->flow->sgh_toclient == NULL ||
+                            !(p->flow->sgh_toclient->flags & SIG_GROUP_HEAD_HAVEFILEMD5)))
+                {
+                    SCLogDebug("disabling md5 for flow");
+                    FileDisableMd5(p->flow, STREAM_TOCLIENT);
                 }
             }
         }
@@ -1830,6 +1954,12 @@ TmEcode Detect(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQue
     if (de_ctx == NULL) {
         printf("ERROR: Detect has no detection engine ctx\n");
         goto error;
+    }
+
+    if (SC_ATOMIC_GET(det_ctx->so_far_used_by_detect) == 0) {
+        SC_ATOMIC_SET(det_ctx->so_far_used_by_detect, 1);
+        SCLogDebug("Detect Engine using new det_ctx - %p and de_ctx - %p",
+                  det_ctx, de_ctx);
     }
 
     /* see if the packet matches one or more of the sigs */
@@ -1937,6 +2067,24 @@ int SignatureIsFilemagicInspecting(Signature *s) {
     return 0;
 }
 
+/**
+ *  \brief Check if a signature contains the filemd5 keyword.
+ *
+ *  \param s signature
+ *
+ *  \retval 0 no
+ *  \retval 1 yes
+ */
+int SignatureIsFileMd5Inspecting(Signature *s) {
+    if (s == NULL)
+        return 0;
+
+    if (s->file_flags & FILE_SIG_NEED_MD5)
+        return 1;
+
+    return 0;
+}
+
 /** \brief Test is a initialized signature is IP only
  *  \param de_ctx detection engine ctx
  *  \param s the signature
@@ -1978,6 +2126,9 @@ int SignatureIsIPOnly(DetectEngineCtx *de_ctx, Signature *s) {
         return 0;
 
     if (s->sm_lists[DETECT_SM_LIST_HSCDMATCH] != NULL)
+        return 0;
+
+    if (s->sm_lists[DETECT_SM_LIST_HUADMATCH] != NULL)
         return 0;
 
     if (s->sm_lists[DETECT_SM_LIST_AMATCH] != NULL)
@@ -2060,7 +2211,8 @@ static int SignatureIsDEOnly(DetectEngineCtx *de_ctx, Signature *s) {
         s->sm_lists[DETECT_SM_LIST_HCDMATCH]  != NULL ||
         s->sm_lists[DETECT_SM_LIST_HSMDMATCH] != NULL ||
         s->sm_lists[DETECT_SM_LIST_HSCDMATCH] != NULL ||
-        s->sm_lists[DETECT_SM_LIST_HRUDMATCH] != NULL)
+        s->sm_lists[DETECT_SM_LIST_HRUDMATCH] != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HUADMATCH] != NULL)
     {
         SCReturnInt(0);
     }
@@ -2211,6 +2363,11 @@ static int SignatureCreateMask(Signature *s) {
         SCLogDebug("sig requires http app state");
     }
 
+    if (s->sm_lists[DETECT_SM_LIST_HUADMATCH] != NULL) {
+        s->mask |= SIG_MASK_REQUIRE_HTTP_STATE;
+        SCLogDebug("sig requires http app state");
+    }
+
     SigMatch *sm;
     for (sm = s->sm_lists[DETECT_SM_LIST_AMATCH] ; sm != NULL; sm = sm->next) {
         switch(sm->type) {
@@ -2330,46 +2487,49 @@ static int SignatureCreateMask(Signature *s) {
 static void SigInitStandardMpmFactoryContexts(DetectEngineCtx *de_ctx)
 {
     de_ctx->sgh_mpm_context_proto_tcp_packet =
-        MpmFactoryRegisterMpmCtxProfile("packet_proto_tcp",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "packet_proto_tcp",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_proto_udp_packet =
-        MpmFactoryRegisterMpmCtxProfile("packet_proto_udp",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "packet_proto_udp",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_proto_other_packet =
-        MpmFactoryRegisterMpmCtxProfile("packet_proto_other",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "packet_proto_other",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_uri =
-        MpmFactoryRegisterMpmCtxProfile("uri",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "uri",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_stream =
-        MpmFactoryRegisterMpmCtxProfile("stream",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "stream",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_hcbd =
-        MpmFactoryRegisterMpmCtxProfile("hcbd",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "hcbd",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_hhd =
-        MpmFactoryRegisterMpmCtxProfile("hhd",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "hhd",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_hrhd =
-        MpmFactoryRegisterMpmCtxProfile("hrhd",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "hrhd",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_hmd =
-        MpmFactoryRegisterMpmCtxProfile("hmd",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "hmd",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_hcd =
-        MpmFactoryRegisterMpmCtxProfile("hcd",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "hcd",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_hrud =
-        MpmFactoryRegisterMpmCtxProfile("hrud",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "hrud",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_hsmd =
-        MpmFactoryRegisterMpmCtxProfile("hsmd",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "hsmd",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_hscd =
-        MpmFactoryRegisterMpmCtxProfile("hscd",
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "hscd",
+                                        MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
+    de_ctx->sgh_mpm_context_huad =
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "huad",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_app_proto_detect =
-        MpmFactoryRegisterMpmCtxProfile("app_proto_detect", 0);
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "app_proto_detect", 0);
 
     return;
 }
@@ -3884,6 +4044,7 @@ int SigAddressPrepareStage4(DetectEngineCtx *de_ctx) {
 
         SigGroupHeadBuildHeadArray(de_ctx, sgh);
         SigGroupHeadSetFilemagicFlag(de_ctx, sgh);
+        SigGroupHeadSetFileMd5Flag(de_ctx, sgh);
         SigGroupHeadSetFilestoreCount(de_ctx, sgh);
         SCLogDebug("filestore count %u", sgh->filestore_cnt);
     }
@@ -4298,135 +4459,147 @@ int SigGroupBuild (DetectEngineCtx *de_ctx) {
 
     if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
         MpmCtx *mpm_ctx = NULL;
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_tcp_packet, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_proto_tcp_packet, 0);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_tcp_packet, 1);
-        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
-            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
-        }
-        //printf("packet- %d\n", mpm_ctx->pattern_cnt);
-
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_udp_packet, 0);
-        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
-            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
-        }
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_udp_packet, 1);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_proto_tcp_packet, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("packet- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_other_packet, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_proto_udp_packet, 0);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_proto_udp_packet, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("packet- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_uri, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_proto_other_packet, 0);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_uri, 1);
+        //printf("packet- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_uri, 0);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_uri, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("uri- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hcbd, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hcbd, 0);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hcbd, 1);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hcbd, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("hcbd- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hhd, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hhd, 0);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hhd, 1);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hhd, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("hhd- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hrhd, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrhd, 0);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hrhd, 1);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrhd, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("hrhd- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hmd, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hmd, 0);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hmd, 1);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hmd, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("hmd- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hcd, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hcd, 0);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hcd, 1);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hcd, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("hcd- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hrud, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrud, 0);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hrud, 1);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrud, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("hrud- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_stream, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_stream, 0);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_stream, 1);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_stream, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("stream- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hsmd, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hsmd, 0);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("hsmd- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hsmd, 1);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hsmd, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("hsmd- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hscd, 0);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hscd, 0);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("hscd- %d\n", mpm_ctx->pattern_cnt);
 
-        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hscd, 1);
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hscd, 1);
         if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("hscd- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_huad, 0);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("huad- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_huad, 1);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("huad- %d\n", mpm_ctx->pattern_cnt);
     }
 
 //    SigAddressPrepareStage5(de_ctx);
@@ -4547,6 +4720,7 @@ void SigTableSetup(void) {
     DetectFilemagicRegister();
     DetectFileMd5Register();
     DetectAppLayerEventRegister();
+    DetectHttpUARegister();
 
     uint8_t i = 0;
     for (i = 0; i < DETECT_TBLSIZE; i++) {

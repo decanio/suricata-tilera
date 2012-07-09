@@ -72,6 +72,10 @@
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
 #include <linux/if_arp.h>
+
+#include <pcap/pcap.h>
+#include <pcap/bpf.h>
+#include <linux/filter.h>
 #endif
 
 #include <sys/mman.h>
@@ -106,6 +110,7 @@ void TmModuleDecodeAFPRegister (void) {
     tmm_modules[TMM_DECODEAFP].ThreadDeinit = NULL;
     tmm_modules[TMM_DECODEAFP].RegisterTests = NULL;
     tmm_modules[TMM_DECODEAFP].cap_flags = 0;
+    tmm_modules[TMM_DECODEAFP].flags = TM_FLAG_DECODE_TM;
 }
 
 /**
@@ -129,6 +134,9 @@ TmEcode NoAFPSupportExit(ThreadVars *tv, void *initdata, void **data)
 #define AFP_RECONNECT_TIMEOUT 500000
 
 #define POLL_TIMEOUT 100
+
+/** protect pfring_set_bpf_filter, as it is not thread safe */
+static SCMutex afpacket_bpf_set_filter_lock = PTHREAD_MUTEX_INITIALIZER;
 
 enum {
     AFP_READ_OK,
@@ -169,12 +177,17 @@ typedef struct AFPThreadVars_
     char iface[AFP_IFACE_NAME_LENGTH];
     LiveDevice *livedev;
 
+    /* Filter */
+    char *bpf_filter;
+
     /* socket buffer size */
     int buffer_size;
     int promisc;
     ChecksumValidationMode checksum_mode;
 
     int flags;
+    uint16_t capture_kernel_packets;
+    uint16_t capture_kernel_drops;
 
     int cluster_id;
     int cluster_type;
@@ -197,6 +210,8 @@ TmEcode ReceiveAFPLoop(ThreadVars *tv, void *data, void *slot);
 
 TmEcode DecodeAFPThreadInit(ThreadVars *, void *, void **);
 TmEcode DecodeAFP(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
+
+TmEcode AFPSetBPFFilter(AFPThreadVars *ptv);
 
 /**
  * \brief Registration Function for RecieveAFP.
@@ -226,10 +241,28 @@ void TmModuleDecodeAFPRegister (void) {
     tmm_modules[TMM_DECODEAFP].ThreadDeinit = NULL;
     tmm_modules[TMM_DECODEAFP].RegisterTests = NULL;
     tmm_modules[TMM_DECODEAFP].cap_flags = 0;
+    tmm_modules[TMM_DECODEAFP].flags = TM_FLAG_DECODE_TM;
 }
 
 static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose);
 
+static inline void AFPDumpCounters(AFPThreadVars *ptv, int forced)
+{
+    if (((ptv->pkts & 0xff) == 0) || forced) {
+#ifdef PACKET_STATISTICS
+        struct tpacket_stats kstats;
+        socklen_t len = sizeof (struct tpacket_stats);
+        if (getsockopt(ptv->socket, SOL_PACKET, PACKET_STATISTICS,
+                    &kstats, &len) > -1) {
+            SCLogDebug("(%s) Kernel: Packets %" PRIu32 ", dropped %" PRIu32 "",
+                    ptv->tv->name,
+                    kstats.tp_packets, kstats.tp_drops);
+            SCPerfCounterAddUI64(ptv->capture_kernel_packets, ptv->tv->sc_perf_pca, kstats.tp_packets);
+            SCPerfCounterAddUI64(ptv->capture_kernel_drops, ptv->tv->sc_perf_pca, kstats.tp_drops);
+        }
+#endif
+    }
+}
 
 /**
  * \brief AF packet read function.
@@ -254,6 +287,7 @@ int AFPRead(AFPThreadVars *ptv)
         struct cmsghdr cmsg;
         char buf[CMSG_SPACE(sizeof(struct tpacket_auxdata))];
     } cmsg_buf;
+    unsigned char aux_checksum = 0;
 
     msg.msg_name = &from;
     msg.msg_namelen = sizeof(from);
@@ -293,7 +327,7 @@ int AFPRead(AFPThreadVars *ptv)
 
     ptv->pkts++;
     ptv->bytes += caplen + offset;
-    SC_ATOMIC_ADD(ptv->livedev->pkts, 1);
+    (void) SC_ATOMIC_ADD(ptv->livedev->pkts, 1);
     p->livedev = ptv->livedev;
 
     /* add forged header */
@@ -325,22 +359,24 @@ int AFPRead(AFPThreadVars *ptv)
             p->flags |= PKT_IGNORE_CHECKSUM;
         }
     } else {
-        /* List is NULL if we don't have activated auxiliary data */
-        for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-            struct tpacket_auxdata *aux;
+        aux_checksum = 1;
+    }
 
-            if (cmsg->cmsg_len < CMSG_LEN(sizeof(struct tpacket_auxdata)) ||
-                    cmsg->cmsg_level != SOL_PACKET ||
-                    cmsg->cmsg_type != PACKET_AUXDATA)
-                continue;
+    /* List is NULL if we don't have activated auxiliary data */
+    for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+        struct tpacket_auxdata *aux;
 
-            aux = (struct tpacket_auxdata *)CMSG_DATA(cmsg);
+        if (cmsg->cmsg_len < CMSG_LEN(sizeof(struct tpacket_auxdata)) ||
+                cmsg->cmsg_level != SOL_PACKET ||
+                cmsg->cmsg_type != PACKET_AUXDATA)
+            continue;
 
-            if (aux->tp_status & TP_STATUS_CSUMNOTREADY) {
-                p->flags |= PKT_IGNORE_CHECKSUM;
-            }
-            break;
+        aux = (struct tpacket_auxdata *)CMSG_DATA(cmsg);
+
+        if (aux_checksum && (aux->tp_status & TP_STATUS_CSUMNOTREADY)) {
+            p->flags |= PKT_IGNORE_CHECKSUM;
         }
+        break;
     }
 
     if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
@@ -380,7 +416,7 @@ int AFPReadFromRing(AFPThreadVars *ptv)
 
     ptv->pkts++;
     ptv->bytes += h.h2->tp_len;
-    SC_ATOMIC_ADD(ptv->livedev->pkts, 1);
+    (void) SC_ATOMIC_ADD(ptv->livedev->pkts, 1);
     p->livedev = ptv->livedev;
 
     /* add forged header */
@@ -555,6 +591,7 @@ TmEcode ReceiveAFPLoop(ThreadVars *tv, void *data, void *slot)
                     SCReturnInt(TM_ECODE_FAILED);
                     break;
                 case AFP_READ_OK:
+                    AFPDumpCounters(ptv, 0);
                     break;
             }
         } else if ((r < 0) && (errno != EINTR)) {
@@ -842,9 +879,69 @@ static int AFPCreateSocket(AFPThreadVars *ptv, char *devname, int verbose)
     }
 #endif
 
+    ptv->datalink = AFPGetDevLinktype(ptv->socket, ptv->iface);
+    switch (ptv->datalink) {
+        case ARPHRD_PPP:
+        case ARPHRD_ATM:
+            ptv->cooked = 1;
+    }
+
+    TmEcode rc;
+    rc = AFPSetBPFFilter(ptv);
+    if (rc == TM_ECODE_FAILED) {
+        SCLogError(SC_ERR_AFP_CREATE, "Set AF_PACKET bpf filter \"%s\" failed.", ptv->bpf_filter);
+        return -1;
+    }
+
     /* Init is ok */
     ptv->afp_state = AFP_STATE_UP;
     return 0;
+}
+
+TmEcode AFPSetBPFFilter(AFPThreadVars *ptv)
+{
+    struct bpf_program filter;
+    struct sock_fprog  fcode;
+    int rc;
+
+    if (!ptv->bpf_filter)
+        return TM_ECODE_OK;
+
+    SCMutexLock(&afpacket_bpf_set_filter_lock);
+
+    SCLogInfo("Using BPF '%s' on iface '%s'",
+              ptv->bpf_filter,
+              ptv->iface);
+    if (pcap_compile_nopcap(default_packet_size,  /* snaplen_arg */
+                ptv->datalink,    /* linktype_arg */
+                &filter,       /* program */
+                ptv->bpf_filter, /* const char *buf */
+                0,             /* optimize */
+                0              /* mask */
+                ) == -1) {
+        SCLogError(SC_ERR_AFP_CREATE, "Filter compilation failed.");
+        SCMutexUnlock(&afpacket_bpf_set_filter_lock);
+        return TM_ECODE_FAILED;
+    }
+    SCMutexUnlock(&afpacket_bpf_set_filter_lock);
+
+    if (filter.bf_insns == NULL) {
+        SCLogError(SC_ERR_AFP_CREATE, "Filter badly setup.");
+        return TM_ECODE_FAILED;
+    }
+
+    fcode.len    = filter.bf_len;
+    fcode.filter = (struct sock_filter*)filter.bf_insns;
+
+    rc = setsockopt(ptv->socket, SOL_SOCKET, SO_ATTACH_FILTER, &fcode, sizeof(fcode));
+
+    if(rc == -1) {
+        SCLogError(SC_ERR_AFP_CREATE, "Failed to attach filter: %s", strerror(errno));
+        return TM_ECODE_FAILED;
+    }
+
+    SCMutexUnlock(&afpacket_bpf_set_filter_lock);
+    return TM_ECODE_OK;
 }
 
 
@@ -891,6 +988,7 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
     ptv->promisc = afpconfig->promisc;
     ptv->checksum_mode = afpconfig->checksum_mode;
+    ptv->bpf_filter = NULL;
 
     ptv->threads = 1;
 #ifdef HAVE_PACKET_FANOUT
@@ -904,6 +1002,21 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data) {
     }
 #endif
     ptv->flags = afpconfig->flags;
+
+    if (afpconfig->bpf_filter) {
+        ptv->bpf_filter = afpconfig->bpf_filter;
+    }
+
+#ifdef PACKET_STATISTICS
+    ptv->capture_kernel_packets = SCPerfTVRegisterCounter("capture.kernel_packets",
+            ptv->tv,
+            SC_PERF_TYPE_UINT64,
+            "NULL");
+    ptv->capture_kernel_drops = SCPerfTVRegisterCounter("capture.kernel_drops",
+            ptv->tv,
+            SC_PERF_TYPE_UINT64,
+            "NULL");
+#endif
 
     char *active_runmode = RunmodeGetActive();
 
@@ -920,12 +1033,7 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data) {
         SCReturnInt(TM_ECODE_FAILED);
     }
 
-    ptv->datalink = AFPGetDevLinktype(ptv->socket, ptv->iface);
-    switch (ptv->datalink) {
-        case ARPHRD_PPP:
-        case ARPHRD_ATM:
-            ptv->cooked = 1;
-    }
+
 
 #define T_DATA_SIZE 70000
     ptv->data = SCMalloc(T_DATA_SIZE);
@@ -936,7 +1044,6 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data) {
     }
     ptv->datalen = T_DATA_SIZE;
 #undef T_DATA_SIZE
-
 
     *data = (void *)ptv;
 
@@ -952,18 +1059,13 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data) {
 void ReceiveAFPThreadExitStats(ThreadVars *tv, void *data) {
     SCEnter();
     AFPThreadVars *ptv = (AFPThreadVars *)data;
-#ifdef PACKET_STATISTICS
-    struct tpacket_stats kstats;
-    socklen_t len = sizeof (struct tpacket_stats);
-#endif
 
 #ifdef PACKET_STATISTICS
-    if (getsockopt(ptv->socket, SOL_PACKET, PACKET_STATISTICS,
-                &kstats, &len) > -1) {
-        SCLogInfo("(%s) Kernel: Packets %" PRIu32 ", dropped %" PRIu32 "",
-                tv->name,
-                kstats.tp_packets, kstats.tp_drops);
-    }
+    AFPDumpCounters(ptv, 1);
+    SCLogInfo("(%s) Kernel: Packets %" PRIu64 ", dropped %" PRIu64 "",
+            tv->name,
+            (uint64_t) SCPerfGetLocalCounterValue(ptv->capture_kernel_packets, tv->sc_perf_pca),
+            (uint64_t) SCPerfGetLocalCounterValue(ptv->capture_kernel_drops, tv->sc_perf_pca));
 #endif
 
     SCLogInfo("(%s) Packets %" PRIu32 ", bytes %" PRIu64 "", tv->name, ptv->pkts, ptv->bytes);
@@ -982,6 +1084,8 @@ TmEcode ReceiveAFPThreadDeinit(ThreadVars *tv, void *data) {
         ptv->data = NULL;
     }
     ptv->datalen = 0;
+
+    ptv->bpf_filter = NULL;
 
     close(ptv->socket);
     SCReturnInt(TM_ECODE_OK);

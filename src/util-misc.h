@@ -24,6 +24,8 @@
 #ifndef __UTIL_MISC_H__
 #define __UTIL_MISC_H__
 
+/* size string parsing API */
+
 int ParseSizeStringU8(const char *, uint8_t *);
 int ParseSizeStringU16(const char *, uint16_t *);
 int ParseSizeStringU32(const char *, uint32_t *);

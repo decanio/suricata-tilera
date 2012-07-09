@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2010 Open Information Security Foundation
+/* Copyright (C) 2007-2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -15,20 +15,19 @@
  * 02110-1301, USA.
  */
 
-/**
- * \file
+/** \file
  *
- * \author Victor Julien <victor@inliniac.net>
+ * \author Anoop Saldanha <anoopsaldanha@gmail.com>
  */
 
-#ifndef __UTIL_VAR_NAME_H__
-#define __UTIL_VAR_NAME_H__
+#ifndef __DETECT_ENGINE_HUA_H__
+#define __DETECT_ENGINE_HUA_H__
 
-int VariableNameInitHash(DetectEngineCtx *);
-void VariableNameFreeHash(DetectEngineCtx *);
+#include "app-layer-htp.h"
 
-uint16_t VariableNameGetIdx(DetectEngineCtx *, char *, uint8_t);
-char * VariableIdxGetName(DetectEngineCtx *, uint16_t , uint8_t);
+int DetectEngineInspectHttpUA(DetectEngineCtx *, DetectEngineThreadCtx *,
+                              Signature *, Flow *, uint8_t, void *);
+int DetectEngineRunHttpUAMpm(DetectEngineThreadCtx *, Flow *, HtpState *, uint8_t);
+void DetectEngineHttpUARegisterTests(void);
 
-#endif
-
+#endif /* __DETECT_ENGINE_HUA_H__ */

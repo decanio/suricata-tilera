@@ -83,6 +83,7 @@ void TmModuleDecodePfringRegister (void) {
     tmm_modules[TMM_DECODEPFRING].ThreadDeinit = NULL;
     tmm_modules[TMM_DECODEPFRING].RegisterTests = NULL;
     tmm_modules[TMM_DECODEPFRING].cap_flags = 0;
+    tmm_modules[TMM_DECODEPFRING].flags = TM_FLAG_DECODE_TM;
 }
 
 /**
@@ -166,6 +167,7 @@ void TmModuleDecodePfringRegister (void) {
     tmm_modules[TMM_DECODEPFRING].ThreadExitPrintStats = NULL;
     tmm_modules[TMM_DECODEPFRING].ThreadDeinit = NULL;
     tmm_modules[TMM_DECODEPFRING].RegisterTests = NULL;
+    tmm_modules[TMM_DECODEPFRING].flags = TM_FLAG_DECODE_TM;
 }
 
 /**
@@ -184,7 +186,7 @@ static inline void PfringProcessPacket(void *user, struct pfring_pkthdr *h, Pack
 
     ptv->bytes += h->caplen;
     ptv->pkts++;
-    SC_ATOMIC_ADD(ptv->livedev->pkts, 1);
+    (void) SC_ATOMIC_ADD(ptv->livedev->pkts, 1);
     p->livedev = ptv->livedev;
 
     /* PF_RING may fail to set timestamp */

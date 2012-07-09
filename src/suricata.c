@@ -74,6 +74,7 @@
 #include "detect-engine-hrud.h"
 #include "detect-engine-hsmd.h"
 #include "detect-engine-hscd.h"
+#include "detect-engine-hua.h"
 #include "detect-engine-state.h"
 #include "detect-engine-tag.h"
 #include "detect-fast-pattern.h"
@@ -162,6 +163,7 @@
 #include "util-reference-config.h"
 #include "util-profiling.h"
 #include "util-magic.h"
+#include "util-signal.h"
 
 #include "util-coredump-config.h"
 
@@ -230,6 +232,7 @@ intmax_t max_pending_packets;
 /** set caps or not */
 int sc_set_caps;
 
+char *conf_filename = NULL;
 #ifdef __tile__
 /** Tilera used a separate mspace to utilize huge pages and hash for home. */
 tmc_mspace global_mspace;
@@ -254,6 +257,46 @@ static void SignalHandlerSigterm(/*@unused@*/ int sig) {
     sigterm_count = 1;
     suricata_ctl_flags |= SURICATA_KILL;
 }
+
+void SignalHandlerSigusr2SigFileStartup(int sig)
+{
+    SCLogInfo("Live rule not possible if -s or -S option used at runtime.");
+
+    return;
+}
+
+static void SignalHandlerSigusr2Idle(int sig)
+{
+    if (run_mode == RUNMODE_UNKNOWN || run_mode == RUNMODE_UNITTEST) {
+        SCLogInfo("Ruleset load signal USR2 triggered for wrong runmode");
+        return;
+    }
+
+    SCLogInfo("Hang on buddy!  Ruleset load in progress.  New ruleset load "
+              "allowed after current is done");
+
+    return;
+}
+
+void SignalHandlerSigusr2(int sig)
+{
+    if (run_mode == RUNMODE_UNKNOWN || run_mode == RUNMODE_UNITTEST) {
+        SCLogInfo("Ruleset load signal USR2 triggered for wrong runmode");
+        return;
+    }
+
+    if (suricata_ctl_flags != 0) {
+        SCLogInfo("Live rule swap no longer possible.  Engine in shutdown mode.");
+        return;
+    }
+
+    UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2Idle);
+
+    DetectEngineSpawnLiveRuleSwapMgmtThread();
+
+    return;
+}
+
 #if 0
 static void SignalHandlerSighup(/*@unused@*/ int sig) {
     sighup_count = 1;
@@ -276,23 +319,6 @@ uint8_t print_mem_flag = 1;
 #endif
 
 #define min(a,b) (((a)<(b))?(a):(b))
-
-static void
-SignalHandlerSetup(int sig, void (*handler)())
-{
-#if defined (OS_WIN32)
-	signal(sig, handler);
-#else
-    struct sigaction action;
-    memset(&action, 0x00, sizeof(struct sigaction));
-
-    action.sa_handler = handler;
-    sigemptyset(&(action.sa_mask));
-    sigaddset(&(action.sa_mask),sig);
-    action.sa_flags = 0;
-    sigaction(sig, &action, 0);
-#endif /* OS_WIN32 */
-}
 
 void GlobalInits()
 {
@@ -660,7 +686,6 @@ int main(int argc, char **argv)
     char *sig_file = NULL;
     int sig_file_exclusive = FALSE;
     int conf_test = 0;
-    char *conf_filename = NULL;
     char *pid_filename = NULL;
 #ifdef UNITTESTS
     char *regex_arg = NULL;
@@ -1524,6 +1549,11 @@ int main(int argc, char **argv)
 
     AppLayerHtpNeedFileInspection();
 
+    if (sig_file == NULL)
+        UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2Idle);
+    else
+        UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2SigFileStartup);
+
 #ifdef UNITTESTS
 
     if (run_mode == RUNMODE_UNITTEST) {
@@ -1613,6 +1643,7 @@ int main(int argc, char **argv)
         DetectEngineHttpRawUriRegisterTests();
         DetectEngineHttpStatMsgRegisterTests();
         DetectEngineHttpStatCodeRegisterTests();
+        DetectEngineHttpUARegisterTests();
         DetectEngineRegisterTests();
         SCLogRegisterTests();
         SMTPParserRegisterTests();
@@ -1621,6 +1652,7 @@ int main(int argc, char **argv)
         DetectAddressTests();
         DetectProtoTests();
         DetectPortTests();
+        SCAtomicRegisterTests();
         if (list_unittests) {
             UtListTests(regex_arg);
         }
@@ -1680,14 +1712,14 @@ int main(int argc, char **argv)
 #endif
 
     /* registering signals we use */
-    SignalHandlerSetup(SIGINT, SignalHandlerSigint);
-    SignalHandlerSetup(SIGTERM, SignalHandlerSigterm);
-    SignalHandlerSetup(SIGPIPE, SIG_IGN);
-    SignalHandlerSetup(SIGSYS, SIG_IGN);
+    UtilSignalHandlerSetup(SIGINT, SignalHandlerSigint);
+    UtilSignalHandlerSetup(SIGTERM, SignalHandlerSigterm);
+    UtilSignalHandlerSetup(SIGPIPE, SIG_IGN);
+    UtilSignalHandlerSetup(SIGSYS, SIG_IGN);
 
 #ifndef OS_WIN32
 	/* SIGHUP is not implemnetd on WIN32 */
-    //SignalHandlerSetup(SIGHUP, SignalHandlerSighup);
+    //UtilSignalHandlerSetup(SIGHUP, SignalHandlerSighup);
 
     /* Get the suricata user ID to given user ID */
     if (do_setuid == TRUE) {
@@ -1790,7 +1822,9 @@ printf("max_pending_packets %ld sizeof(Packet) %lu tile_vhuge_size %lu packet_si
     SCClassConfLoadClassficationConfigFile(de_ctx);
     SCRConfLoadReferenceConfigFile(de_ctx);
 
-    ActionInitConfig();
+    if (ActionInitConfig() < 0) {
+        exit(EXIT_FAILURE);
+    }
 
 #ifndef __tile__
     /*
@@ -1813,6 +1847,11 @@ printf("max_pending_packets %ld sizeof(Packet) %lu tile_vhuge_size %lu packet_si
     if (engine_analysis) {
         exit(EXIT_SUCCESS);
     }
+
+    /* registering singal handlers we use.  We register usr2 here, so that one
+     * can't call it during the first sig load phase */
+    if (sig_file == NULL)
+        UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2);
 
 #ifdef PROFILING
     SCProfilingInitRuleCounters(de_ctx);
@@ -1939,7 +1978,7 @@ printf("DEBUG: setting affinity for main\n");
         exit(EXIT_FAILURE);
     }
 
-    SC_ATOMIC_CAS(&engine_stage, SURICATA_INIT, SURICATA_RUNTIME);
+    (void) SC_ATOMIC_CAS(&engine_stage, SURICATA_INIT, SURICATA_RUNTIME);
 
 #ifdef __tilegx__
     /* Temporary for Tilera profiling */
@@ -2030,7 +2069,7 @@ printf("DEBUG: setting affinity for main\n");
     }
 
     /* Update the engine stage/status flag */
-    SC_ATOMIC_CAS(&engine_stage, SURICATA_RUNTIME, SURICATA_DEINIT);
+    (void) SC_ATOMIC_CAS(&engine_stage, SURICATA_RUNTIME, SURICATA_DEINIT);
 
 
 #ifdef __SC_CUDA_SUPPORT__
@@ -2049,7 +2088,26 @@ printf("DEBUG: setting affinity for main\n");
         (((1000000 + end_time.tv_usec - start_time.tv_usec) / 1000) - 1000);
     SCLogInfo("time elapsed %.3fs", (float)milliseconds/(float)1000);
 
+    /* Disable detect threads first.  This is required by live rule swap */
+    TmThreadDisableDetectThreads();
+
+    /* wait if live rule swap is in progress */
+    if (UtilSignalIsHandler(SIGUSR2, SignalHandlerSigusr2Idle)) {
+        SCLogInfo("Live rule swap in progress.  Waiting for it to end "
+                  "before we shut the engine/threads down");
+        while (UtilSignalIsHandler(SIGUSR2, SignalHandlerSigusr2Idle)) {
+            /* sleep for 0.5 seconds */
+            usleep(500000);
+        }
+        SCLogInfo("Received notification that live rule swap is done.  "
+                  "Continuing with engine/threads shutdown");
+    }
+
+    DetectEngineCtx *global_de_ctx = DetectEngineGetGlobalDeCtx();
+    BUG_ON(global_de_ctx == NULL);
+
     TmThreadKillThreads();
+
     SCPerfReleaseResources();
     FlowShutdown();
     HostShutdown();
@@ -2078,7 +2136,6 @@ printf("DEBUG: setting affinity for main\n");
         }
     }
 #endif
-    SigGroupCleanup(de_ctx);
 #ifdef __SC_CUDA_SUPPORT__
     if (PatternMatchDefaultMatcher() == MPM_B2G_CUDA) {
         /* pop the cuda context we just pushed before the call to SigGroupCleanup() */
@@ -2093,11 +2150,7 @@ printf("DEBUG: setting affinity for main\n");
 
     AppLayerHtpPrintStats();
 
-    SigCleanSignatures(de_ctx);
-    if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-        MpmFactoryDeRegisterAllMpmCtxProfiles();
-    }
-    DetectEngineCtxFree(de_ctx);
+    DetectEngineCtxFree(global_de_ctx);
     AlpProtoDestroy();
 
     TagDestroyCtx();

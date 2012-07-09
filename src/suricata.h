@@ -129,6 +129,8 @@ extern uint8_t suricata_ctl_flags;
 /* uppercase to lowercase conversion lookup table */
 uint8_t g_u8_lowercasetable[256];
 
+extern char *conf_filename;
+
 /* marco to do the actual lookup */
 //#define u8_tolower(c) g_u8_lowercasetable[(c)]
 // these 2 are slower:
@@ -141,6 +143,10 @@ uint8_t g_u8_lowercasetable[256];
 
 void EngineStop(void);
 void EngineKill(void);
+
+/* live rule swap required this to be made static */
+void SignalHandlerSigusr2(int);
+void SignalHandlerSigusr2EngineShutdown(int);
 
 int RunmodeIsUnittests(void);
 

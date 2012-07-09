@@ -140,7 +140,7 @@ int TagFlowAdd(Packet *p, DetectTagDataEntry *tde) {
         if (new_tde != NULL) {
             new_tde->next = p->flow->tag_list;
             p->flow->tag_list = new_tde;
-            SC_ATOMIC_ADD(num_tags, 1);
+            (void) SC_ATOMIC_ADD(num_tags, 1);
         }
     } else if (num_tags == DETECT_TAG_MAX_TAGS) {
         SCLogDebug("Max tags for sessions reached (%"PRIu16")", num_tags);
@@ -184,7 +184,7 @@ int TagHashAddTag(DetectTagDataEntry *tde, Packet *p)
         DetectTagDataEntry *new_tde = DetectTagDataCopy(tde);
         if (new_tde != NULL) {
             host->tag = new_tde;
-            SC_ATOMIC_ADD(num_tags, 1);
+            (void) SC_ATOMIC_ADD(num_tags, 1);
         }
     } else {
         /* Append the tag to the list of this host */
@@ -214,7 +214,7 @@ int TagHashAddTag(DetectTagDataEntry *tde, Packet *p)
             /* get a new tde as the one we have is on the stack */
             DetectTagDataEntry *new_tde = DetectTagDataCopy(tde);
             if (new_tde != NULL) {
-                SC_ATOMIC_ADD(num_tags, 1);
+                (void) SC_ATOMIC_ADD(num_tags, 1);
 
                 new_tde->next = host->tag;
                 host->tag = new_tde;
@@ -264,14 +264,14 @@ static void TagHandlePacketFlow(Flow *f, Packet *p) {
                             prev->next = iter->next;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             continue;
                         } else {
                             p->flow->tag_list = iter->next;
                             tde = iter;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             continue;
                         }
                     } else if (flag_added == 0) {
@@ -289,14 +289,14 @@ static void TagHandlePacketFlow(Flow *f, Packet *p) {
                             prev->next = iter->next;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             continue;
                         } else {
                             p->flow->tag_list = iter->next;
                             tde = iter;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             continue;
                         }
                     } else if (flag_added == 0) {
@@ -316,14 +316,14 @@ static void TagHandlePacketFlow(Flow *f, Packet *p) {
                             prev->next = iter->next;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             continue;
                         } else {
                             p->flow->tag_list = iter->next;
                             tde = iter;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             continue;
                         }
                     } else if (flag_added == 0) {
@@ -377,13 +377,13 @@ void TagHandlePacketHost(Host *host, Packet *p) {
                             prev->next = iter->next;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             continue;
                         } else {
                             tde = iter;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             host->tag = iter;
                             continue;
                         }
@@ -402,13 +402,13 @@ void TagHandlePacketHost(Host *host, Packet *p) {
                             prev->next = iter->next;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             continue;
                         } else {
                             tde = iter;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             host->tag = iter;
                             continue;
                         }
@@ -429,13 +429,13 @@ void TagHandlePacketHost(Host *host, Packet *p) {
                             prev->next = iter->next;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             continue;
                         } else {
                             tde = iter;
                             iter = iter->next;
                             SCFree(tde);
-                            SC_ATOMIC_SUB(num_tags, 1);
+                            (void) SC_ATOMIC_SUB(num_tags, 1);
                             host->tag = iter;
                             continue;
                         }
@@ -533,7 +533,7 @@ int TagTimeoutCheck(Host *host, struct timeval *tv)
             tmp = tde->next;
 
             SCFree(tde);
-            SC_ATOMIC_SUB(num_tags, 1);
+            (void) SC_ATOMIC_SUB(num_tags, 1);
         } else {
             host->tag = tmp->next;
 
@@ -541,7 +541,7 @@ int TagTimeoutCheck(Host *host, struct timeval *tv)
             tmp = tde->next;
 
             SCFree(tde);
-            SC_ATOMIC_SUB(num_tags, 1);
+            (void) SC_ATOMIC_SUB(num_tags, 1);
         }
     }
     return retval;

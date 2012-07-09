@@ -493,7 +493,7 @@ static inline void FlowForceReassemblyForHash(void)
 
             /* ah ah!  We have some unattended toserver segments */
             if ((client_ok = StreamHasUnprocessedSegments(ssn, 0)) == 1) {
-                StreamTcpThread *stt = stream_pseudo_pkt_stream_tm_slot->slot_data;
+                StreamTcpThread *stt = SC_ATOMIC_GET(stream_pseudo_pkt_stream_tm_slot->slot_data);
 
                 ssn->client.last_ack = (ssn->client.seg_list_tail->seq +
                         ssn->client.seg_list_tail->payload_len);
@@ -510,7 +510,7 @@ static inline void FlowForceReassemblyForHash(void)
             }
             /* oh oh!  We have some unattended toclient segments */
             if ((server_ok = StreamHasUnprocessedSegments(ssn, 1)) == 1) {
-                StreamTcpThread *stt = stream_pseudo_pkt_stream_tm_slot->slot_data;
+                StreamTcpThread *stt = SC_ATOMIC_GET(stream_pseudo_pkt_stream_tm_slot->slot_data);
 
                 ssn->server.last_ack = (ssn->server.seg_list_tail->seq +
                         ssn->server.seg_list_tail->payload_len);
@@ -552,8 +552,8 @@ static inline void FlowForceReassemblyForHash(void)
                 } else {
                     TmSlot *s = stream_pseudo_pkt_detect_tm_slot;
                     while (s != NULL) {
-                        s->SlotFunc(NULL, p, s->slot_data, &s->slot_pre_pq,
-                                &s->slot_post_pq);
+                        s->SlotFunc(NULL, p, SC_ATOMIC_GET(s->slot_data), &s->slot_pre_pq,
+                                    &s->slot_post_pq);
                         s = s->slot_next;
                     }
 
@@ -581,8 +581,8 @@ static inline void FlowForceReassemblyForHash(void)
                 } else {
                     TmSlot *s = stream_pseudo_pkt_detect_tm_slot;
                     while (s != NULL) {
-                        s->SlotFunc(NULL, p, s->slot_data, &s->slot_pre_pq,
-                                &s->slot_post_pq);
+                        s->SlotFunc(NULL, p, SC_ATOMIC_GET(s->slot_data), &s->slot_pre_pq,
+                                    &s->slot_post_pq);
                         s = s->slot_next;
                     }
 
@@ -691,7 +691,26 @@ void FlowForceReassemblySetup(void)
         stream_pseudo_pkt_detect_TV = NULL;
     }
 
-    stream_pseudo_pkt_decode_tm_slot = TmThreadGetFirstTmSlotForPartialPattern("Decode");
+    SCMutexLock(&tv_root_lock);
+    ThreadVars *tv = tv_root[TVT_PPT];
+    int done = 0;
+    while (tv) {
+        TmSlot *slots = tv->tm_slots;
+        while (slots) {
+            TmModule *tm = TmModuleGetById(slots->tm_id);
+            if (tm->flags & TM_FLAG_DECODE_TM) {
+                done = 1;
+                stream_pseudo_pkt_decode_tm_slot = slots;
+                break;
+            }
+            slots = slots->slot_next;
+        }
+        if (done)
+            break;
+        tv = tv->next;
+    }
+    SCMutexUnlock(&tv_root_lock);
+
     if (stream_pseudo_pkt_decode_tm_slot == NULL) {
         /* yes, this is fatal! */
         SCLogError(SC_ERR_TM_MODULES_ERROR, "Looks like we have failed to "

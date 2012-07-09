@@ -3,10 +3,10 @@ noinst_HEADERS = action-globals.h \
     debug.h \
 	flow-private.h queue.h source-nfq-prototypes.h \
 	suricata-common.h threadvars.h util-binsearch.h \
-    util-atomic.h util-validate.h
+        util-validate.h
 bin_PROGRAMS = suricata
 
-AM_CPPFLAGS = -DCONFIG_DIR=\"$(sysconfdir)\"
+AM_CPPFLAGS = -DCONFIG_DIR=\"$(e_sysconfdir)\"
 
 suricata_SOURCES = suricata.c suricata.h \
 runmodes.c runmodes.h \
@@ -95,6 +95,7 @@ detect-engine-hcd.c detect-engine-hcd.h \
 detect-engine-hrud.c detect-engine-hrud.h \
 detect-engine-hsmd.c detect-engine-hsmd.h \
 detect-engine-hscd.c detect-engine-hscd.h \
+detect-engine-hua.c detect-engine-hua.h \
 detect-engine-state.c detect-engine-state.h \
 detect-engine-file.c detect-engine-file.h \
 detect-engine-analyzer.c detect-engine-analyzer.h \
@@ -152,6 +153,7 @@ detect-http-raw-header.c detect-http-raw-header.h \
 detect-http-uri.c detect-http-uri.h \
 detect-http-raw-uri.c detect-http-raw-uri.h \
 detect-file-data.c detect-file-data.h \
+detect-http-ua.c detect-http-ua.h \
 detect-tls.c detect-tls.h \
 detect-tls-version.c detect-tls-version.h \
 detect-ssh-proto-version.c detect-ssh-proto-version.h \
@@ -181,7 +183,8 @@ decode-events.c decode-events.h \
 detect-replace.c detect-replace.h \
 util-magic.c util-magic.h \
 util-misc.c util-misc.h \
-util-atomic.h \
+util-atomic.c util-atomic.h \
+util-signal.c util-signal.h \
 util-print.c util-print.h \
 util-fmemopen.c util-fmemopen.h \
 util-cpu.c util-cpu.h \

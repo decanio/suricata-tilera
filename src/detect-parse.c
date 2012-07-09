@@ -525,6 +525,8 @@ int SigParseProto(Signature *s, const char *protostr) {
         SCReturnInt(-1);
     }
 
+    /* if any of these flags are set they are set in a mutually exclusive
+     * manner */
     if (s->proto.flags & DETECT_PROTO_ONLY_PKT) {
         s->flags |= SIG_FLAG_REQUIRE_PACKET;
     } else if (s->proto.flags & DETECT_PROTO_ONLY_STREAM) {
@@ -1019,7 +1021,8 @@ static int SigValidate(Signature *s) {
 
     if (s->flags & SIG_FLAG_REQUIRE_PACKET &&
         s->flags & SIG_FLAG_REQUIRE_STREAM) {
-        SCLogError(SC_ERR_INVALID_SIGNATURE, "can't mix packet keywords with tcp-stream or flow:only_stream.");
+        SCLogError(SC_ERR_INVALID_SIGNATURE, "can't mix packet keywords with "
+                   "tcp-stream or flow:only_stream.  Invalidating signature.");
         SCReturnInt(0);
     }
 
@@ -1098,7 +1101,8 @@ static int SigValidate(Signature *s) {
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HSMDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HSCDMATCH],
-                DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH]);
+                DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH],
+                DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HUADMATCH]);
         if (pm != NULL) {
             SCLogError(SC_ERR_INVALID_SIGNATURE, "Signature has"
                 " replace keyword linked with a modified content"
@@ -1116,13 +1120,28 @@ static int SigValidate(Signature *s) {
                 s->sm_lists_tail[DETECT_SM_LIST_HMDMATCH]  ||
                 s->sm_lists_tail[DETECT_SM_LIST_HSMDMATCH] ||
                 s->sm_lists_tail[DETECT_SM_LIST_HSCDMATCH] ||
-                s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH])
+                s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH] ||
+                s->sm_lists_tail[DETECT_SM_LIST_HUADMATCH])
         {
             SCLogError(SC_ERR_INVALID_SIGNATURE, "Signature combines packet "
                     "specific matches (like dsize, flags, ttl) with stream / "
                     "state matching by matching on app layer proto (like using "
                     "http_* keywords).");
             SCReturnInt(0);
+        }
+    }
+
+    if (!(s->flags & SIG_FLAG_REQUIRE_PACKET)) {
+        s->flags |= SIG_FLAG_REQUIRE_STREAM;
+        SigMatch *sm = s->sm_lists[DETECT_SM_LIST_PMATCH];
+        while (sm != NULL) {
+            if (sm->type == DETECT_CONTENT &&
+                (((DetectContentData *)(sm->ctx))->flags &
+                 (DETECT_CONTENT_DEPTH | DETECT_CONTENT_OFFSET))) {
+                s->flags |= SIG_FLAG_REQUIRE_PACKET;
+                break;
+            }
+            sm = sm->next;
         }
     }
 
@@ -1245,6 +1264,8 @@ static Signature *SigInitHelper(DetectEngineCtx *de_ctx, char *sigstr,
     if (sig->sm_lists[DETECT_SM_LIST_HSMDMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
     if (sig->sm_lists[DETECT_SM_LIST_HSCDMATCH])
+        sig->flags |= SIG_FLAG_STATE_MATCH;
+    if (sig->sm_lists[DETECT_SM_LIST_HUADMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
 
     if (!(sig->init_flags & SIG_FLAG_INIT_FLOW)) {
@@ -2128,6 +2149,186 @@ end:
     return result;
 }
 
+/**
+ * \test packet/stream sig
+ */
+static int SigParseTest13(void) {
+    int result = 0;
+
+    DetectEngineCtx *de_ctx = DetectEngineCtxInit();
+    if (de_ctx == NULL)
+        goto end;
+
+    Signature *s = NULL;
+
+    s = DetectEngineAppendSig(de_ctx, "alert tcp any any -> any any (content:\"abc\"; sid:1;)");
+    if (s == NULL) {
+        printf("sig 1 invalidated: failure");
+        goto end;
+    }
+
+    if (!(s->flags & SIG_FLAG_REQUIRE_STREAM)) {
+        printf("sig doesn't have stream flag set\n");
+        goto end;
+    }
+
+    if (s->flags & SIG_FLAG_REQUIRE_PACKET) {
+        printf("sig has packet flag set\n");
+        goto end;
+    }
+
+    result = 1;
+
+end:
+    if (de_ctx != NULL)
+        DetectEngineCtxFree(de_ctx);
+    return result;
+}
+
+/**
+ * \test packet/stream sig
+ */
+static int SigParseTest14(void) {
+    int result = 0;
+
+    DetectEngineCtx *de_ctx = DetectEngineCtxInit();
+    if (de_ctx == NULL)
+        goto end;
+
+    Signature *s = NULL;
+
+    s = DetectEngineAppendSig(de_ctx, "alert tcp any any -> any any (content:\"abc\"; dsize:>0; sid:1;)");
+    if (s == NULL) {
+        printf("sig 1 invalidated: failure");
+        goto end;
+    }
+
+    if (!(s->flags & SIG_FLAG_REQUIRE_PACKET)) {
+        printf("sig doesn't have packet flag set\n");
+        goto end;
+    }
+
+    if (s->flags & SIG_FLAG_REQUIRE_STREAM) {
+        printf("sig has stream flag set\n");
+        goto end;
+    }
+
+    result = 1;
+
+end:
+    if (de_ctx != NULL)
+        DetectEngineCtxFree(de_ctx);
+    return result;
+}
+
+/**
+ * \test packet/stream sig
+ */
+static int SigParseTest15(void) {
+    int result = 0;
+
+    DetectEngineCtx *de_ctx = DetectEngineCtxInit();
+    if (de_ctx == NULL)
+        goto end;
+
+    Signature *s = NULL;
+
+    s = DetectEngineAppendSig(de_ctx, "alert tcp any any -> any any (content:\"abc\"; offset:5; sid:1;)");
+    if (s == NULL) {
+        printf("sig 1 invalidated: failure");
+        goto end;
+    }
+
+    if (!(s->flags & SIG_FLAG_REQUIRE_PACKET)) {
+        printf("sig doesn't have packet flag set\n");
+        goto end;
+    }
+
+    if (!(s->flags & SIG_FLAG_REQUIRE_STREAM)) {
+        printf("sig doesn't have stream flag set\n");
+        goto end;
+    }
+
+    result = 1;
+
+end:
+    if (de_ctx != NULL)
+        DetectEngineCtxFree(de_ctx);
+    return result;
+}
+
+/**
+ * \test packet/stream sig
+ */
+static int SigParseTest16(void) {
+    int result = 0;
+
+    DetectEngineCtx *de_ctx = DetectEngineCtxInit();
+    if (de_ctx == NULL)
+        goto end;
+
+    Signature *s = NULL;
+
+    s = DetectEngineAppendSig(de_ctx, "alert tcp any any -> any any (content:\"abc\"; depth:5; sid:1;)");
+    if (s == NULL) {
+        printf("sig 1 invalidated: failure");
+        goto end;
+    }
+
+    if (!(s->flags & SIG_FLAG_REQUIRE_PACKET)) {
+        printf("sig doesn't have packet flag set\n");
+        goto end;
+    }
+
+    if (!(s->flags & SIG_FLAG_REQUIRE_STREAM)) {
+        printf("sig doesn't have stream flag set\n");
+        goto end;
+    }
+
+    result = 1;
+
+end:
+    if (de_ctx != NULL)
+        DetectEngineCtxFree(de_ctx);
+    return result;
+}
+
+/**
+ * \test packet/stream sig
+ */
+static int SigParseTest17(void) {
+    int result = 0;
+
+    DetectEngineCtx *de_ctx = DetectEngineCtxInit();
+    if (de_ctx == NULL)
+        goto end;
+
+    Signature *s = NULL;
+
+    s = DetectEngineAppendSig(de_ctx, "alert tcp any any -> any any (content:\"abc\"; offset:1; depth:5; sid:1;)");
+    if (s == NULL) {
+        printf("sig 1 invalidated: failure");
+        goto end;
+    }
+
+    if (!(s->flags & SIG_FLAG_REQUIRE_PACKET)) {
+        printf("sig doesn't have packet flag set\n");
+        goto end;
+    }
+
+    if (!(s->flags & SIG_FLAG_REQUIRE_STREAM)) {
+        printf("sig doesn't have stream flag set\n");
+        goto end;
+    }
+
+    result = 1;
+
+end:
+    if (de_ctx != NULL)
+        DetectEngineCtxFree(de_ctx);
+    return result;
+}
+
 /** \test Direction operator validation (invalid) */
 int SigParseBidirecTest06 (void) {
     int result = 1;
@@ -3002,6 +3203,11 @@ void SigParseRegisterTests(void) {
     UtRegisterTest("SigParseTest10", SigParseTest10, 1);
     UtRegisterTest("SigParseTest11", SigParseTest11, 1);
     UtRegisterTest("SigParseTest12", SigParseTest12, 1);
+    UtRegisterTest("SigParseTest13", SigParseTest13, 1);
+    UtRegisterTest("SigParseTest14", SigParseTest14, 1);
+    UtRegisterTest("SigParseTest15", SigParseTest15, 1);
+    UtRegisterTest("SigParseTest16", SigParseTest16, 1);
+    UtRegisterTest("SigParseTest17", SigParseTest17, 1);
 
     UtRegisterTest("SigParseBidirecTest06", SigParseBidirecTest06, 1);
     UtRegisterTest("SigParseBidirecTest07", SigParseBidirecTest07, 1);

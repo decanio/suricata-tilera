@@ -104,6 +104,8 @@ enum {
     DETECT_SM_LIST_HSMDMATCH,
     /* list for http_stat_code keyword and the ones relative to it */
     DETECT_SM_LIST_HSCDMATCH,
+    /* list for http_user_agent keyword and the ones relative to it */
+    DETECT_SM_LIST_HUADMATCH,
 
     DETECT_SM_LIST_FILEMATCH,
 
@@ -289,7 +291,7 @@ typedef struct DetectPort_ {
 #define FILE_SIG_NEED_TYPE          0x04
 #define FILE_SIG_NEED_MAGIC         0x08    /**< need the start of the file */
 #define FILE_SIG_NEED_FILECONTENT   0x10
-#define FILE_SIG_NEED_FILEMD5       0x20
+#define FILE_SIG_NEED_MD5           0x20
 
 /* Detection Engine flags */
 #define DE_QUIET           0x01     /**< DE is quiet (esp for unittests) */
@@ -569,6 +571,10 @@ typedef struct DetectEngineCtx_ {
     HashListTable *sport_hash_table;
     HashListTable *dport_hash_table;
 
+    HashListTable *variable_names;
+    HashListTable *variable_idxs;
+    uint16_t variable_names_idx;
+
     /* hash table used to cull out duplicate sigs */
     HashListTable *dup_sig_hash_table;
 
@@ -617,6 +623,8 @@ typedef struct DetectEngineCtx_ {
      *  id sharing and id tracking. */
     MpmPatternIdStore *mpm_pattern_id_store;
 
+    MpmCtxFactoryContainer *mpm_ctx_factory_container;
+
     /* maximum recursion depth for content inspection */
     int inspection_recursion_limit;
 
@@ -645,7 +653,14 @@ typedef struct DetectEngineCtx_ {
     int32_t sgh_mpm_context_hrud;
     int32_t sgh_mpm_context_hsmd;
     int32_t sgh_mpm_context_hscd;
+    int32_t sgh_mpm_context_huad;
     int32_t sgh_mpm_context_app_proto_detect;
+
+    /* the max local id used amongst all sigs */
+    int32_t byte_extract_max_local_id;
+
+    /* id used by every detect engine ctx instance */
+    uint32_t id;
 
     /** sgh for signatures that match against invalid packets. In those cases
      *  we can't lookup by proto, address, port as we don't have these */
@@ -721,6 +736,12 @@ typedef struct DetectionEngineThreadCtx_ {
     /** ID of the transaction currently being inspected. */
     uint16_t tx_id;
 
+#ifdef __tile__
+    SC_ATOMIC_DECLARE(uint32_t, so_far_used_by_detect);
+#else
+    SC_ATOMIC_DECLARE(uint16_t, so_far_used_by_detect);
+#endif
+
     /* holds the current recursion depth on content inspection */
     int inspection_recursion_counter;
 
@@ -793,36 +814,26 @@ typedef struct SigTableElmt_ {
     char *name;
 } SigTableElmt;
 
-#define SIG_GROUP_HAVECONTENT           0x00000001
-#define SIG_GROUP_HAVEURICONTENT        0x00000002
-#define SIG_GROUP_HAVESTREAMCONTENT     0x00000004
-#define SIG_GROUP_HAVEHCBDCONTENT       0x00000008
-#define SIG_GROUP_HAVEHHDCONTENT        0x00000010
-#define SIG_GROUP_HAVEHRHDCONTENT       0x00000020
-#define SIG_GROUP_HAVEHMDCONTENT        0x00000040
-#define SIG_GROUP_HAVEHCDCONTENT        0x00000080
-#define SIG_GROUP_HAVEHRUDCONTENT       0x00000100
-#define SIG_GROUP_HEAD_MPM_COPY         0x00000200
-#define SIG_GROUP_HEAD_MPM_URI_COPY     0x00000400
-#define SIG_GROUP_HEAD_MPM_STREAM_COPY  0x00000800
-#define SIG_GROUP_HEAD_FREE             0x00001000
-#define SIG_GROUP_HEAD_MPM_PACKET       0x00002000
-#define SIG_GROUP_HEAD_MPM_STREAM       0x00004000
-#define SIG_GROUP_HEAD_MPM_URI          0x00008000
-#define SIG_GROUP_HEAD_MPM_HCBD         0x00010000
-#define SIG_GROUP_HEAD_MPM_HHD          0x00020000
-#define SIG_GROUP_HEAD_MPM_HRHD         0x00040000
-#define SIG_GROUP_HEAD_MPM_HMD          0x00080000
-#define SIG_GROUP_HEAD_MPM_HCD          0x00100000
-#define SIG_GROUP_HEAD_MPM_HRUD         0x00200000
-#define SIG_GROUP_HEAD_REFERENCED       0x00400000 /**< sgh is being referenced by others, don't clear */
-#define SIG_GROUP_HEAD_HAVEFILEMAGIC    0x00800000
-#define SIG_GROUP_HAVEHSBDCONTENT       0x01000000
-#define SIG_GROUP_HEAD_MPM_HSBD         0x02000000
-#define SIG_GROUP_HAVEHSMDCONTENT       0x04000000
-#define SIG_GROUP_HEAD_MPM_HSMD         0x08000000
-#define SIG_GROUP_HAVEHSCDCONTENT       0x10000000
-#define SIG_GROUP_HEAD_MPM_HSCD         0x20000000
+#define SIG_GROUP_HEAD_MPM_COPY         (1)
+#define SIG_GROUP_HEAD_MPM_URI_COPY     (1 << 1)
+#define SIG_GROUP_HEAD_MPM_STREAM_COPY  (1 << 2)
+#define SIG_GROUP_HEAD_FREE             (1 << 3)
+#define SIG_GROUP_HEAD_MPM_PACKET       (1 << 4)
+#define SIG_GROUP_HEAD_MPM_STREAM       (1 << 5)
+#define SIG_GROUP_HEAD_MPM_URI          (1 << 6)
+#define SIG_GROUP_HEAD_MPM_HCBD         (1 << 7)
+#define SIG_GROUP_HEAD_MPM_HHD          (1 << 8)
+#define SIG_GROUP_HEAD_MPM_HRHD         (1 << 9)
+#define SIG_GROUP_HEAD_MPM_HMD          (1 << 10)
+#define SIG_GROUP_HEAD_MPM_HCD          (1 << 11)
+#define SIG_GROUP_HEAD_MPM_HRUD         (1 << 12)
+#define SIG_GROUP_HEAD_REFERENCED       (1 << 13) /**< sgh is being referenced by others, don't clear */
+#define SIG_GROUP_HEAD_HAVEFILEMAGIC    (1 << 14)
+#define SIG_GROUP_HEAD_MPM_HSBD         (1 << 15)
+#define SIG_GROUP_HEAD_MPM_HSMD         (1 << 16)
+#define SIG_GROUP_HEAD_MPM_HSCD         (1 << 17)
+#define SIG_GROUP_HEAD_MPM_HUAD         (1 << 18)
+#define SIG_GROUP_HEAD_HAVEFILEMD5      (1 << 19)
 
 typedef struct SigGroupHeadInitData_ {
     /* list of content containers
@@ -880,6 +891,7 @@ typedef struct SigGroupHead_ {
     MpmCtx *mpm_hrud_ctx_ts;
     MpmCtx *mpm_hsmd_ctx_ts;
     MpmCtx *mpm_hscd_ctx_ts;
+    MpmCtx *mpm_huad_ctx_ts;
 
     MpmCtx *mpm_proto_tcp_ctx_tc;
     MpmCtx *mpm_proto_udp_ctx_tc;
@@ -894,6 +906,7 @@ typedef struct SigGroupHead_ {
     MpmCtx *mpm_hrud_ctx_tc;
     MpmCtx *mpm_hsmd_ctx_tc;
     MpmCtx *mpm_hscd_ctx_tc;
+    MpmCtx *mpm_huad_ctx_tc;
 
     uint16_t mpm_uricontent_maxlen;
 
@@ -998,6 +1011,7 @@ enum {
     DETECT_AL_HTTP_RAW_URI,
     DETECT_AL_HTTP_STAT_MSG,
     DETECT_AL_HTTP_STAT_CODE,
+    DETECT_AL_HTTP_USER_AGENT,
     DETECT_AL_SSH_PROTOVERSION,
     DETECT_AL_SSH_SOFTWAREVERSION,
     DETECT_AL_SSL_VERSION,
@@ -1056,6 +1070,7 @@ Signature *DetectGetTagSignature(void);
 
 int SignatureIsFilestoring(Signature *);
 int SignatureIsFilemagicInspecting(Signature *);
+int SignatureIsFileMd5Inspecting(Signature *);
 
 #endif /* __DETECT_H__ */
 

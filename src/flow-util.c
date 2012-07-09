@@ -68,7 +68,7 @@ Flow *FlowAlloc(void)
         return NULL;
     }
 
-    SC_ATOMIC_ADD(flow_memuse, sizeof(Flow));
+    (void) SC_ATOMIC_ADD(flow_memuse, sizeof(Flow));
 
 #ifdef FLOW_ALLOC_CACHE
     FlowCache *fc;
@@ -81,7 +81,7 @@ Flow *FlowAlloc(void)
     f = SCMalloc(sizeof(Flow));
 #endif
     if (f == NULL) {
-        SC_ATOMIC_SUB(flow_memuse, sizeof(Flow));
+        (void) SC_ATOMIC_SUB(flow_memuse, sizeof(Flow));
         return NULL;
     }
 
@@ -108,7 +108,7 @@ void FlowFree(Flow *f)
     SCFree(f);
 #endif
 
-    SC_ATOMIC_SUB(flow_memuse, sizeof(Flow));
+    (void) SC_ATOMIC_SUB(flow_memuse, sizeof(Flow));
 }
 
 /**

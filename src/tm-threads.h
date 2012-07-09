@@ -48,7 +48,7 @@ typedef struct TmSlot_ {
 
     /* data storage */
     void *slot_initdata;
-    void *slot_data;
+    SC_ATOMIC_DECLARE(void *, slot_data);
 
     /* queue filled by the SlotFunc with packets that will
      * be processed futher _before_ the current packet.
@@ -120,6 +120,7 @@ TmEcode TmThreadsSlotVarRun (ThreadVars *tv, Packet *p, TmSlot *slot);
 
 ThreadVars *TmThreadsGetTVContainingSlot(TmSlot *);
 void TmThreadDisableReceiveThreads(void);
+void TmThreadDisableDetectThreads(void);
 TmSlot *TmThreadGetFirstTmSlotForPartialPattern(const char *);
 
 /**

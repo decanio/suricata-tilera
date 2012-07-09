@@ -96,14 +96,14 @@ static uint64_t htp_state_memcnt = 0;
 #endif
 
 /** part of the engine needs the request body (e.g. http_client_body keyword) */
-static uint8_t need_htp_request_body = 0;
+uint8_t need_htp_request_body = 0;
 /** part of the engine needs the request body multipart header (e.g. filename
  *  and / or fileext keywords) */
-static uint8_t need_htp_request_multipart_hdr = 0;
+uint8_t need_htp_request_multipart_hdr = 0;
 /** part of the engine needs the request file (e.g. log-file module) */
-static uint8_t need_htp_request_file = 0;
+uint8_t need_htp_request_file = 0;
 /** part of the engine needs the request body (e.g. file_data keyword) */
-static uint8_t need_htp_response_body = 0;
+uint8_t need_htp_response_body = 0;
 
 SCEnumCharMap http_decoder_event_table[ ] = {
     { "UNKNOWN_ERROR",
@@ -834,16 +834,34 @@ static int HTPCallbackRequestUriNormalize(htp_connp_t *c)
 {
     SCEnter();
 
-    if (c == NULL || c->in_tx == NULL || c->in_tx->parsed_uri == NULL ||
-        c->in_tx->parsed_uri->query == NULL)
+    if (c == NULL || c->in_tx == NULL || c->in_tx->parsed_uri == NULL)
     {
         SCReturnInt(HOOK_OK);
     }
 
-    /* uri normalize the query string as well */
-    htp_decode_path_inplace(c->cfg, c->in_tx,
-            c->in_tx->parsed_uri->query);
+    /* uri normalize the path string again -- while loop to unroll
+     * double+ encodings */
+    if (c->in_tx->parsed_uri->path != NULL) {
+        while (1) {
+            size_t origlen = bstr_len(c->in_tx->parsed_uri->path);
+            htp_decode_path_inplace(c->cfg, c->in_tx,
+                    c->in_tx->parsed_uri->path);
+            if (origlen == bstr_len(c->in_tx->parsed_uri->path))
+                break;
+        }
+    }
 
+    /* uri normalize the query string as well -- while loop to unroll
+     * double+ encodings */
+    if (c->in_tx->parsed_uri->query != NULL) {
+        while (1) {
+            size_t origlen = bstr_len(c->in_tx->parsed_uri->query);
+            htp_decode_path_inplace(c->cfg, c->in_tx,
+                    c->in_tx->parsed_uri->query);
+            if (origlen == bstr_len(c->in_tx->parsed_uri->query))
+                break;
+        }
+    }
     SCReturnInt(HOOK_OK);
 }
 #endif
@@ -2212,6 +2230,10 @@ static void HTPConfigure(void)
             htprec->response_body_limit = HTP_CONFIG_DEFAULT_REQUEST_BODY_LIMIT;
             htp_config_register_request(htp, HTPCallbackRequest);
             htp_config_register_response(htp, HTPCallbackResponse);
+#ifdef HAVE_HTP_URI_NORMALIZE_HOOK
+            htp_config_register_request_uri_normalize(htp,
+                    HTPCallbackRequestUriNormalize);
+#endif
             htp_config_set_generate_request_uri_normalized(htp, 1);
 
             /* Server Parameters */
@@ -3239,6 +3261,242 @@ end:
     return result;
 }
 
+/** \test double encoding in path
+ */
+static int HTPParserTest11(void) {
+    int result = 0;
+    Flow *f = NULL;
+    uint8_t httpbuf1[] = "GET /%2500 HTTP/1.0\r\n\r\n";
+    uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
+    TcpSession ssn;
+    HtpState *htp_state =  NULL;
+    int r = 0;
+
+    memset(&ssn, 0, sizeof(ssn));
+
+    f = UTHBuildFlow(AF_INET, "1.2.3.4", "1.2.3.5", 1024, 80);
+    if (f == NULL)
+        goto end;
+    f->protoctx = &ssn;
+
+    StreamTcpInitConfig(TRUE);
+
+    uint32_t u;
+    for (u = 0; u < httplen1; u++) {
+        uint8_t flags = 0;
+
+        if (u == 0)
+            flags = STREAM_TOSERVER|STREAM_START;
+        else if (u == (httplen1 - 1))
+            flags = STREAM_TOSERVER|STREAM_EOF;
+        else
+            flags = STREAM_TOSERVER;
+
+        r = AppLayerParse(NULL, f, ALPROTO_HTTP, flags, &httpbuf1[u], 1);
+        if (r != 0) {
+            printf("toserver chunk %" PRIu32 " returned %" PRId32 ", expected"
+                    " 0: ", u, r);
+            goto end;
+        }
+    }
+
+    htp_state = f->alstate;
+    if (htp_state == NULL) {
+        printf("no http state: ");
+        goto end;
+    }
+
+    htp_tx_t *tx = list_get(htp_state->connp->conn->transactions, 0);
+    if (tx != NULL && tx->request_uri_normalized != NULL) {
+        if (2 != bstr_size(tx->request_uri_normalized)) {
+            printf("normalized uri len should be 2, is %"PRIuMAX,
+                (uintmax_t)bstr_size(tx->request_uri_normalized));
+            goto end;
+        }
+
+        if (bstr_ptr(tx->request_uri_normalized)[0] != '/' ||
+            bstr_ptr(tx->request_uri_normalized)[1] != '\0')
+        {
+            printf("normalized uri \"");
+            PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
+            printf("\": ");
+            goto end;
+        }
+    }
+
+    result = 1;
+end:
+    StreamTcpFreeConfig(TRUE);
+    if (htp_state != NULL)
+        HTPStateFree(htp_state);
+    UTHFreeFlow(f);
+    return result;
+}
+
+/** \test double encoding in query
+ */
+static int HTPParserTest12(void) {
+    int result = 0;
+    Flow *f = NULL;
+    uint8_t httpbuf1[] = "GET /?a=%2500 HTTP/1.0\r\n\r\n";
+    uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
+    TcpSession ssn;
+    HtpState *htp_state =  NULL;
+    int r = 0;
+
+    memset(&ssn, 0, sizeof(ssn));
+
+    f = UTHBuildFlow(AF_INET, "1.2.3.4", "1.2.3.5", 1024, 80);
+    if (f == NULL)
+        goto end;
+    f->protoctx = &ssn;
+
+    StreamTcpInitConfig(TRUE);
+
+    uint32_t u;
+    for (u = 0; u < httplen1; u++) {
+        uint8_t flags = 0;
+
+        if (u == 0)
+            flags = STREAM_TOSERVER|STREAM_START;
+        else if (u == (httplen1 - 1))
+            flags = STREAM_TOSERVER|STREAM_EOF;
+        else
+            flags = STREAM_TOSERVER;
+
+        r = AppLayerParse(NULL, f, ALPROTO_HTTP, flags, &httpbuf1[u], 1);
+        if (r != 0) {
+            printf("toserver chunk %" PRIu32 " returned %" PRId32 ", expected"
+                    " 0: ", u, r);
+            goto end;
+        }
+    }
+
+    htp_state = f->alstate;
+    if (htp_state == NULL) {
+        printf("no http state: ");
+        goto end;
+    }
+
+    htp_tx_t *tx = list_get(htp_state->connp->conn->transactions, 0);
+    if (tx != NULL && tx->request_uri_normalized != NULL) {
+        if (5 != bstr_size(tx->request_uri_normalized)) {
+            printf("normalized uri len should be 5, is %"PRIuMAX,
+                (uintmax_t)bstr_size(tx->request_uri_normalized));
+            goto end;
+        }
+
+        if (bstr_ptr(tx->request_uri_normalized)[0] != '/' ||
+            bstr_ptr(tx->request_uri_normalized)[1] != '?' ||
+            bstr_ptr(tx->request_uri_normalized)[2] != 'a' ||
+            bstr_ptr(tx->request_uri_normalized)[3] != '=' ||
+            bstr_ptr(tx->request_uri_normalized)[4] != '\0')
+        {
+            printf("normalized uri \"");
+            PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
+            printf("\": ");
+            goto end;
+        }
+    }
+
+    result = 1;
+end:
+    StreamTcpFreeConfig(TRUE);
+    if (htp_state != NULL)
+        HTPStateFree(htp_state);
+    UTHFreeFlow(f);
+    return result;
+}
+
+/** \test Host:www.google.com0dName: Value0d0a <- missing space between name:value (rfc violation)
+ */
+int HTPParserTest13(void) {
+    int result = 0;
+    Flow *f = NULL;
+    uint8_t httpbuf1[] = "GET / HTTP/1.0\r\nHost:www.google.com\rName: Value\r\n\r\n";
+    uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
+    TcpSession ssn;
+    HtpState *htp_state =  NULL;
+    int r = 0;
+
+    memset(&ssn, 0, sizeof(ssn));
+
+    f = UTHBuildFlow(AF_INET, "1.2.3.4", "1.2.3.5", 1024, 80);
+    if (f == NULL)
+        goto end;
+    f->protoctx = &ssn;
+
+    StreamTcpInitConfig(TRUE);
+
+    uint32_t u;
+    for (u = 0; u < httplen1; u++) {
+        uint8_t flags = 0;
+
+        if (u == 0)
+            flags = STREAM_TOSERVER|STREAM_START;
+        else if (u == (httplen1 - 1))
+            flags = STREAM_TOSERVER|STREAM_EOF;
+        else
+            flags = STREAM_TOSERVER;
+
+        r = AppLayerParse(NULL, f, ALPROTO_HTTP, flags, &httpbuf1[u], 1);
+        if (r != 0) {
+            printf("toserver chunk %" PRIu32 " returned %" PRId32 ", expected"
+                    " 0: ", u, r);
+            goto end;
+        }
+    }
+
+    htp_state = f->alstate;
+    if (htp_state == NULL) {
+        printf("no http state: ");
+        goto end;
+    }
+
+    htp_tx_t *tx = list_get(htp_state->connp->conn->transactions, 0);
+    htp_header_t *h = NULL;
+    table_iterator_reset(tx->request_headers);
+    table_iterator_next(tx->request_headers, (void **) & h);
+
+    if (h == NULL) {
+        goto end;
+    }
+
+    char *name = bstr_tocstr(h->name);
+    if (name == NULL) {
+        goto end;
+    }
+
+    if (strcmp(name, "Host") != 0) {
+        printf("header name not \"Host\", instead \"%s\": ", name);
+        free(name);
+        goto end;
+    }
+    free(name);
+
+    char *value = bstr_tocstr(h->value);
+    if (value == NULL) {
+        goto end;
+    }
+
+    if (strcmp(value, "www.google.com\rName: Value") != 0) {
+        printf("header value not \"www.google.com\", instead \"");
+        PrintRawUriFp(stdout, (uint8_t *)value, strlen(value));
+        printf("\": ");
+        free(value);
+        goto end;
+    }
+    free(value);
+
+    result = 1;
+end:
+    StreamTcpFreeConfig(TRUE);
+    if (htp_state != NULL)
+        HTPStateFree(htp_state);
+    UTHFreeFlow(f);
+    return result;
+}
+
 /** \test Test basic config */
 int HTPParserConfigTest01(void)
 {
@@ -3647,6 +3905,9 @@ void HTPParserRegisterTests(void) {
     UtRegisterTest("HTPParserTest08", HTPParserTest08, 1);
     UtRegisterTest("HTPParserTest09", HTPParserTest09, 1);
     UtRegisterTest("HTPParserTest10", HTPParserTest10, 1);
+    UtRegisterTest("HTPParserTest11", HTPParserTest11, 1);
+    UtRegisterTest("HTPParserTest12", HTPParserTest12, 1);
+    UtRegisterTest("HTPParserTest13", HTPParserTest13, 1);
     UtRegisterTest("HTPParserConfigTest01", HTPParserConfigTest01, 1);
     UtRegisterTest("HTPParserConfigTest02", HTPParserConfigTest02, 1);
     UtRegisterTest("HTPParserConfigTest03", HTPParserConfigTest03, 1);

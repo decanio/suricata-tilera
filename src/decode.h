@@ -421,6 +421,10 @@ typedef struct Packet_
 
     /* WARNING: memset to here on free */
 
+    /* used to hold flowbits only if debuglog is enabled */
+    int debuglog_flowbits_names_len;
+    const char **debuglog_flowbits_names;
+
     /* pkt vars */
     PktVar *pktvar;
 

@@ -71,7 +71,7 @@
  * \warning Make sure flow is locked. Flow is modified, WRITE lock needed.
  */
 static void DetectEngineBufferHttpServerBodies(DetectEngineCtx *de_ctx,
-        DetectEngineThreadCtx *det_ctx, Flow *f, HtpState *htp_state)
+        DetectEngineThreadCtx *det_ctx, Flow *f, HtpState *htp_state, uint8_t flags)
 {
     int idx = 0;
     htp_tx_t *tx = NULL;
@@ -98,10 +98,12 @@ static void DetectEngineBufferHttpServerBodies(DetectEngineCtx *de_ctx,
     size_t txs = list_size(htp_state->connp->conn->transactions) - tmp_idx;
     /* no transactions?!  cool.  get out of here */
     if (txs == 0) {
+        det_ctx->hsbd_buffers_list_len = 0;
         goto end;
     } else if (txs > det_ctx->hsbd_buffers_list_len) {
         det_ctx->hsbd = SCRealloc(det_ctx->hsbd, txs * sizeof(HttpReassembledBody));
         if (det_ctx->hsbd == NULL) {
+            det_ctx->hsbd_buffers_list_len = 0;
             goto end;
         }
 
@@ -159,6 +161,10 @@ static void DetectEngineBufferHttpServerBodies(DetectEngineCtx *de_ctx,
                 /* final length of the body */
                 htud->flags |= HTP_RES_BODY_COMPLETE;
             }
+        }
+
+        if (flags & STREAM_EOF) {
+            htud->flags |= HTP_RES_BODY_COMPLETE;
         }
 
         /* inspect the body if the transfer is complete or we have hit
@@ -226,17 +232,19 @@ int DetectEngineRunHttpServerBodyMpm(DetectEngineCtx *de_ctx,
     uint32_t cnt = 0;
 
     FLOWLOCK_WRLOCK(f);
-    DetectEngineBufferHttpServerBodies(de_ctx, det_ctx, f, htp_state);
+    DetectEngineBufferHttpServerBodies(de_ctx, det_ctx, f, htp_state, flags);
     FLOWLOCK_UNLOCK(f);
 
-    for (i = 0; i < det_ctx->hsbd_buffers_list_len; i++) {
-        if (det_ctx->hsbd[i].buffer_len == 0)
-            continue;
+    if (det_ctx->hsbd != NULL && det_ctx->hsbd_buffers_list_len) {
+        for (i = 0; i < det_ctx->hsbd_buffers_list_len; i++) {
+            if (det_ctx->hsbd[i].buffer_len == 0)
+                continue;
 
-        cnt += HttpServerBodyPatternSearch(det_ctx,
-                                           det_ctx->hsbd[i].buffer,
-                                           det_ctx->hsbd[i].buffer_len,
-                                           flags);
+            cnt += HttpServerBodyPatternSearch(det_ctx,
+                    det_ctx->hsbd[i].buffer,
+                    det_ctx->hsbd[i].buffer_len,
+                    flags);
+        }
     }
 
     return cnt;
@@ -265,27 +273,29 @@ int DetectEngineInspectHttpServerBody(DetectEngineCtx *de_ctx,
     int i = 0;
 
     FLOWLOCK_WRLOCK(f);
-    DetectEngineBufferHttpServerBodies(de_ctx, det_ctx, f, alstate);
+    DetectEngineBufferHttpServerBodies(de_ctx, det_ctx, f, alstate, flags);
     FLOWLOCK_UNLOCK(f);
 
-    for (i = 0; i < det_ctx->hsbd_buffers_list_len; i++) {
-        uint8_t *hsbd_buffer = det_ctx->hsbd[i].buffer;
-        uint32_t hsbd_buffer_len = det_ctx->hsbd[i].buffer_len;
+    if (det_ctx->hsbd != NULL && det_ctx->hsbd_buffers_list_len) {
+        for (i = 0; i < det_ctx->hsbd_buffers_list_len; i++) {
+            uint8_t *hsbd_buffer = det_ctx->hsbd[i].buffer;
+            uint32_t hsbd_buffer_len = det_ctx->hsbd[i].buffer_len;
 
-        if (hsbd_buffer == NULL || hsbd_buffer_len == 0)
-            continue;
+            if (hsbd_buffer == NULL || hsbd_buffer_len == 0)
+                continue;
 
-        det_ctx->buffer_offset = 0;
-        det_ctx->discontinue_matching = 0;
-        det_ctx->inspection_recursion_counter = 0;
+            det_ctx->buffer_offset = 0;
+            det_ctx->discontinue_matching = 0;
+            det_ctx->inspection_recursion_counter = 0;
 
-        r = DetectEngineContentInspection(de_ctx, det_ctx, s, s->sm_lists[DETECT_SM_LIST_HSBDMATCH],
-                                          f,
-                                          hsbd_buffer,
-                                          hsbd_buffer_len,
-                                          DETECT_ENGINE_CONTENT_INSPECTION_MODE_HSBD, NULL);
-        if (r == 1) {
-            break;
+            r = DetectEngineContentInspection(de_ctx, det_ctx, s, s->sm_lists[DETECT_SM_LIST_HSBDMATCH],
+                    f,
+                    hsbd_buffer,
+                    hsbd_buffer_len,
+                    DETECT_ENGINE_CONTENT_INSPECTION_MODE_HSBD, NULL);
+            if (r == 1) {
+                break;
+            }
         }
     }
 
@@ -300,8 +310,10 @@ int DetectEngineInspectHttpServerBody(DetectEngineCtx *de_ctx,
 void DetectEngineCleanHSBDBuffers(DetectEngineThreadCtx *det_ctx)
 {
     int i;
-    for (i = 0; i < det_ctx->hsbd_buffers_list_len; i++) {
-        det_ctx->hsbd[i].buffer_len = 0;
+    if (det_ctx->hsbd != NULL && det_ctx->hsbd_buffers_list_len) {
+        for (i = 0; i < det_ctx->hsbd_buffers_list_len; i++) {
+            det_ctx->hsbd[i].buffer_len = 0;
+        }
     }
     return;
 }

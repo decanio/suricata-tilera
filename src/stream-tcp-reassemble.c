@@ -116,7 +116,7 @@ void StreamTcpReassemblePseudoPacketCreate(TcpStream *, Packet *, PacketQueue *)
  *  \param  size Size of the TCP segment and its payload length memory allocated
  */
 void StreamTcpReassembleIncrMemuse(uint64_t size) {
-    SC_ATOMIC_ADD(ra_memuse, size);
+    (void) SC_ATOMIC_ADD(ra_memuse, size);
     return;
 }
 
@@ -127,7 +127,7 @@ void StreamTcpReassembleIncrMemuse(uint64_t size) {
  *  \param  size Size of the TCP segment and its payload length memory allocated
  */
 void StreamTcpReassembleDecrMemuse(uint64_t size) {
-    SC_ATOMIC_SUB(ra_memuse, size);
+    (void) SC_ATOMIC_SUB(ra_memuse, size);
     return;
 }
 
@@ -3213,8 +3213,8 @@ static int StreamTcpReassembleRaw (TcpReassemblyThreadCtx *ra_ctx,
                     smsg->data.seq = ra_base_seq+1;
 
                     copy_size = sizeof(smsg->data.data) - smsg_offset;
-                    if (copy_size > (seg->payload_len - payload_offset)) {
-                        copy_size = (seg->payload_len - payload_offset);
+                    if (copy_size > payload_len) {
+                        copy_size = payload_len;
                     }
                     if (SCLogDebugEnabled()) {
                         BUG_ON(copy_size > sizeof(smsg->data.data));
@@ -3239,7 +3239,7 @@ static int StreamTcpReassembleRaw (TcpReassemblyThreadCtx *ra_ctx,
                     }
 
                     /* see if we have segment payload left to process */
-                    if ((copy_size + payload_offset) < seg->payload_len) {
+                    if (copy_size < payload_len) {
                         payload_offset += copy_size;
                         payload_len -= copy_size;
 

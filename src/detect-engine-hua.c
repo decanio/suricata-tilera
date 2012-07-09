@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2010 Open Information Security Foundation
+/* Copyright (C) 2007-2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -26,7 +26,7 @@
  *
  * \author Anoop Saldanha <anoopsaldanha@gmail.com>
  *
- * \brief Handle HTTP cookie match
+ * \brief Handle HTTP user agent match
  *
  */
 
@@ -36,7 +36,6 @@
 
 #include "detect.h"
 #include "detect-engine.h"
-#include "detect-engine-hcd.h"
 #include "detect-engine-mpm.h"
 #include "detect-parse.h"
 #include "detect-engine-state.h"
@@ -55,8 +54,10 @@
 #include "app-layer-htp.h"
 #include "app-layer-protos.h"
 
-int DetectEngineRunHttpCookieMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
-                                 HtpState *htp_state, uint8_t flags)
+#include "detect-engine-hua.h"
+
+int DetectEngineRunHttpUAMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
+                             HtpState *htp_state, uint8_t flags)
 {
     htp_tx_t *tx = NULL;
     uint32_t cnt = 0;
@@ -88,26 +89,16 @@ int DetectEngineRunHttpCookieMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
         if (tx == NULL)
             continue;
 
-        htp_header_t *h = NULL;
-        if (flags & STREAM_TOSERVER) {
-            h = (htp_header_t *)table_getc(tx->request_headers,
-                                           "Cookie");
-            if (h == NULL) {
-                SCLogDebug("HTTP cookie header not present in this request");
-                continue;
-            }
-        } else {
-            h = (htp_header_t *)table_getc(tx->response_headers,
-                                           "Set-Cookie");
-            if (h == NULL) {
-                SCLogDebug("HTTP Set-Cookie header not present in this request");
-                continue;
-            }
+        htp_header_t *h = (htp_header_t *)table_getc(tx->request_headers,
+                                                     "User-Agent");
+        if (h == NULL) {
+            SCLogDebug("HTTP user agent header not present in this request");
+            continue;
         }
 
-        cnt += HttpCookiePatternSearch(det_ctx,
-                                       (uint8_t *)bstr_ptr(h->value),
-                                       bstr_len(h->value), flags);
+        cnt += HttpUAPatternSearch(det_ctx,
+                                   (uint8_t *)bstr_ptr(h->value),
+                                   bstr_len(h->value), flags);
     }
 
  end:
@@ -116,7 +107,7 @@ int DetectEngineRunHttpCookieMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
 }
 
 /**
- * \brief Do the http_cookie content inspection for a signature.
+ * \brief Do the http_user_agent content inspection for a signature.
  *
  * \param de_ctx  Detection engine context.
  * \param det_ctx Detection engine thread context.
@@ -128,12 +119,13 @@ int DetectEngineRunHttpCookieMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
  * \retval 0 No match.
  * \retval 1 Match.
  */
-int DetectEngineInspectHttpCookie(DetectEngineCtx *de_ctx,
-                                  DetectEngineThreadCtx *det_ctx,
-                                  Signature *s, Flow *f, uint8_t flags,
-                                  void *alstate)
+int DetectEngineInspectHttpUA(DetectEngineCtx *de_ctx,
+                              DetectEngineThreadCtx *det_ctx,
+                              Signature *s, Flow *f, uint8_t flags,
+                              void *alstate)
 {
     SCEnter();
+
     int r = 0;
     HtpState *htp_state = NULL;
     htp_tx_t *tx = NULL;
@@ -163,35 +155,22 @@ int DetectEngineInspectHttpCookie(DetectEngineCtx *de_ctx,
         if (tx == NULL)
             continue;
 
-        htp_header_t *h = NULL;
-        if (flags & STREAM_TOSERVER) {
-            h = (htp_header_t *)table_getc(tx->request_headers,
-                                           "Cookie");
-            if (h == NULL) {
-                SCLogDebug("HTTP cookie header not present in this request");
-                continue;
-            }
-        } else {
-            h = (htp_header_t *)table_getc(tx->response_headers,
-                                           "Set-Cookie");
-            if (h == NULL) {
-                SCLogDebug("HTTP Set-Cookie header not present in this request");
-                continue;
-            }
+        htp_header_t *h = (htp_header_t *)table_getc(tx->request_headers,
+                                                     "User-Agent");
+        if (h == NULL) {
+            SCLogDebug("HTTP user agent header not present in this request");
+            continue;
         }
 
         det_ctx->buffer_offset = 0;
         det_ctx->discontinue_matching = 0;
         det_ctx->inspection_recursion_counter = 0;
 
-        r = DetectEngineContentInspection(de_ctx, det_ctx, s, s->sm_lists[DETECT_SM_LIST_HCDMATCH],
+        r = DetectEngineContentInspection(de_ctx, det_ctx, s, s->sm_lists[DETECT_SM_LIST_HUADMATCH],
                                           f,
                                           (uint8_t *)bstr_ptr(h->value),
                                           bstr_len(h->value),
-                                          DETECT_ENGINE_CONTENT_INSPECTION_MODE_HCD, NULL);
-        //r = DoInspectHttpCookie(de_ctx, det_ctx, s, s->sm_lists[DETECT_SM_LIST_HCDMATCH],
-        //(uint8_t *)bstr_ptr(h->value),
-        //bstr_len(h->value));
+                                          DETECT_ENGINE_CONTENT_INSPECTION_MODE_HUAD, NULL);
         if (r == 1) {
             break;
         }
@@ -207,10 +186,10 @@ end:
 #ifdef UNITTESTS
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest01(void)
+static int DetectEngineHttpUATest01(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -221,7 +200,7 @@ static int DetectEngineHttpCookieTest01(void)
     Flow f;
     uint8_t http_buf[] =
         "GET /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -250,8 +229,8 @@ static int DetectEngineHttpCookieTest01(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"CONNECT\"; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:\"CONNECT\"; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -298,10 +277,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest02(void)
+static int DetectEngineHttpUATest02(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -312,7 +291,7 @@ static int DetectEngineHttpCookieTest02(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -341,8 +320,8 @@ static int DetectEngineHttpCookieTest02(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"CO\"; depth:4; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:\"CO\"; depth:4; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -389,10 +368,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest03(void)
+static int DetectEngineHttpUATest03(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -403,7 +382,7 @@ static int DetectEngineHttpCookieTest03(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -432,8 +411,8 @@ static int DetectEngineHttpCookieTest03(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:!\"ECT\"; depth:4; http_cookie; "
+                               "(msg:\"http_user_agent test\"; "
+                               "content:!\"ECT\"; depth:4; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -480,10 +459,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest04(void)
+static int DetectEngineHttpUATest04(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -494,7 +473,7 @@ static int DetectEngineHttpCookieTest04(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -523,8 +502,8 @@ static int DetectEngineHttpCookieTest04(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"ECT\"; depth:4; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:\"ECT\"; depth:4; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -571,10 +550,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest05(void)
+static int DetectEngineHttpUATest05(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -585,7 +564,7 @@ static int DetectEngineHttpCookieTest05(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -614,8 +593,8 @@ static int DetectEngineHttpCookieTest05(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:!\"CON\"; depth:4; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:!\"CON\"; depth:4; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -662,10 +641,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest06(void)
+static int DetectEngineHttpUATest06(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -676,7 +655,7 @@ static int DetectEngineHttpCookieTest06(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -705,8 +684,8 @@ static int DetectEngineHttpCookieTest06(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"ECT\"; offset:3; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:\"ECT\"; offset:3; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -753,10 +732,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest07(void)
+static int DetectEngineHttpUATest07(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -767,7 +746,7 @@ static int DetectEngineHttpCookieTest07(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -796,8 +775,8 @@ static int DetectEngineHttpCookieTest07(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:!\"CO\"; offset:3; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:!\"CO\"; offset:3; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -844,10 +823,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest08(void)
+static int DetectEngineHttpUATest08(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -858,7 +837,7 @@ static int DetectEngineHttpCookieTest08(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -887,8 +866,8 @@ static int DetectEngineHttpCookieTest08(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:!\"ECT\"; offset:3; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:!\"ECT\"; offset:3; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -935,10 +914,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest09(void)
+static int DetectEngineHttpUATest09(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -949,7 +928,7 @@ static int DetectEngineHttpCookieTest09(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -978,8 +957,8 @@ static int DetectEngineHttpCookieTest09(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"CON\"; offset:3; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:\"CON\"; offset:3; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1026,10 +1005,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest10(void)
+static int DetectEngineHttpUATest10(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -1040,7 +1019,7 @@ static int DetectEngineHttpCookieTest10(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -1069,9 +1048,9 @@ static int DetectEngineHttpCookieTest10(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"CO\"; http_cookie; "
-                               "content:\"EC\"; within:4; http_cookie; "
+                               "(msg:\"http_user_agent test\"; "
+                               "content:\"CO\"; http_user_agent; "
+                               "content:\"EC\"; within:4; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1118,10 +1097,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest11(void)
+static int DetectEngineHttpUATest11(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -1132,7 +1111,7 @@ static int DetectEngineHttpCookieTest11(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -1161,9 +1140,9 @@ static int DetectEngineHttpCookieTest11(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"CO\"; http_cookie; "
-                               "content:!\"EC\"; within:3; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:\"CO\"; http_user_agent; "
+                               "content:!\"EC\"; within:3; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1210,10 +1189,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest12(void)
+static int DetectEngineHttpUATest12(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -1224,7 +1203,7 @@ static int DetectEngineHttpCookieTest12(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -1253,9 +1232,9 @@ static int DetectEngineHttpCookieTest12(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"CO\"; http_cookie; "
-                               "content:\"EC\"; within:3; http_cookie; "
+                               "(msg:\"http_user_agent test\"; "
+                               "content:\"CO\"; http_user_agent; "
+                               "content:\"EC\"; within:3; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1302,10 +1281,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest13(void)
+static int DetectEngineHttpUATest13(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -1316,7 +1295,7 @@ static int DetectEngineHttpCookieTest13(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -1345,9 +1324,9 @@ static int DetectEngineHttpCookieTest13(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"CO\"; http_cookie; "
-                               "content:!\"EC\"; within:4; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:\"CO\"; http_user_agent; "
+                               "content:!\"EC\"; within:4; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1394,10 +1373,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest14(void)
+static int DetectEngineHttpUATest14(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -1408,7 +1387,7 @@ static int DetectEngineHttpCookieTest14(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -1437,9 +1416,9 @@ static int DetectEngineHttpCookieTest14(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"CO\"; http_cookie; "
-                               "content:\"EC\"; distance:2; http_cookie; "
+                               "(msg:\"http_user_agent test\"; "
+                               "content:\"CO\"; http_user_agent; "
+                               "content:\"EC\"; distance:2; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1486,10 +1465,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest15(void)
+static int DetectEngineHttpUATest15(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -1500,7 +1479,7 @@ static int DetectEngineHttpCookieTest15(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -1529,9 +1508,9 @@ static int DetectEngineHttpCookieTest15(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"CO\"; http_cookie; "
-                               "content:!\"EC\"; distance:3; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:\"CO\"; http_user_agent; "
+                               "content:!\"EC\"; distance:3; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1578,10 +1557,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest16(void)
+static int DetectEngineHttpUATest16(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -1592,7 +1571,7 @@ static int DetectEngineHttpCookieTest16(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -1621,9 +1600,9 @@ static int DetectEngineHttpCookieTest16(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"CO\"; http_cookie; "
-                               "content:\"EC\"; distance:3; http_cookie; "
+                               "(msg:\"http user agent test\"; "
+                               "content:\"CO\"; http_user_agent; "
+                               "content:\"EC\"; distance:3; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1670,10 +1649,10 @@ end:
 }
 
 /**
- * \test Test that the http_cookie content matches against a http request
+ * \test Test that the http_user_agent content matches against a http request
  *       which holds the content.
  */
-static int DetectEngineHttpCookieTest17(void)
+static int DetectEngineHttpUATest17(void)
 {
     TcpSession ssn;
     Packet *p = NULL;
@@ -1684,7 +1663,7 @@ static int DetectEngineHttpCookieTest17(void)
     Flow f;
     uint8_t http_buf[] =
         "CONNECT /index.html HTTP/1.0\r\n"
-        "Cookie: CONNECT\r\n"
+        "User-Agent: CONNECT\r\n"
         "Host: www.onetwothreefourfivesixseven.org\r\n\r\n";
     uint32_t http_len = sizeof(http_buf) - 1;
     int result = 0;
@@ -1713,9 +1692,9 @@ static int DetectEngineHttpCookieTest17(void)
     de_ctx->flags |= DE_QUIET;
 
     de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
-                               "(msg:\"http header test\"; "
-                               "content:\"CO\"; http_cookie; "
-                               "content:!\"EC\"; distance:2; http_cookie; "
+                               "(msg:\"http_user_agent test\"; "
+                               "content:\"CO\"; http_user_agent; "
+                               "content:!\"EC\"; distance:2; http_user_agent; "
                                "sid:1;)");
     if (de_ctx->sig_list == NULL)
         goto end;
@@ -1763,44 +1742,44 @@ end:
 
 #endif /* UNITTESTS */
 
-void DetectEngineHttpCookieRegisterTests(void)
+void DetectEngineHttpUARegisterTests(void)
 {
 
 #ifdef UNITTESTS
-    UtRegisterTest("DetectEngineHttpCookieTest01",
-                   DetectEngineHttpCookieTest01, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest02",
-                   DetectEngineHttpCookieTest02, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest03",
-                   DetectEngineHttpCookieTest03, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest04",
-                   DetectEngineHttpCookieTest04, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest05",
-                   DetectEngineHttpCookieTest05, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest06",
-                   DetectEngineHttpCookieTest06, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest07",
-                   DetectEngineHttpCookieTest07, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest08",
-                   DetectEngineHttpCookieTest08, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest09",
-                   DetectEngineHttpCookieTest09, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest10",
-                   DetectEngineHttpCookieTest10, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest11",
-                   DetectEngineHttpCookieTest11, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest12",
-                   DetectEngineHttpCookieTest12, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest13",
-                   DetectEngineHttpCookieTest13, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest14",
-                   DetectEngineHttpCookieTest14, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest15",
-                   DetectEngineHttpCookieTest15, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest16",
-                   DetectEngineHttpCookieTest16, 1);
-    UtRegisterTest("DetectEngineHttpCookieTest17",
-                   DetectEngineHttpCookieTest17, 1);
+    UtRegisterTest("DetectEngineHttpUATest01",
+                   DetectEngineHttpUATest01, 1);
+    UtRegisterTest("DetectEngineHttpUATest02",
+                   DetectEngineHttpUATest02, 1);
+    UtRegisterTest("DetectEngineHttpUATest03",
+                   DetectEngineHttpUATest03, 1);
+    UtRegisterTest("DetectEngineHttpUATest04",
+                   DetectEngineHttpUATest04, 1);
+    UtRegisterTest("DetectEngineHttpUATest05",
+                   DetectEngineHttpUATest05, 1);
+    UtRegisterTest("DetectEngineHttpUATest06",
+                   DetectEngineHttpUATest06, 1);
+    UtRegisterTest("DetectEngineHttpUATest07",
+                   DetectEngineHttpUATest07, 1);
+    UtRegisterTest("DetectEngineHttpUATest08",
+                   DetectEngineHttpUATest08, 1);
+    UtRegisterTest("DetectEngineHttpUATest09",
+                   DetectEngineHttpUATest09, 1);
+    UtRegisterTest("DetectEngineHttpUATest10",
+                   DetectEngineHttpUATest10, 1);
+    UtRegisterTest("DetectEngineHttpUATest11",
+                   DetectEngineHttpUATest11, 1);
+    UtRegisterTest("DetectEngineHttpUATest12",
+                   DetectEngineHttpUATest12, 1);
+    UtRegisterTest("DetectEngineHttpUATest13",
+                   DetectEngineHttpUATest13, 1);
+    UtRegisterTest("DetectEngineHttpUATest14",
+                   DetectEngineHttpUATest14, 1);
+    UtRegisterTest("DetectEngineHttpUATest15",
+                   DetectEngineHttpUATest15, 1);
+    UtRegisterTest("DetectEngineHttpUATest16",
+                   DetectEngineHttpUATest16, 1);
+    UtRegisterTest("DetectEngineHttpUATest17",
+                   DetectEngineHttpUATest17, 1);
 #endif /* UNITTESTS */
 
     return;

@@ -46,13 +46,14 @@
         (f)->sp = 0; \
         (f)->dp = 0; \
         SC_ATOMIC_INIT((f)->use_cnt); \
+        (f)->probing_parser_toserver_al_proto_masks = 0; \
+        (f)->probing_parser_toclient_al_proto_masks = 0; \
         (f)->flags = 0; \
         (f)->lastts_sec = 0; \
         FLOWLOCK_INIT((f)); \
         (f)->protoctx = NULL; \
         (f)->alproto = 0; \
-        (f)->probing_parser_toserver_al_proto_masks = 0; \
-        (f)->probing_parser_toclient_al_proto_masks = 0; \
+        (f)->de_ctx_id = 0; \
         (f)->alparser = NULL; \
         (f)->alstate = NULL; \
         (f)->de_state = NULL; \
@@ -66,7 +67,7 @@
         (f)->lnext = NULL; \
         (f)->lprev = NULL; \
         SC_ATOMIC_INIT((f)->autofp_tmqh_flow_qid);  \
-        SC_ATOMIC_SET((f)->autofp_tmqh_flow_qid, -1);  \
+        (void) SC_ATOMIC_SET((f)->autofp_tmqh_flow_qid, -1);  \
         RESET_COUNTERS((f)); \
     } while (0)
 
@@ -79,6 +80,8 @@
         (f)->sp = 0; \
         (f)->dp = 0; \
         SC_ATOMIC_RESET((f)->use_cnt); \
+        (f)->probing_parser_toserver_al_proto_masks = 0; \
+        (f)->probing_parser_toclient_al_proto_masks = 0; \
         (f)->flags = 0; \
         (f)->lastts_sec = 0; \
         (f)->protoctx = NULL; \
@@ -86,8 +89,7 @@
         (f)->alparser = NULL; \
         (f)->alstate = NULL; \
         (f)->alproto = 0; \
-        (f)->probing_parser_toserver_al_proto_masks = 0; \
-        (f)->probing_parser_toclient_al_proto_masks = 0; \
+        (f)->de_ctx_id = 0; \
         if ((f)->de_state != NULL) { \
             DetectEngineStateReset((f)->de_state); \
         } \
@@ -98,7 +100,7 @@
         GenericVarFree((f)->flowvar); \
         (f)->flowvar = NULL; \
         if (SC_ATOMIC_GET((f)->autofp_tmqh_flow_qid) != -1) {   \
-            SC_ATOMIC_SET((f)->autofp_tmqh_flow_qid, -1);   \
+            (void) SC_ATOMIC_SET((f)->autofp_tmqh_flow_qid, -1);   \
         }                                       \
         RESET_COUNTERS((f)); \
     } while(0)

@@ -118,12 +118,16 @@ int SignatureHasStreamContent(Signature *s) {
         SCReturnInt(0);
     }
 
-    if (SignatureHasPacketContent(s)) {
+    if (!(s->proto.proto[6 / 8] & 1 << (6 % 8))) {
         SCReturnInt(0);
     }
 
     if (s->sm_lists[DETECT_SM_LIST_PMATCH] == NULL) {
         SCLogDebug("no mpm");
+        SCReturnInt(0);
+    }
+
+    if (!(s->flags & SIG_FLAG_REQUIRE_STREAM)) {
         SCReturnInt(0);
     }
 
@@ -598,6 +602,40 @@ uint32_t HttpStatCodePatternSearch(DetectEngineThreadCtx *det_ctx,
     SCReturnUInt(ret);
 }
 
+/**
+ * \brief Http user agent match -- searches for one pattern per signature.
+ *
+ * \param det_ctx    Detection engine thread ctx.
+ * \param cookie     User-Agent to inspect.
+ * \param cookie_len User-Agent buffer length.
+ *
+ *  \retval ret Number of matches.
+ */
+uint32_t HttpUAPatternSearch(DetectEngineThreadCtx *det_ctx,
+                             uint8_t *ua, uint32_t ua_len, uint8_t flags)
+{
+    SCEnter();
+
+    uint32_t ret;
+    if (flags & STREAM_TOSERVER) {
+        if (det_ctx->sgh->mpm_huad_ctx_ts == NULL)
+            SCReturnUInt(0);
+
+        ret = mpm_table[det_ctx->sgh->mpm_huad_ctx_ts->mpm_type].
+            Search(det_ctx->sgh->mpm_huad_ctx_ts, &det_ctx->mtcu,
+                   &det_ctx->pmq, ua, ua_len);
+    } else {
+        if (det_ctx->sgh->mpm_huad_ctx_tc == NULL)
+            SCReturnUInt(0);
+
+        ret = mpm_table[det_ctx->sgh->mpm_huad_ctx_tc->mpm_type].
+            Search(det_ctx->sgh->mpm_huad_ctx_tc, &det_ctx->mtcu,
+                   &det_ctx->pmq, ua, ua_len);
+    }
+
+    SCReturnUInt(ret);
+}
+
 /** \brief Pattern match -- searches for only one pattern per signature.
  *
  *  \param det_ctx detection engine thread ctx
@@ -745,13 +783,11 @@ void PatternMatchThreadPrepare(ThreadVars *tv, MpmThreadCtx *mpm_thread_ctx, uin
 /* free the pattern matcher part of a SigGroupHead */
 void PatternMatchDestroyGroup(SigGroupHead *sh) {
     /* content */
-    if (sh->flags & SIG_GROUP_HAVECONTENT &&
-        !(sh->flags & SIG_GROUP_HEAD_MPM_COPY)) {
-
+    if (!(sh->flags & SIG_GROUP_HEAD_MPM_COPY)) {
         SCLogDebug("destroying mpm_ctx %p (sh %p)",
                    sh->mpm_proto_tcp_ctx_ts, sh);
         if (sh->mpm_proto_tcp_ctx_ts != NULL &&
-            !MpmFactoryIsMpmCtxAvailable(sh->mpm_proto_tcp_ctx_ts)) {
+            !sh->mpm_proto_tcp_ctx_ts->global) {
             mpm_table[sh->mpm_proto_tcp_ctx_ts->mpm_type].
                 DestroyCtx(sh->mpm_proto_tcp_ctx_ts);
             SCFree(sh->mpm_proto_tcp_ctx_ts);
@@ -762,7 +798,7 @@ void PatternMatchDestroyGroup(SigGroupHead *sh) {
         SCLogDebug("destroying mpm_ctx %p (sh %p)",
                    sh->mpm_proto_tcp_ctx_tc, sh);
         if (sh->mpm_proto_tcp_ctx_tc != NULL &&
-            !MpmFactoryIsMpmCtxAvailable(sh->mpm_proto_tcp_ctx_tc)) {
+            !sh->mpm_proto_tcp_ctx_tc->global) {
             mpm_table[sh->mpm_proto_tcp_ctx_tc->mpm_type].
                 DestroyCtx(sh->mpm_proto_tcp_ctx_tc);
             SCFree(sh->mpm_proto_tcp_ctx_tc);
@@ -773,7 +809,7 @@ void PatternMatchDestroyGroup(SigGroupHead *sh) {
         SCLogDebug("destroying mpm_ctx %p (sh %p)",
                    sh->mpm_proto_udp_ctx_ts, sh);
         if (sh->mpm_proto_udp_ctx_ts != NULL &&
-            !MpmFactoryIsMpmCtxAvailable(sh->mpm_proto_udp_ctx_ts)) {
+            !sh->mpm_proto_udp_ctx_ts->global) {
             mpm_table[sh->mpm_proto_udp_ctx_ts->mpm_type].
                 DestroyCtx(sh->mpm_proto_udp_ctx_ts);
             SCFree(sh->mpm_proto_udp_ctx_ts);
@@ -784,7 +820,7 @@ void PatternMatchDestroyGroup(SigGroupHead *sh) {
         SCLogDebug("destroying mpm_ctx %p (sh %p)",
                    sh->mpm_proto_udp_ctx_tc, sh);
         if (sh->mpm_proto_udp_ctx_tc != NULL &&
-            !MpmFactoryIsMpmCtxAvailable(sh->mpm_proto_udp_ctx_tc)) {
+            !sh->mpm_proto_udp_ctx_tc->global) {
             mpm_table[sh->mpm_proto_udp_ctx_tc->mpm_type].
                 DestroyCtx(sh->mpm_proto_udp_ctx_tc);
             SCFree(sh->mpm_proto_udp_ctx_tc);
@@ -795,24 +831,21 @@ void PatternMatchDestroyGroup(SigGroupHead *sh) {
         SCLogDebug("destroying mpm_ctx %p (sh %p)",
                    sh->mpm_proto_other_ctx, sh);
         if (sh->mpm_proto_other_ctx != NULL &&
-            !MpmFactoryIsMpmCtxAvailable(sh->mpm_proto_other_ctx)) {
+            !sh->mpm_proto_other_ctx->global) {
             mpm_table[sh->mpm_proto_other_ctx->mpm_type].
                 DestroyCtx(sh->mpm_proto_other_ctx);
             SCFree(sh->mpm_proto_other_ctx);
         }
         /* ready for reuse */
         sh->mpm_proto_other_ctx = NULL;
-
-        sh->flags &= ~SIG_GROUP_HAVECONTENT;
     }
 
     /* uricontent */
-    if (sh->flags & SIG_GROUP_HAVEURICONTENT &&
-        (sh->mpm_uri_ctx_ts != NULL || sh->mpm_uri_ctx_tc != NULL) &&
+    if ((sh->mpm_uri_ctx_ts != NULL || sh->mpm_uri_ctx_tc != NULL) &&
         !(sh->flags & SIG_GROUP_HEAD_MPM_URI_COPY)) {
         if (sh->mpm_uri_ctx_ts != NULL) {
             SCLogDebug("destroying mpm_uri_ctx %p (sh %p)", sh->mpm_uri_ctx_ts, sh);
-            if (!MpmFactoryIsMpmCtxAvailable(sh->mpm_uri_ctx_ts)) {
+            if (!sh->mpm_uri_ctx_ts->global) {
                 mpm_table[sh->mpm_uri_ctx_ts->mpm_type].DestroyCtx(sh->mpm_uri_ctx_ts);
                 SCFree(sh->mpm_uri_ctx_ts);
             }
@@ -821,39 +854,35 @@ void PatternMatchDestroyGroup(SigGroupHead *sh) {
         }
         if (sh->mpm_uri_ctx_tc != NULL) {
             SCLogDebug("destroying mpm_uri_ctx %p (sh %p)", sh->mpm_uri_ctx_tc, sh);
-            if (!MpmFactoryIsMpmCtxAvailable(sh->mpm_uri_ctx_tc)) {
+            if (!sh->mpm_uri_ctx_tc->global) {
                 mpm_table[sh->mpm_uri_ctx_tc->mpm_type].DestroyCtx(sh->mpm_uri_ctx_tc);
                 SCFree(sh->mpm_uri_ctx_tc);
             }
             /* ready for reuse */
             sh->mpm_uri_ctx_tc = NULL;
         }
-
-        sh->flags &= ~SIG_GROUP_HAVEURICONTENT;
     }
 
     /* stream content */
-    if (sh->flags & SIG_GROUP_HAVESTREAMCONTENT) {
-        if (!(sh->flags & SIG_GROUP_HEAD_MPM_STREAM_COPY)) {
-            if (sh->mpm_stream_ctx_ts != NULL) {
-                SCLogDebug("destroying mpm_stream_ctx %p (sh %p)", sh->mpm_stream_ctx_ts, sh);
-                if (!MpmFactoryIsMpmCtxAvailable(sh->mpm_stream_ctx_ts)) {
-                    mpm_table[sh->mpm_stream_ctx_ts->mpm_type].DestroyCtx(sh->mpm_stream_ctx_ts);
-                    SCFree(sh->mpm_stream_ctx_ts);
-                }
-                /* ready for reuse */
-                sh->mpm_stream_ctx_ts = NULL;
+    if ((sh->mpm_stream_ctx_ts != NULL || sh->mpm_stream_ctx_tc != NULL) &&
+        !(sh->flags & SIG_GROUP_HEAD_MPM_STREAM_COPY)) {
+        if (sh->mpm_stream_ctx_ts != NULL) {
+            SCLogDebug("destroying mpm_stream_ctx %p (sh %p)", sh->mpm_stream_ctx_ts, sh);
+            if (!sh->mpm_stream_ctx_ts->global) {
+                mpm_table[sh->mpm_stream_ctx_ts->mpm_type].DestroyCtx(sh->mpm_stream_ctx_ts);
+                SCFree(sh->mpm_stream_ctx_ts);
             }
-            if (sh->mpm_stream_ctx_tc != NULL) {
-                SCLogDebug("destroying mpm_stream_ctx %p (sh %p)", sh->mpm_stream_ctx_tc, sh);
-                if (!MpmFactoryIsMpmCtxAvailable(sh->mpm_stream_ctx_tc)) {
-                    mpm_table[sh->mpm_stream_ctx_tc->mpm_type].DestroyCtx(sh->mpm_stream_ctx_tc);
-                    SCFree(sh->mpm_stream_ctx_tc);
-                }
-                /* ready for reuse */
-                sh->mpm_stream_ctx_tc = NULL;
+            /* ready for reuse */
+            sh->mpm_stream_ctx_ts = NULL;
+        }
+        if (sh->mpm_stream_ctx_tc != NULL) {
+            SCLogDebug("destroying mpm_stream_ctx %p (sh %p)", sh->mpm_stream_ctx_tc, sh);
+            if (!sh->mpm_stream_ctx_tc->global) {
+                mpm_table[sh->mpm_stream_ctx_tc->mpm_type].DestroyCtx(sh->mpm_stream_ctx_tc);
+                SCFree(sh->mpm_stream_ctx_tc);
             }
-            sh->flags &= ~SIG_GROUP_HAVESTREAMCONTENT;
+            /* ready for reuse */
+            sh->mpm_stream_ctx_tc = NULL;
         }
     }
 
@@ -1260,11 +1289,15 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
         case DETECT_SM_LIST_HCDMATCH:
         case DETECT_SM_LIST_HSMDMATCH:
         case DETECT_SM_LIST_HSCDMATCH:
+        case DETECT_SM_LIST_HUADMATCH:
         {
             MpmCtx *mpm_ctx_ts = NULL;
             MpmCtx *mpm_ctx_tc = NULL;
             uint32_t sgh_flags = 0;
             uint32_t cd_flags = 0;
+            uint32_t sig_flags = 0;
+
+            cd = (DetectContentData *)mpm_sm->ctx;
 
             if (sm_list == DETECT_SM_LIST_UMATCH) {
                 if (s->flags & SIG_FLAG_TOSERVER)
@@ -1273,6 +1306,9 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     mpm_ctx_tc = sgh->mpm_uri_ctx_tc;
                 sgh_flags = SIG_GROUP_HEAD_MPM_URI;
                 cd_flags = DETECT_CONTENT_URI_MPM;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
             } else if (sm_list == DETECT_SM_LIST_HCBDMATCH) {
                 if (s->flags & SIG_FLAG_TOSERVER)
                     mpm_ctx_ts = sgh->mpm_hcbd_ctx_ts;
@@ -1280,6 +1316,9 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     mpm_ctx_tc = sgh->mpm_hcbd_ctx_tc;
                 sgh_flags = SIG_GROUP_HEAD_MPM_HCBD;
                 cd_flags = DETECT_CONTENT_HCBD_MPM;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
             } else if (sm_list == DETECT_SM_LIST_HSBDMATCH) {
                 if (s->flags & SIG_FLAG_TOSERVER)
                     mpm_ctx_ts = sgh->mpm_hsbd_ctx_ts;
@@ -1287,6 +1326,9 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     mpm_ctx_tc = sgh->mpm_hsbd_ctx_tc;
                 sgh_flags = SIG_GROUP_HEAD_MPM_HSBD;
                 cd_flags = DETECT_CONTENT_HSBD_MPM;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
             } else if (sm_list == DETECT_SM_LIST_HHDMATCH) {
                 if (s->flags & SIG_FLAG_TOSERVER)
                     mpm_ctx_ts = sgh->mpm_hhd_ctx_ts;
@@ -1294,6 +1336,9 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     mpm_ctx_tc = sgh->mpm_hhd_ctx_tc;
                 sgh_flags = SIG_GROUP_HEAD_MPM_HHD;
                 cd_flags = DETECT_CONTENT_HHD_MPM;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
             } else if (sm_list == DETECT_SM_LIST_HRHDMATCH) {
                 if (s->flags & SIG_FLAG_TOSERVER)
                     mpm_ctx_ts = sgh->mpm_hrhd_ctx_ts;
@@ -1301,6 +1346,9 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     mpm_ctx_tc = sgh->mpm_hrhd_ctx_tc;
                 sgh_flags = SIG_GROUP_HEAD_MPM_HRHD;
                 cd_flags = DETECT_CONTENT_HRHD_MPM;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
             } else if (sm_list == DETECT_SM_LIST_HMDMATCH) {
                 if (s->flags & SIG_FLAG_TOSERVER)
                     mpm_ctx_ts = sgh->mpm_hmd_ctx_ts;
@@ -1308,6 +1356,9 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     mpm_ctx_tc = sgh->mpm_hmd_ctx_tc;
                 sgh_flags = SIG_GROUP_HEAD_MPM_HMD;
                 cd_flags = DETECT_CONTENT_HMD_MPM;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
             } else if (sm_list == DETECT_SM_LIST_HCDMATCH) {
                 if (s->flags & SIG_FLAG_TOSERVER)
                     mpm_ctx_ts = sgh->mpm_hcd_ctx_ts;
@@ -1315,6 +1366,9 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     mpm_ctx_tc = sgh->mpm_hcd_ctx_tc;
                 sgh_flags = SIG_GROUP_HEAD_MPM_HCD;
                 cd_flags = DETECT_CONTENT_HCD_MPM;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
             } else if (sm_list == DETECT_SM_LIST_HRUDMATCH) {
                 if (s->flags & SIG_FLAG_TOSERVER)
                     mpm_ctx_ts = sgh->mpm_hrud_ctx_ts;
@@ -1322,6 +1376,9 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     mpm_ctx_tc = sgh->mpm_hrud_ctx_tc;
                 sgh_flags = SIG_GROUP_HEAD_MPM_HRUD;
                 cd_flags = DETECT_CONTENT_HRUD_MPM;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
             } else if (sm_list == DETECT_SM_LIST_HSMDMATCH) {
                 if (s->flags & SIG_FLAG_TOSERVER)
                     mpm_ctx_ts = sgh->mpm_hsmd_ctx_ts;
@@ -1329,6 +1386,9 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     mpm_ctx_tc = sgh->mpm_hsmd_ctx_tc;
                 sgh_flags = SIG_GROUP_HEAD_MPM_HSMD;
                 cd_flags = DETECT_CONTENT_HSMD_MPM;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
             } else if (sm_list == DETECT_SM_LIST_HSCDMATCH) {
                 if (s->flags & SIG_FLAG_TOSERVER)
                     mpm_ctx_ts = sgh->mpm_hscd_ctx_ts;
@@ -1336,9 +1396,21 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                     mpm_ctx_tc = sgh->mpm_hscd_ctx_tc;
                 sgh_flags = SIG_GROUP_HEAD_MPM_HSCD;
                 cd_flags = DETECT_CONTENT_HSCD_MPM;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
+            } else if (sm_list == DETECT_SM_LIST_HUADMATCH) {
+                if (s->flags & SIG_FLAG_TOSERVER)
+                    mpm_ctx_ts = sgh->mpm_huad_ctx_ts;
+                if (s->flags & SIG_FLAG_TOCLIENT)
+                    mpm_ctx_tc = sgh->mpm_huad_ctx_tc;
+                sgh_flags = SIG_GROUP_HEAD_MPM_HUAD;
+                cd_flags = DETECT_CONTENT_HUAD_MPM;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
             }
 
-            cd = (DetectContentData *)mpm_sm->ctx;
             if (cd->flags & DETECT_CONTENT_FAST_PATTERN_CHOP) {
                 /* add the content to the mpm */
                 if (cd->flags & DETECT_CONTENT_NOCASE) {
@@ -1415,12 +1487,9 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                 }
             }
             /* tell matcher we are inspecting uri */
-            s->flags |= SIG_FLAG_MPM_HTTP;
+            s->flags |= sig_flags;
             s->mpm_pattern_id_div_8 = cd->id / 8;
             s->mpm_pattern_id_mod_8 = 1 << (cd->id % 8);
-            if (cd->flags & DETECT_CONTENT_NEGATED)
-                s->flags |= SIG_FLAG_MPM_HTTP_NEG;
-
             sgh->flags |= sgh_flags;
 
             break;
@@ -1481,7 +1550,7 @@ static int PatternMatchPreparePopulateMpm(DetectEngineCtx *de_ctx,
              * if we have a fast_pattern set in this Signature */
             for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
                 /* this keyword isn't registered for fp support */
-                if (!FastPatternSupportEnabledForSigMatchType(sm->type))
+                if (sm->type != DETECT_CONTENT)
                     continue;
 
                 //if (PopulateMpmSkipContent(sgh, s, sm)) {
@@ -1521,7 +1590,7 @@ static int PatternMatchPreparePopulateMpm(DetectEngineCtx *de_ctx,
                     continue;
 
                 for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
-                    if (!FastPatternSupportEnabledForSigMatchType(sm->type))
+                    if (sm->type != DETECT_CONTENT)
                         continue;
 
                     //if (PopulateMpmSkipContent(sgh, s, sm)) {
@@ -1543,7 +1612,7 @@ static int PatternMatchPreparePopulateMpm(DetectEngineCtx *de_ctx,
                 continue;
 
             for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
-                if (!FastPatternSupportEnabledForSigMatchType(sm->type))
+                if (sm->type != DETECT_CONTENT)
                     continue;
 
                 /* skip in case of:
@@ -1631,6 +1700,8 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
     uint32_t has_co_hsmd = 0;
     /* used to indicate if sgh has atleast one sig with http_stat_code */
     uint32_t has_co_hscd = 0;
+    /* used to indicate if sgh has atleast one sig with http_user_agent */
+    uint32_t has_co_huad = 0;
     //uint32_t cnt = 0;
     uint32_t sig = 0;
 
@@ -1686,53 +1757,20 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
         if (s->sm_lists[DETECT_SM_LIST_HSCDMATCH] != NULL) {
             has_co_hscd = 1;
         }
-    }
 
-    if (has_co_packet > 0) {
-        sh->flags |= SIG_GROUP_HAVECONTENT;
-    }
-    if (has_co_stream > 0) {
-        sh->flags |= SIG_GROUP_HAVESTREAMCONTENT;
-    }
-    if (has_co_uri > 0) {
-        sh->flags |= SIG_GROUP_HAVEURICONTENT;
-    }
-    if (has_co_hcbd > 0) {
-        sh->flags |= SIG_GROUP_HAVEHCBDCONTENT;
-    }
-    if (has_co_hsbd > 0) {
-        sh->flags |= SIG_GROUP_HAVEHSBDCONTENT;
-    }
-    if (has_co_hhd > 0) {
-        sh->flags |= SIG_GROUP_HAVEHHDCONTENT;
-    }
-    if (has_co_hrhd > 0) {
-        sh->flags |= SIG_GROUP_HAVEHRHDCONTENT;
-    }
-    if (has_co_hmd > 0) {
-        sh->flags |= SIG_GROUP_HAVEHMDCONTENT;
-    }
-    if (has_co_hcd > 0) {
-        sh->flags |= SIG_GROUP_HAVEHCDCONTENT;
-    }
-    if (has_co_hrud > 0) {
-        sh->flags |= SIG_GROUP_HAVEHRUDCONTENT;
-    }
-    if (has_co_hsmd > 0) {
-        sh->flags |= SIG_GROUP_HAVEHSMDCONTENT;
-    }
-    if (has_co_hscd > 0) {
-        sh->flags |= SIG_GROUP_HAVEHSCDCONTENT;
+        if (s->sm_lists[DETECT_SM_LIST_HUADMATCH] != NULL) {
+            has_co_huad = 1;
+        }
     }
 
     /* intialize contexes */
-    if (sh->flags & SIG_GROUP_HAVECONTENT) {
+    if (has_co_packet) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_proto_tcp_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_tcp_packet, 0);
-            sh->mpm_proto_tcp_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_tcp_packet, 1);
+            sh->mpm_proto_tcp_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_proto_tcp_packet, 0);
+            sh->mpm_proto_tcp_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_proto_tcp_packet, 1);
         } else {
-            sh->mpm_proto_tcp_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_proto_tcp_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_proto_tcp_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_proto_tcp_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_proto_tcp_ctx_ts == NULL || sh->mpm_proto_tcp_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_proto_tcp_ctx == NULL. This should never happen");
@@ -1747,11 +1785,11 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
 
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_proto_udp_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_udp_packet, 0);
-            sh->mpm_proto_udp_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_udp_packet, 1);
+            sh->mpm_proto_udp_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_proto_udp_packet, 0);
+            sh->mpm_proto_udp_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_proto_udp_packet, 1);
         } else {
-            sh->mpm_proto_udp_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_proto_udp_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_proto_udp_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_proto_udp_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_proto_udp_ctx_ts == NULL || sh->mpm_proto_udp_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_proto_udp_ctx == NULL. This should never happen");
@@ -1767,10 +1805,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
             sh->mpm_proto_other_ctx =
-                MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_proto_other_packet, 0);
+                MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_proto_other_packet, 0);
         } else {
             sh->mpm_proto_other_ctx =
-                MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+                MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
         }
         if (sh->mpm_proto_other_ctx == NULL) {
             SCLogDebug("sh->mpm_proto_other_ctx == NULL. This should never happen");
@@ -1781,15 +1819,15 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #else
         MpmInitCtx(sh->mpm_proto_other_ctx, de_ctx->mpm_matcher, de_ctx->cuda_rc_mod_handle);
 #endif
-    } /* if (sh->flags & SIG_GROUP_HAVECONTENT) */
+    } /* if (has_co_packet) */
 
-    if (sh->flags & SIG_GROUP_HAVESTREAMCONTENT) {
+    if (has_co_stream) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_stream_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_stream, 0);
-            sh->mpm_stream_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_stream, 1);
+            sh->mpm_stream_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_stream, 0);
+            sh->mpm_stream_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_stream, 1);
         } else {
-            sh->mpm_stream_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_stream_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_stream_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_stream_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_stream_ctx_tc == NULL || sh->mpm_stream_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_stream_ctx == NULL. This should never happen");
@@ -1805,13 +1843,13 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
-    if (sh->flags & SIG_GROUP_HAVEURICONTENT) {
+    if (has_co_uri) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_uri_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_uri, 0);
-            sh->mpm_uri_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_uri, 1);
+            sh->mpm_uri_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_uri, 0);
+            sh->mpm_uri_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_uri, 1);
         } else {
-            sh->mpm_uri_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_uri_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_uri_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_uri_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_uri_ctx_ts == NULL || sh->mpm_uri_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_uri_ctx == NULL. This should never happen");
@@ -1827,13 +1865,13 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
-    if (sh->flags & SIG_GROUP_HAVEHCBDCONTENT) {
+    if (has_co_hcbd) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_hcbd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hcbd, 0);
-            sh->mpm_hcbd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hcbd, 1);
+            sh->mpm_hcbd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hcbd, 0);
+            sh->mpm_hcbd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hcbd, 1);
         } else {
-            sh->mpm_hcbd_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_hcbd_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_hcbd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_hcbd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_hcbd_ctx_ts == NULL || sh->mpm_hcbd_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_hcbd_ctx == NULL. This should never happen");
@@ -1849,13 +1887,13 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
-    if (sh->flags & SIG_GROUP_HAVEHSBDCONTENT) {
+    if (has_co_hsbd) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_hsbd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hsbd, 0);
-            sh->mpm_hsbd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hsbd, 1);
+            sh->mpm_hsbd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hsbd, 0);
+            sh->mpm_hsbd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hsbd, 1);
         } else {
-            sh->mpm_hsbd_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_hsbd_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_hsbd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_hsbd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_hsbd_ctx_ts == NULL || sh->mpm_hsbd_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_hsbd_ctx == NULL. This should never happen");
@@ -1871,13 +1909,13 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
-    if (sh->flags & SIG_GROUP_HAVEHHDCONTENT) {
+    if (has_co_hhd) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_hhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hhd, 0);
-            sh->mpm_hhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hhd, 1);
+            sh->mpm_hhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hhd, 0);
+            sh->mpm_hhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hhd, 1);
         } else {
-            sh->mpm_hhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_hhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_hhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_hhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_hhd_ctx_ts == NULL || sh->mpm_hhd_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_hhd_ctx == NULL. This should never happen");
@@ -1893,13 +1931,13 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
-    if (sh->flags & SIG_GROUP_HAVEHRHDCONTENT) {
+    if (has_co_hrhd) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_hrhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hrhd, 0);
-            sh->mpm_hrhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hrhd, 1);
+            sh->mpm_hrhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrhd, 0);
+            sh->mpm_hrhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrhd, 1);
         } else {
-            sh->mpm_hrhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_hrhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_hrhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_hrhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_hrhd_ctx_ts == NULL || sh->mpm_hrhd_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_hrhd_ctx == NULL. This should never happen");
@@ -1915,13 +1953,13 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
-    if (sh->flags & SIG_GROUP_HAVEHMDCONTENT) {
+    if (has_co_hmd) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_hmd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hmd, 0);
-            sh->mpm_hmd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hmd, 1);
+            sh->mpm_hmd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hmd, 0);
+            sh->mpm_hmd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hmd, 1);
         } else {
-            sh->mpm_hmd_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_hmd_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_hmd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_hmd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_hmd_ctx_ts == NULL || sh->mpm_hmd_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_hmd_ctx == NULL. This should never happen");
@@ -1937,13 +1975,13 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
-    if (sh->flags & SIG_GROUP_HAVEHCDCONTENT) {
+    if (has_co_hcd) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_hcd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hcd, 0);
-            sh->mpm_hcd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hcd, 1);
+            sh->mpm_hcd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hcd, 0);
+            sh->mpm_hcd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hcd, 1);
         } else {
-            sh->mpm_hcd_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_hcd_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_hcd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_hcd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_hcd_ctx_ts == NULL || sh->mpm_hcd_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_hcd_ctx == NULL. This should never happen");
@@ -1959,13 +1997,13 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
-    if (sh->flags & SIG_GROUP_HAVEHRUDCONTENT) {
+    if (has_co_hrud) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_hrud_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hrud, 0);
-            sh->mpm_hrud_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hrud, 1);
+            sh->mpm_hrud_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrud, 0);
+            sh->mpm_hrud_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrud, 1);
         } else {
-            sh->mpm_hrud_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_hrud_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_hrud_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_hrud_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_hrud_ctx_ts == NULL || sh->mpm_hrud_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_hrud_ctx == NULL. This should never happen");
@@ -1981,13 +2019,13 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
-    if (sh->flags & SIG_GROUP_HAVEHSMDCONTENT) {
+    if (has_co_hsmd) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_hsmd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hsmd, 0);
-            sh->mpm_hsmd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hsmd, 1);
+            sh->mpm_hsmd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hsmd, 0);
+            sh->mpm_hsmd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hsmd, 1);
         } else {
-            sh->mpm_hsmd_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_hsmd_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_hsmd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_hsmd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_hsmd_ctx_ts == NULL || sh->mpm_hsmd_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_hsmd_ctx == NULL. This should never happen");
@@ -2003,13 +2041,13 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
-    if (sh->flags & SIG_GROUP_HAVEHSCDCONTENT) {
+    if (has_co_hscd) {
         if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
-            sh->mpm_hscd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hscd, 0);
-            sh->mpm_hscd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx->sgh_mpm_context_hscd, 1);
+            sh->mpm_hscd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hscd, 0);
+            sh->mpm_hscd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hscd, 1);
         } else {
-            sh->mpm_hscd_ctx_ts = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
-            sh->mpm_hscd_ctx_tc = MpmFactoryGetMpmCtxForProfile(MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+            sh->mpm_hscd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_hscd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
         }
         if (sh->mpm_hscd_ctx_ts == NULL || sh->mpm_hscd_ctx_tc == NULL) {
             SCLogDebug("sh->mpm_hscd_ctx == NULL. This should never happen");
@@ -2025,29 +2063,51 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
-    if (sh->flags & SIG_GROUP_HAVECONTENT ||
-        sh->flags & SIG_GROUP_HAVESTREAMCONTENT ||
-        sh->flags & SIG_GROUP_HAVEURICONTENT ||
-        sh->flags & SIG_GROUP_HAVEHCBDCONTENT ||
-        sh->flags & SIG_GROUP_HAVEHSBDCONTENT ||
-        sh->flags & SIG_GROUP_HAVEHHDCONTENT ||
-        sh->flags & SIG_GROUP_HAVEHRHDCONTENT ||
-        sh->flags & SIG_GROUP_HAVEHMDCONTENT ||
-        sh->flags & SIG_GROUP_HAVEHCDCONTENT ||
-        sh->flags & SIG_GROUP_HAVEHSMDCONTENT ||
-        sh->flags & SIG_GROUP_HAVEHSCDCONTENT ||
-        sh->flags & SIG_GROUP_HAVEHRUDCONTENT) {
+    if (has_co_huad) {
+        if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
+            sh->mpm_huad_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_huad, 0);
+            sh->mpm_huad_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_huad, 1);
+        } else {
+            sh->mpm_huad_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_huad_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+        }
+        if (sh->mpm_huad_ctx_ts == NULL || sh->mpm_huad_ctx_tc == NULL) {
+            SCLogDebug("sh->mpm_huad_ctx == NULL. This should never happen");
+            exit(EXIT_FAILURE);
+        }
+
+#ifndef __SC_CUDA_SUPPORT__
+        MpmInitCtx(sh->mpm_huad_ctx_ts, de_ctx->mpm_matcher, -1);
+        MpmInitCtx(sh->mpm_huad_ctx_tc, de_ctx->mpm_matcher, -1);
+#else
+        MpmInitCtx(sh->mpm_huad_ctx_ts, de_ctx->mpm_matcher, de_ctx->cuda_rc_mod_handle);
+        MpmInitCtx(sh->mpm_huad_ctx_tc, de_ctx->mpm_matcher, de_ctx->cuda_rc_mod_handle);
+#endif
+    }
+
+    if (has_co_packet ||
+        has_co_stream ||
+        has_co_uri ||
+        has_co_hcbd ||
+        has_co_hsbd ||
+        has_co_hhd ||
+        has_co_hrhd ||
+        has_co_hmd ||
+        has_co_hcd ||
+        has_co_hsmd ||
+        has_co_hscd ||
+        has_co_hrud ||
+        has_co_huad) {
 
         PatternMatchPreparePopulateMpm(de_ctx, sh);
 
         //if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
          if (sh->mpm_proto_tcp_ctx_ts != NULL) {
              if (sh->mpm_proto_tcp_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_proto_tcp_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_tcp_ctx_ts);
                  sh->mpm_proto_tcp_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVECONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_proto_tcp_ctx_ts->mpm_type].Prepare != NULL) {
                          mpm_table[sh->mpm_proto_tcp_ctx_ts->mpm_type].
                              Prepare(sh->mpm_proto_tcp_ctx_ts);
@@ -2057,11 +2117,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_proto_tcp_ctx_tc != NULL) {
              if (sh->mpm_proto_tcp_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_proto_tcp_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_tcp_ctx_tc);
                  sh->mpm_proto_tcp_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVECONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_proto_tcp_ctx_tc->mpm_type].Prepare != NULL) {
                          mpm_table[sh->mpm_proto_tcp_ctx_tc->mpm_type].
                              Prepare(sh->mpm_proto_tcp_ctx_tc);
@@ -2072,11 +2131,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
          if (sh->mpm_proto_udp_ctx_ts != NULL) {
              if (sh->mpm_proto_udp_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_proto_udp_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_udp_ctx_ts);
                  sh->mpm_proto_udp_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVECONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_proto_udp_ctx_ts->mpm_type].Prepare != NULL) {
                          mpm_table[sh->mpm_proto_udp_ctx_ts->mpm_type].
                              Prepare(sh->mpm_proto_udp_ctx_ts);
@@ -2086,11 +2144,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_proto_udp_ctx_tc != NULL) {
              if (sh->mpm_proto_udp_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_proto_udp_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_udp_ctx_tc);
                  sh->mpm_proto_udp_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVECONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_proto_udp_ctx_tc->mpm_type].Prepare != NULL) {
                          mpm_table[sh->mpm_proto_udp_ctx_tc->mpm_type].
                              Prepare(sh->mpm_proto_udp_ctx_tc);
@@ -2101,11 +2158,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
          if (sh->mpm_proto_other_ctx != NULL) {
              if (sh->mpm_proto_other_ctx->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_proto_other_ctx);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_other_ctx);
                  sh->mpm_proto_other_ctx = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVECONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_proto_other_ctx->mpm_type].Prepare != NULL) {
                          mpm_table[sh->mpm_proto_other_ctx->mpm_type].
                              Prepare(sh->mpm_proto_other_ctx);
@@ -2116,11 +2172,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
          if (sh->mpm_stream_ctx_ts != NULL) {
              if (sh->mpm_stream_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_stream_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_stream_ctx_ts);
                  sh->mpm_stream_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVESTREAMCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_stream_ctx_ts->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_stream_ctx_ts->mpm_type].Prepare(sh->mpm_stream_ctx_ts);
                  }
@@ -2128,11 +2183,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_stream_ctx_tc != NULL) {
              if (sh->mpm_stream_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_stream_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_stream_ctx_tc);
                  sh->mpm_stream_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVESTREAMCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_stream_ctx_tc->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_stream_ctx_tc->mpm_type].Prepare(sh->mpm_stream_ctx_tc);
                  }
@@ -2141,11 +2195,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
          if (sh->mpm_uri_ctx_ts != NULL) {
              if (sh->mpm_uri_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_uri_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_uri_ctx_ts);
                  sh->mpm_uri_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEURICONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_uri_ctx_ts->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_uri_ctx_ts->mpm_type].Prepare(sh->mpm_uri_ctx_ts);
                  }
@@ -2153,11 +2206,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_uri_ctx_tc != NULL) {
              if (sh->mpm_uri_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_uri_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_uri_ctx_tc);
                  sh->mpm_uri_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEURICONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_uri_ctx_tc->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_uri_ctx_tc->mpm_type].Prepare(sh->mpm_uri_ctx_tc);
                  }
@@ -2166,11 +2218,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
          if (sh->mpm_hcbd_ctx_ts != NULL) {
              if (sh->mpm_hcbd_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hcbd_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hcbd_ctx_ts);
                  sh->mpm_hcbd_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHCBDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hcbd_ctx_ts->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hcbd_ctx_ts->mpm_type].Prepare(sh->mpm_hcbd_ctx_ts);
                  }
@@ -2178,11 +2229,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_hcbd_ctx_tc != NULL) {
              if (sh->mpm_hcbd_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hcbd_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hcbd_ctx_tc);
                  sh->mpm_hcbd_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHCBDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hcbd_ctx_tc->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hcbd_ctx_tc->mpm_type].Prepare(sh->mpm_hcbd_ctx_tc);
                  }
@@ -2191,11 +2241,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
          if (sh->mpm_hsbd_ctx_ts != NULL) {
              if (sh->mpm_hsbd_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hsbd_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hsbd_ctx_ts);
                  sh->mpm_hsbd_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHSBDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hsbd_ctx_ts->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hsbd_ctx_ts->mpm_type].Prepare(sh->mpm_hsbd_ctx_ts);
                  }
@@ -2203,11 +2252,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_hsbd_ctx_tc != NULL) {
              if (sh->mpm_hsbd_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hsbd_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hsbd_ctx_tc);
                  sh->mpm_hsbd_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHSBDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hsbd_ctx_tc->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hsbd_ctx_tc->mpm_type].Prepare(sh->mpm_hsbd_ctx_tc);
                  }
@@ -2216,11 +2264,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
          if (sh->mpm_hhd_ctx_ts != NULL) {
              if (sh->mpm_hhd_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hhd_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hhd_ctx_ts);
                  sh->mpm_hhd_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHHDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hhd_ctx_ts->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hhd_ctx_ts->mpm_type].Prepare(sh->mpm_hhd_ctx_ts);
                  }
@@ -2228,11 +2275,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_hhd_ctx_tc != NULL) {
              if (sh->mpm_hhd_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hhd_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hhd_ctx_tc);
                  sh->mpm_hhd_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHHDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hhd_ctx_tc->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hhd_ctx_tc->mpm_type].Prepare(sh->mpm_hhd_ctx_tc);
                  }
@@ -2241,11 +2287,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
          if (sh->mpm_hrhd_ctx_ts != NULL) {
              if (sh->mpm_hrhd_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hrhd_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrhd_ctx_ts);
                  sh->mpm_hrhd_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHRHDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hrhd_ctx_ts->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hrhd_ctx_ts->mpm_type].Prepare(sh->mpm_hrhd_ctx_ts);
                  }
@@ -2253,11 +2298,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_hrhd_ctx_tc != NULL) {
              if (sh->mpm_hrhd_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hrhd_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrhd_ctx_tc);
                  sh->mpm_hrhd_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHRHDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hrhd_ctx_tc->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hrhd_ctx_tc->mpm_type].Prepare(sh->mpm_hrhd_ctx_tc);
                  }
@@ -2266,11 +2310,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
          if (sh->mpm_hmd_ctx_ts != NULL) {
              if (sh->mpm_hmd_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hmd_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hmd_ctx_ts);
                  sh->mpm_hmd_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHMDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hmd_ctx_ts->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hmd_ctx_ts->mpm_type].Prepare(sh->mpm_hmd_ctx_ts);
                  }
@@ -2278,11 +2321,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_hmd_ctx_tc != NULL) {
              if (sh->mpm_hmd_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hmd_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hmd_ctx_tc);
                  sh->mpm_hmd_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHMDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hmd_ctx_tc->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hmd_ctx_tc->mpm_type].Prepare(sh->mpm_hmd_ctx_tc);
                  }
@@ -2291,11 +2333,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
          if (sh->mpm_hcd_ctx_ts != NULL) {
              if (sh->mpm_hcd_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hcd_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hcd_ctx_ts);
                  sh->mpm_hcd_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHCDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hcd_ctx_ts->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hcd_ctx_ts->mpm_type].Prepare(sh->mpm_hcd_ctx_ts);
                  }
@@ -2303,11 +2344,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_hcd_ctx_tc != NULL) {
              if (sh->mpm_hcd_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hcd_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hcd_ctx_tc);
                  sh->mpm_hcd_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHCDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hcd_ctx_tc->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hcd_ctx_tc->mpm_type].Prepare(sh->mpm_hcd_ctx_tc);
                  }
@@ -2316,11 +2356,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
          if (sh->mpm_hrud_ctx_ts != NULL) {
              if (sh->mpm_hrud_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hrud_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrud_ctx_ts);
                  sh->mpm_hrud_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHRUDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hrud_ctx_ts->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hrud_ctx_ts->mpm_type].Prepare(sh->mpm_hrud_ctx_ts);
                  }
@@ -2328,11 +2367,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_hrud_ctx_tc != NULL) {
              if (sh->mpm_hrud_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hrud_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrud_ctx_tc);
                  sh->mpm_hrud_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHRUDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hrud_ctx_tc->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hrud_ctx_tc->mpm_type].Prepare(sh->mpm_hrud_ctx_tc);
                  }
@@ -2340,11 +2378,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_hsmd_ctx_ts != NULL) {
              if (sh->mpm_hsmd_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hsmd_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hsmd_ctx_ts);
                  sh->mpm_hsmd_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHSMDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hsmd_ctx_ts->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hsmd_ctx_ts->mpm_type].Prepare(sh->mpm_hsmd_ctx_ts);
                  }
@@ -2352,11 +2389,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_hsmd_ctx_tc != NULL) {
              if (sh->mpm_hsmd_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hsmd_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hsmd_ctx_tc);
                  sh->mpm_hsmd_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHSMDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hsmd_ctx_tc->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hsmd_ctx_tc->mpm_type].Prepare(sh->mpm_hsmd_ctx_tc);
                  }
@@ -2364,11 +2400,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_hscd_ctx_ts != NULL) {
              if (sh->mpm_hscd_ctx_ts->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hscd_ctx_ts);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hscd_ctx_ts);
                  sh->mpm_hscd_ctx_ts = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHSCDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hscd_ctx_ts->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hscd_ctx_ts->mpm_type].Prepare(sh->mpm_hscd_ctx_ts);
                  }
@@ -2376,70 +2411,95 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
          }
          if (sh->mpm_hscd_ctx_tc != NULL) {
              if (sh->mpm_hscd_ctx_tc->pattern_cnt == 0) {
-                 MpmFactoryReClaimMpmCtx(sh->mpm_hscd_ctx_tc);
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hscd_ctx_tc);
                  sh->mpm_hscd_ctx_tc = NULL;
              } else {
-                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL &&
-                     sh->flags & SIG_GROUP_HAVEHSCDCONTENT) {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
                      if (mpm_table[sh->mpm_hscd_ctx_tc->mpm_type].Prepare != NULL)
                          mpm_table[sh->mpm_hscd_ctx_tc->mpm_type].Prepare(sh->mpm_hscd_ctx_tc);
                  }
              }
          }
+         if (sh->mpm_huad_ctx_ts != NULL) {
+             if (sh->mpm_huad_ctx_ts->pattern_cnt == 0) {
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_huad_ctx_ts);
+                 sh->mpm_huad_ctx_ts = NULL;
+             } else {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
+                     if (mpm_table[sh->mpm_huad_ctx_ts->mpm_type].Prepare != NULL)
+                         mpm_table[sh->mpm_huad_ctx_ts->mpm_type].Prepare(sh->mpm_huad_ctx_ts);
+                 }
+             }
+         }
+         if (sh->mpm_huad_ctx_tc != NULL) {
+             if (sh->mpm_huad_ctx_tc->pattern_cnt == 0) {
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_huad_ctx_tc);
+                 sh->mpm_huad_ctx_tc = NULL;
+             } else {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
+                     if (mpm_table[sh->mpm_huad_ctx_tc->mpm_type].Prepare != NULL)
+                         mpm_table[sh->mpm_huad_ctx_tc->mpm_type].Prepare(sh->mpm_huad_ctx_tc);
+                 }
+             }
+         }
         //} /* if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) */
     } else {
-        MpmFactoryReClaimMpmCtx(sh->mpm_proto_other_ctx);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_other_ctx);
         sh->mpm_proto_other_ctx = NULL;
 
-        MpmFactoryReClaimMpmCtx(sh->mpm_proto_tcp_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_tcp_ctx_ts);
         sh->mpm_proto_tcp_ctx_ts = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_proto_udp_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_udp_ctx_ts);
         sh->mpm_proto_udp_ctx_ts = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_stream_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_stream_ctx_ts);
         sh->mpm_stream_ctx_ts = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_uri_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_uri_ctx_ts);
         sh->mpm_uri_ctx_ts = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hcbd_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hcbd_ctx_ts);
         sh->mpm_hcbd_ctx_ts = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hhd_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hhd_ctx_ts);
         sh->mpm_hhd_ctx_ts = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hrhd_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrhd_ctx_ts);
         sh->mpm_hrhd_ctx_ts = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hmd_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hmd_ctx_ts);
         sh->mpm_hmd_ctx_ts = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hcd_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hcd_ctx_ts);
         sh->mpm_hcd_ctx_ts = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hrud_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrud_ctx_ts);
         sh->mpm_hrud_ctx_ts = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hsmd_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hsmd_ctx_ts);
         sh->mpm_hsmd_ctx_ts = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hscd_ctx_ts);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hscd_ctx_ts);
         sh->mpm_hscd_ctx_ts = NULL;
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_huad_ctx_ts);
+        sh->mpm_huad_ctx_ts = NULL;
 
-        MpmFactoryReClaimMpmCtx(sh->mpm_proto_tcp_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_tcp_ctx_tc);
         sh->mpm_proto_tcp_ctx_tc = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_proto_udp_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_udp_ctx_tc);
         sh->mpm_proto_udp_ctx_tc = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_stream_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_stream_ctx_tc);
         sh->mpm_stream_ctx_tc = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_uri_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_uri_ctx_tc);
         sh->mpm_uri_ctx_tc = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hcbd_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hcbd_ctx_tc);
         sh->mpm_hcbd_ctx_tc = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hhd_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hhd_ctx_tc);
         sh->mpm_hhd_ctx_tc = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hrhd_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrhd_ctx_tc);
         sh->mpm_hrhd_ctx_tc = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hmd_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hmd_ctx_tc);
         sh->mpm_hmd_ctx_tc = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hcd_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hcd_ctx_tc);
         sh->mpm_hcd_ctx_tc = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hrud_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrud_ctx_tc);
         sh->mpm_hrud_ctx_tc = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hsmd_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hsmd_ctx_tc);
         sh->mpm_hsmd_ctx_tc = NULL;
-        MpmFactoryReClaimMpmCtx(sh->mpm_hscd_ctx_tc);
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hscd_ctx_tc);
         sh->mpm_hscd_ctx_tc = NULL;
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_huad_ctx_tc);
+        sh->mpm_huad_ctx_tc = NULL;
     }
 
     return 0;

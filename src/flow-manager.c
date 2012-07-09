@@ -52,6 +52,7 @@
 
 #include "util-debug.h"
 #include "util-privs.h"
+#include "util-signal.h"
 
 #include "threads.h"
 #include "detect.h"
@@ -379,6 +380,9 @@ next:
  */
 void *FlowManagerThread(void *td)
 {
+    /* block usr1.  usr1 to be handled by the main thread only */
+    UtilSignalBlock(SIGUSR2);
+
     ThreadVars *th_v = (ThreadVars *)td;
     struct timeval ts;
     uint32_t established_cnt = 0, new_cnt = 0, closing_cnt = 0;
@@ -427,8 +431,11 @@ void *FlowManagerThread(void *td)
     FlowForceReassemblySetup();
 
     /* set the thread name */
-    SCSetThreadName(th_v->name);
-    SCLogDebug("%s started...", th_v->name);
+    if (SCSetThreadName(th_v->name) < 0) {
+        SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
+    } else {
+        SCLogDebug("%s started...", th_v->name);
+    }
 
     th_v->sc_perf_pca = SCPerfGetAllCountersArray(th_v, &th_v->sc_perf_pctx);
     SCPerfAddToClubbedTMTable(th_v->name, &th_v->sc_perf_pctx);

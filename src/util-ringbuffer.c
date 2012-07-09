@@ -277,7 +277,7 @@ void *RingBufferSrSw8Get(RingBuffer8 *rb) {
     rb->read += 1;
 #else
     ptr = rb->array[SC_ATOMIC_GET(rb->read)];
-    SC_ATOMIC_ADD(rb->read, 1);
+    (void) SC_ATOMIC_ADD(rb->read, 1);
 #endif
 #ifdef __tile__
     tmc_spin_queued_mutex_unlock(&rb->spin);
@@ -321,7 +321,7 @@ int RingBufferSrSw8Put(RingBuffer8 *rb, void *ptr) {
     rb->write += 1;
 #else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
-    SC_ATOMIC_ADD(rb->write, 1);
+    (void) SC_ATOMIC_ADD(rb->write, 1);
 #endif
 
 #ifdef __tile__
@@ -371,7 +371,7 @@ void *RingBufferSrMw8Get(RingBuffer8 *rb) {
     rb->read += 1;
 #else
     ptr = rb->array[SC_ATOMIC_GET(rb->read)];
-    SC_ATOMIC_ADD(rb->read, 1);
+    (void) SC_ATOMIC_ADD(rb->read, 1);
 #endif
 #ifdef __tile__
     tmc_spin_queued_mutex_unlock(&rb->spin);
@@ -446,7 +446,7 @@ retry:
     rb->write += 1;
 #else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
-    SC_ATOMIC_ADD(rb->write, 1);
+    (void) SC_ATOMIC_ADD(rb->write, 1);
 #endif
 #ifdef __tile__
     tmc_spin_queued_mutex_unlock(&rb->spin);
@@ -581,7 +581,7 @@ int RingBufferMrSw8Put(RingBuffer8 *rb, void *ptr) {
     rb->write += 1;
 #else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
-    SC_ATOMIC_ADD(rb->write, 1);
+    (void) SC_ATOMIC_ADD(rb->write, 1);
 #endif
 #ifdef __tile__
     tmc_spin_queued_mutex_unlock(&rb->spin);
@@ -713,7 +713,7 @@ int RingBufferMrSwPut(RingBuffer16 *rb, void *ptr) {
     rb->write += 1;
 #else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
-    SC_ATOMIC_ADD(rb->write, 1);
+    (void) SC_ATOMIC_ADD(rb->write, 1);
 #endif
 
 #ifdef __tile__
@@ -762,7 +762,7 @@ void *RingBufferSrSwGet(RingBuffer16 *rb) {
     rb->read += 1;
 #else
     ptr = rb->array[SC_ATOMIC_GET(rb->read)];
-    SC_ATOMIC_ADD(rb->read, 1);
+    (void) SC_ATOMIC_ADD(rb->read, 1);
 #endif
 
 #ifdef __tile__
@@ -807,7 +807,7 @@ int RingBufferSrSwPut(RingBuffer16 *rb, void *ptr) {
     rb->write += 1;
 #else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
-    SC_ATOMIC_ADD(rb->write, 1);
+    (void) SC_ATOMIC_ADD(rb->write, 1);
 #endif
 
 #ifdef __tile__
@@ -1007,7 +1007,7 @@ retry:
     rb->write += 1;
 #else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
-    SC_ATOMIC_ADD(rb->write, 1);
+    (void) SC_ATOMIC_ADD(rb->write, 1);
 #endif
 #ifdef __tile__
     tmc_spin_queued_mutex_unlock(&rb->spin);
@@ -1280,7 +1280,7 @@ retry:
     rb->write += 1;
 #else
     rb->array[SC_ATOMIC_GET(rb->write)] = ptr;
-    SC_ATOMIC_ADD(rb->write, 1);
+    (void) SC_ATOMIC_ADD(rb->write, 1);
 #endif
 #ifdef __tile__
     tmc_spin_queued_mutex_unlock(&rb->spin);
