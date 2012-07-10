@@ -190,6 +190,7 @@ void TmModuleDecodeMpipeRegister (void) {
     tmm_modules[TMM_DECODEMPIPE].ThreadDeinit = NULL;
     tmm_modules[TMM_DECODEMPIPE].RegisterTests = NULL;
     tmm_modules[TMM_DECODEMPIPE].cap_flags = 0;
+    tmm_modules[TMM_DECODEMPIPE].flags = TM_FLAG_DECODE_TM;
 }
 
 void MpipeFreePacket(Packet *p) {

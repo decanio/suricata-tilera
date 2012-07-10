@@ -829,47 +829,20 @@ void SigFree(Signature *s) {
     if (s == NULL)
         return;
 
-    /* XXX GS there seems to be a bug in the IPOnlyCIDR list, which causes
-      system abort. */
-    /*if (s->CidrDst != NULL)
+    if (s->CidrDst != NULL)
         IPOnlyCIDRListFree(s->CidrDst);
 
     if (s->CidrSrc != NULL)
-        IPOnlyCIDRListFree(s->CidrSrc);*/
+        IPOnlyCIDRListFree(s->CidrSrc);
 
-    SigMatch *sm = s->sm_lists[DETECT_SM_LIST_MATCH], *nsm;
-    while (sm != NULL) {
-        nsm = sm->next;
-        SigMatchFree(sm);
-        sm = nsm;
-    }
-
-    sm = s->sm_lists[DETECT_SM_LIST_PMATCH];
-    while (sm != NULL) {
-        nsm = sm->next;
-        SigMatchFree(sm);
-        sm = nsm;
-    }
-
-    sm = s->sm_lists[DETECT_SM_LIST_UMATCH];
-    while (sm != NULL) {
-        nsm = sm->next;
-        SigMatchFree(sm);
-        sm = nsm;
-    }
-
-    sm = s->sm_lists[DETECT_SM_LIST_AMATCH];
-    while (sm != NULL) {
-        nsm = sm->next;
-        SigMatchFree(sm);
-        sm = nsm;
-    }
-
-    sm = s->sm_lists[DETECT_SM_LIST_TMATCH];
-    while (sm != NULL) {
-        nsm = sm->next;
-        SigMatchFree(sm);
-        sm = nsm;
+    int i;
+    for (i = 0; i < DETECT_SM_LIST_MAX; i++) {
+        SigMatch *sm = s->sm_lists[i], *nsm;
+        while (sm != NULL) {
+            nsm = sm->next;
+            SigMatchFree(sm);
+            sm = nsm;
+        }
     }
 
     DetectAddressHeadCleanup(&s->src);
@@ -1026,17 +999,34 @@ static int SigValidate(Signature *s) {
         SCReturnInt(0);
     }
 
-    /* check for uricontent + from_server/to_client */
-    if (s->sm_lists[DETECT_SM_LIST_UMATCH] != NULL) {
-        SigMatch *sm;
-        for (sm = s->sm_lists[DETECT_SM_LIST_MATCH]; sm != NULL; sm = sm->next) {
-            if (sm->type == DETECT_FLOW) {
-                DetectFlowData *fd = (DetectFlowData *)sm->ctx;
-                if (fd == NULL)
-                    continue;
+    SigMatch *sm;
+    for (sm = s->sm_lists[DETECT_SM_LIST_MATCH]; sm != NULL; sm = sm->next) {
+        if (sm->type == DETECT_FLOW) {
+            DetectFlowData *fd = (DetectFlowData *)sm->ctx;
+            if (fd == NULL)
+                continue;
 
-                if (fd->flags & FLOW_PKT_TOCLIENT) {
-                    SCLogError(SC_ERR_INVALID_SIGNATURE, "can't use uricontent / http_uri with flow:to_client or flow:from_server");
+            if (fd->flags & FLOW_PKT_TOCLIENT) {
+                /* check for uricontent + from_server/to_client */
+                if (s->sm_lists[DETECT_SM_LIST_UMATCH] != NULL ||
+                    s->sm_lists[DETECT_SM_LIST_HRUDMATCH] != NULL ||
+                    s->sm_lists[DETECT_SM_LIST_HCBDMATCH] != NULL ||
+                    s->sm_lists[DETECT_SM_LIST_HMDMATCH] != NULL ||
+                    s->sm_lists[DETECT_SM_LIST_HUADMATCH] != NULL) {
+                    SCLogError(SC_ERR_INVALID_SIGNATURE, "can't use uricontent "
+                               "/http_uri , raw_uri, http_client_body, "
+                               "http_method, http_user_agent keywords "
+                               "with flow:to_client or flow:from_server");
+                    SCReturnInt(0);
+                }
+            } else if (fd->flags & FLOW_PKT_TOSERVER) {
+                /* check for uricontent + from_server/to_client */
+                if (s->sm_lists[DETECT_SM_LIST_HSBDMATCH] != NULL ||
+                    s->sm_lists[DETECT_SM_LIST_HSMDMATCH] != NULL ||
+                    s->sm_lists[DETECT_SM_LIST_HSCDMATCH] != NULL) {
+                    SCLogError(SC_ERR_INVALID_SIGNATURE, "can't use http_"
+                               "server_body, http_stat_msg, http_stat_code "
+                               "with flow:to_server or flow:from_client");
                     SCReturnInt(0);
                 }
             }
@@ -1434,7 +1424,7 @@ int DetectParseDupSigHashInit(DetectEngineCtx *de_ctx)
 void DetectParseDupSigHashFree(DetectEngineCtx *de_ctx)
 {
     if (de_ctx->dup_sig_hash_table != NULL)
-        SCFree(de_ctx->dup_sig_hash_table);
+        HashListTableFree(de_ctx->dup_sig_hash_table);
 
     de_ctx->dup_sig_hash_table = NULL;
 

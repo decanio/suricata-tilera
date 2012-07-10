@@ -102,12 +102,8 @@ void TmqhPacketpoolRegister (void) {
 }
 
 void TmqhPacketpoolDestroy (void) {
-#ifdef __tile__
-#else
-    if (ringbuffer != NULL) {
-       RingBufferDestroy(ringbuffer);
-    }
-#endif
+    /* doing this clean up PacketPoolDestroy now,
+     * where we also clean the packets */
 }
 
 #ifdef __tile__
@@ -184,6 +180,52 @@ Packet *PacketPoolGetPacket(void) {
 
     Packet *p = RingBufferMrMwGetNoWait(ringbuffer);
     return p;
+}
+#endif
+
+#ifdef __tilegx__
+void PacketPoolInit(intmax_t max_pending_packets) {
+    /* packet pool is maintained by mpipe on tilegx */
+}
+#else
+void PacketPoolInit(intmax_t max_pending_packets) {
+    /* pre allocate packets */
+    SCLogDebug("preallocating packets... packet size %" PRIuMAX "", (uintmax_t)SIZE_OF_PACKET);
+    int i = 0;
+    for (i = 0; i < max_pending_packets; i++) {
+        /* XXX pkt alloc function */
+        Packet *p = SCMalloc(SIZE_OF_PACKET);
+        if (p == NULL) {
+            SCLogError(SC_ERR_FATAL, "Fatal error encountered while allocating a packet. Exiting...");
+            exit(EXIT_FAILURE);
+        }
+        PACKET_INITIALIZE(p);
+
+        PacketPoolStorePacket(p);
+    }
+    SCLogInfo("preallocated %"PRIiMAX" packets. Total memory %"PRIuMAX"",
+            max_pending_packets, (uintmax_t)(max_pending_packets*SIZE_OF_PACKET));
+}
+#endif
+
+#ifdef __tilegx__
+void PacketPoolDestroy(void) {
+    /* packet pool is maintained by mpipe on tilegx */
+}
+#else
+void PacketPoolDestroy(void) {
+    if (ringbuffer == NULL) {
+        return;
+    }
+
+    Packet *p = NULL;
+    while ((p = PacketPoolGetPacket()) != NULL) {
+        PACKET_CLEANUP(p);
+        SCFree(p);
+    }
+
+    RingBufferDestroy(ringbuffer);
+    ringbuffer = NULL;
 }
 #endif
 

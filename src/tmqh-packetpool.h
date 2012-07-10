@@ -40,4 +40,7 @@ void PacketPoolWait(void);
 #endif
 void PacketPoolStorePacket(Packet *);
 
+void PacketPoolInit(intmax_t max_pending_packets);
+void PacketPoolDestroy(void);
+
 #endif /* __TMQH_PACKETPOOL_H__ */

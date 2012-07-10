@@ -288,7 +288,14 @@ void RunModeDispatch(int runmode, const char *custom_mode, DetectEngineCtx *de_c
                 SCLogError(SC_ERR_UNKNOWN_RUN_MODE, "Unknown runtime mode. Aborting");
                 exit(EXIT_FAILURE);
         }
-    } /* if (custom_mode == NULL) */
+    } else { /* if (custom_mode == NULL) */
+        /* Add compability with old 'worker' name */
+        if (!strcmp("worker", custom_mode)) {
+            SCLogWarning(SC_ERR_RUNMODE, "'worker' mode have been renamed "
+                         "to 'workers', please modify your setup.");
+            custom_mode = SCStrdup("workers");
+        }
+    }
 
     RunMode *mode = RunModeGetCustomMode(runmode, custom_mode);
     if (mode == NULL) {
@@ -400,6 +407,14 @@ void RunModeInitializeOutputs(void)
                     "(see https://redmine.openinfosecfoundation.org/issues/353"
                     " for an explanation)");
             continue;
+        } else if (strcmp(output->val, "alert-prelude") == 0) {
+#ifndef PRELUDE
+            SCLogWarning(SC_ERR_INVALID_ARGUMENT,
+                    "Prelude support not compiled in. Reconfigure/"
+                    "recompile with --enable-prelude to add Prelude "
+                    "support.");
+            continue;
+#endif
         }
 
         OutputModule *module = OutputGetModuleByConfName(output->val);

@@ -337,7 +337,7 @@ fb_sim: $(SIM_DEPS) $(IMAGE_FILE)
 # scwc-14 from sclab-36 below
 WILDCAT_ARGS=--dev usb1
 #WILDCAT_ARGS=--
-#NET_ARGS=--net 192.168.0.6
+NET_ARGS=--net 192.168.0.11
 # scwc-15
 #NET_ARGS=--net 10.101.0.33
 # sclib-01b
@@ -347,7 +347,9 @@ WILDCAT_ARGS=--dev usb1
 #NET_ARGS=--net 192.168.1.237
 #NET_ARGS=--net 192.168.1.236
 # liberty node 1
-NET_ARGS=--net 192.168.1.200
+#NET_ARGS=--net 192.168.1.200
+# Cannon card
+#NET_ARGS=--net 10.107.0.201
 # s2q console
 # telnet serial 10013
 

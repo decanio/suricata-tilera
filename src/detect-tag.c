@@ -171,6 +171,7 @@ DetectTagData *DetectTagParse (char *tagstr)
 #define MAX_SUBSTRINGS 30
     int ret = 0, res = 0;
     int ov[MAX_SUBSTRINGS];
+    const char *str_ptr = NULL;
 
     ret = pcre_exec(parse_regex, parse_regex_study, tagstr, strlen(tagstr), 0, 0, ov, MAX_SUBSTRINGS);
     if (ret < 1) {
@@ -178,9 +179,8 @@ DetectTagData *DetectTagParse (char *tagstr)
         goto error;
     }
 
-    const char *str_ptr;
     res = pcre_get_substring((char *)tagstr, ov, MAX_SUBSTRINGS, 1, &str_ptr);
-    if (res < 0) {
+    if (res < 0 || str_ptr == NULL) {
         SCLogError(SC_ERR_PCRE_GET_SUBSTRING, "pcre_get_substring failed");
         goto error;
     }
@@ -194,6 +194,8 @@ DetectTagData *DetectTagParse (char *tagstr)
         SCLogError(SC_ERR_INVALID_VALUE, "Invalid argument type. Must be session or host (%s)", tagstr);
         goto error;
     }
+    pcre_free_substring(str_ptr);
+    str_ptr = NULL;
 
     /* default tag is 256 packets from session or dst host */
     td.count = DETECT_TAG_MAX_PKTS;
@@ -202,7 +204,7 @@ DetectTagData *DetectTagParse (char *tagstr)
 
     if (ret > 4) {
         res = pcre_get_substring((char *)tagstr, ov, MAX_SUBSTRINGS, 3, &str_ptr);
-        if (res < 0) {
+        if (res < 0 || str_ptr == NULL) {
             SCLogError(SC_ERR_PCRE_GET_SUBSTRING, "pcre_get_substring failed");
             goto error;
         }
@@ -214,8 +216,11 @@ DetectTagData *DetectTagParse (char *tagstr)
             goto error;
         }
 
+        pcre_free_substring(str_ptr);
+        str_ptr = NULL;
+
         res = pcre_get_substring((char *)tagstr, ov, MAX_SUBSTRINGS, 4, &str_ptr);
-        if (res < 0) {
+        if (res < 0 || str_ptr == NULL) {
             SCLogError(SC_ERR_PCRE_GET_SUBSTRING, "pcre_get_substring failed");
             goto error;
         }
@@ -235,10 +240,13 @@ DetectTagData *DetectTagParse (char *tagstr)
             goto error;
         }
 
+        pcre_free_substring(str_ptr);
+        str_ptr = NULL;
+
         /* if specified, overwrite it */
         if (ret == 7) {
             res = pcre_get_substring((char *)tagstr, ov, MAX_SUBSTRINGS, 6, &str_ptr);
-            if (res < 0) {
+            if (res < 0 || str_ptr == NULL) {
                 SCLogError(SC_ERR_PCRE_GET_SUBSTRING, "pcre_get_substring failed");
                 goto error;
             }
@@ -256,6 +264,9 @@ DetectTagData *DetectTagParse (char *tagstr)
             if (td.type != DETECT_TAG_TYPE_HOST) {
                 SCLogWarning(SC_ERR_INVALID_VALUE, "Argument direction doesn't make sense for type \"session\" (%s [%"PRIu8"])", tagstr, td.type);
             }
+
+            pcre_free_substring(str_ptr);
+            str_ptr = NULL;
         }
     }
 
@@ -269,6 +280,8 @@ DetectTagData *DetectTagParse (char *tagstr)
     return real_td;
 
 error:
+    if (str_ptr != NULL)
+        pcre_free_substring(str_ptr);
     return NULL;
 }
 
