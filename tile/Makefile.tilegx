@@ -45,7 +45,7 @@ TILERA_ROOT_ALPHA11=$(TILERA_ROOT)/../../TileraMDE-4.0.alpha11.134874/tilegx
 #
 build_static:
 	echo Running configure
-	LIBS="-lgxio -ltmc" ./configure --host=tile --prefix=$(INSTALL_DIR) \
+	LIBS="-lgxpci -lgxio -ltmc" ./configure --host=tile --prefix=$(INSTALL_DIR) \
             --disable-gccmarch-native \
 	    --without-libpcap \
 	    --disable-af-packet \
@@ -184,6 +184,41 @@ TILE_MONITOR_WILDCAT_ARGS = \
 #  --hvx "kcache_hash=none" \
 #  --hvd MEMPROF_TILE=5,5 \
 
+# This is sized for an 8GB Cannon card
+TILE_MONITOR_CANNON_STATIC_ARGS = \
+  --hvx "dataplane=1-35" \
+  --hvx "hugepagesz=64m hugepages=1" \
+  --hvd MEMPROF_TILE=5,5 \
+  --huge-pages 400 \
+  --vmlinux $(BASE_DIR)/work/linux/vmlinux \
+  --mount-tile /bin \
+  --mount-tile /lib \
+  --mount-tile /usr \
+  --mount $(RULES_DIR) /opt \
+  --mount $(LOG_DIR) /var/log/suricata \
+  --upload ./src/suricata suricata \
+
+#  --run -+- suricata -c $(RULES_CONFIG) --mpipe -+-
+
+TILE_MONITOR_CANNON_CAPTURE_ARGS = \
+  --hvx "dataplane=1-35" \
+  --hvx "hugepagesz=64m hugepages=1" \
+  --hvd MEMPROF_TILE=5,5 \
+  --huge-pages 400 \
+  --vmlinux $(BASE_DIR)/work/linux/vmlinux \
+  --quit; \
+  $(TILERA_ROOT)/bin/parallelize \
+  -++- $(TILE_MONITOR) --resume $(PCI_ARGS) \
+    --mount-tile /bin \
+    --mount-tile /lib \
+    --mount-tile /usr \
+    --mount $(RULES_DIR) /opt \
+    --mount $(LOG_DIR) /var/log/suricata \
+    --upload ./src/suricata suricata \
+    --run -+- suricata -c $(RULES_CONFIG) --mpipe -+- \
+  -++- /home/tdecanio/hack/gxpci_host_pq/run6.sh
+
+# This is sized for an 16GB Wildcat card
 TILE_MONITOR_WILDCAT_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   --hvx "hugepagesz=1g hugepages=2" \
@@ -352,6 +387,8 @@ NET_ARGS=--net 192.168.0.11
 #NET_ARGS=--net 10.107.0.201
 # s2q console
 # telnet serial 10013
+# Locally installed Cannon card
+PCI_ARGS=--dev gxpci0
 
 run_wc: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
@@ -385,6 +422,18 @@ run_wc_static: $(SIM_DEPS) $(IMAGE_FILE)
         $(WILDCAT_ARGS) \
      --debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_STATIC_ARGS)
+
+run_pci_static: $(SIM_DEPS) $(IMAGE_FILE)
+	$(TILE_MONITOR) \
+        $(PCI_ARGS) \
+     --debug-on-crash \
+	$(TILE_MONITOR_CANNON_STATIC_ARGS)
+
+run_pci_capture: $(SIM_DEPS) $(IMAGE_FILE)
+	$(TILE_MONITOR) \
+        $(PCI_ARGS) \
+     --debug-on-crash \
+	$(TILE_MONITOR_CANNON_CAPTURE_ARGS)
 
 fb_wc: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \

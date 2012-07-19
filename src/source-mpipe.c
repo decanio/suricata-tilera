@@ -46,6 +46,8 @@
 #include <arch/sim.h>
 #include <arch/cycle.h>
 #include <gxio/mpipe.h>
+#include <gxio/trio.h>
+#include <gxpci.h>
 #include <tmc/cpus.h>
 #include <tmc/spin.h>
 #include <tmc/sync.h>
@@ -93,6 +95,8 @@ static TAILQ_HEAD(, MpipeDevice_) mpipe_devices =
 
 static tmc_sync_barrier_t barrier;
 static uint16_t first_stack;
+static uint32_t capture_enabled = 0;
+static uint32_t headroom = 2;
 
 /**
  * \brief Structure to hold thread specifc variables.
@@ -143,6 +147,26 @@ static gxio_mpipe_context_t* context = &context_body;
 
 /* The ingress queues (one per worker) */
 static gxio_mpipe_iqueue_t** iqueues;
+
+/*
+ * trio configuration.
+ */
+static gxio_trio_context_t trio_context_body;
+static gxio_trio_context_t* trio_context = &trio_context_body;
+
+#define PIPELINES 6 /* fix this. look elsewhere */
+
+static gxpci_context_t gxpci_context_body[PIPELINES];
+static gxpci_context_t* gxpci_context[PIPELINES];
+
+/* The TRIO index. */
+static int trio_index = 0;
+
+/* The queue index of a packet queue. */
+static int queue_index = 0;
+
+/* The local MAC index. */
+static int loc_mac;
 
 static unsigned long long tile_gtod_fast_boot = 0;
 static unsigned long tile_gtod_fast_mhz;
@@ -247,7 +271,40 @@ static inline Packet *MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_
     int caplen = idesc->l2_size;
     //u_char *pkt = (void *)(intptr_t)idesc->va;
     u_char *pkt = gxio_mpipe_idesc_get_va(idesc);
-    Packet *p = (Packet *)(pkt - sizeof(Packet) - 2);
+    Packet *p = (Packet *)(pkt - sizeof(Packet) - headroom/*2*/);
+//printf("MpipeProcessPkt pkt %p p %p\n", pkt, p);
+    //PACKET_INITIALIZE(p);
+
+    ptv->bytes += caplen;
+    ptv->pkts++;
+
+    p->ts = *tv;
+    //TimeGet(&p->ts);
+    /*
+    p->ts.tv_sec = h->ts.tv_sec;
+    p->ts.tv_usec = h->ts.tv_usec;
+    */
+
+    p->datalink = ptv->datalink;
+    p->flags |= PKT_MPIPE;
+    SET_PKT_LEN(p, caplen);
+    p->pkt = pkt;
+
+    /* copy only the fields we use later */
+    p->idesc.bucket_id = idesc->bucket_id;
+    p->idesc.nr = idesc->nr;
+    p->idesc.cs = idesc->cs;
+    p->idesc.va = idesc->va;
+    p->idesc.stack_idx = idesc->stack_idx;
+
+    return p;
+}
+
+static inline Packet *MpipePrepPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *idesc, struct timeval *tv) {
+    int caplen = idesc->l2_size;
+    //u_char *pkt = (void *)(intptr_t)idesc->va;
+    u_char *pkt = gxio_mpipe_idesc_get_va(idesc);
+    Packet *p = (Packet *)(pkt - sizeof(Packet) - headroom/*2*/);
 
 //printf("MpipeProcessPkt pkt %p p %p\n", pkt, p);
     //PACKET_INITIALIZE(p);
@@ -404,23 +461,248 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
     SCReturnInt(TM_ECODE_OK);
 }
 
-TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
+static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
+                                    TmSlot *s)
+{
     struct timeval timeval;
-    MpipeThreadVars *ptv = (MpipeThreadVars *)data;
     gxio_mpipe_iqueue_t* iqueue;
-    TmSlot *s = (TmSlot *)slot;
     gxio_mpipe_idesc_t *idesc;
     ptv->slot = s->slot_next;
     Packet *p;
     int cpu = tmc_cpus_get_my_cpu();
     int rank = cpu-1;
 
-    SCEnter();
+    SCLogInfo("cpu: %d rank: %d", cpu, rank);
+
+    tilera_fast_gettimeofday(&timeval);
+
+    for (;;) {
+        int i;
+
+        if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
+            SCReturnInt(TM_ECODE_FAILED);
+        }
+
+        for (i = 0; i < 2; i++) {
+            int pool = (rank * 2) + i;
+
+            iqueue = iqueues[pool];
+
+            //SCLogInfo("Polling pool %d rank %d queue %d", pool, rank, i);
+            int n = gxio_mpipe_iqueue_try_peek(iqueue, &idesc);
+            if (likely(n > 0)) {
+                int j; int m;
+
+                //SCLogInfo("Got %d packets for pool %d", n, pool);
+                m = min(n, 4);
+
+                /* Prefetch the idescs (64 bytes each). */
+                for (j = 0; j < m; j++) {
+                    __insn_prefetch(&idesc[j]);
+                }
+                SCPerfCounterSetUI64(ptv->mpipe_depth, tv->sc_perf_pca,
+                                     (uint64_t)n);
+
+                for (j = 0; j < m; j++, idesc++) {
+                    if (likely(!idesc->be)) {
+                        p = MpipeProcessPacket(ptv,  idesc, &timeval);
+                        p->pool = pool;
+                        TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+#ifdef LATE_MPIPE_CREDIT
+                        gxio_mpipe_iqueue_advance(iqueue, 1);
+#ifdef LATE_MPIPE_BUCKET_CREDIT
+                        gxio_mpipe_credit(iqueue->context, iqueue->ring, -1, 1);
+#endif
+#else
+                        gxio_mpipe_iqueue_consume(iqueue, idesc);
+#endif
+                    } else {
+                        gxio_mpipe_iqueue_consume(iqueue, idesc);
+                        SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
+                    }
+                }
+            } else {
+                tilera_fast_gettimeofday(&timeval);
+            }
+            SCPerfSyncCountersIfSignalled(tv, 0);
+        }
+    }
+    SCReturnInt(TM_ECODE_OK);
+}
+
+#define MAX_CMDS_BATCH 64
+#define MAX_PCI_CHANNELS 6
+
+static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
+                                           TmSlot *s)
+{
+    gxpci_comp_t comp[MAX_CMDS_BATCH];
+    gxpci_cmd_t cmd[MAX_CMDS_BATCH];
+    struct timeval timeval;
+    gxio_mpipe_iqueue_t* iqueue;
+    gxio_mpipe_idesc_t *idesc;
+    gxpci_context_t* gxpci_ctxt;
+    ptv->slot = s->slot_next;
+    Packet *p;
+    int cpu = tmc_cpus_get_my_cpu();
+    int rank = cpu-1;
+    int result;
 
     SCLogInfo("cpu: %d rank: %d", cpu, rank);
 
     tilera_fast_gettimeofday(&timeval);
 
+    for (;;) {
+        int i;
+
+        if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
+            SCReturnInt(TM_ECODE_FAILED);
+        }
+
+        for (i = 0; i < 2; i++) {
+            int pool = (rank * 2) + i;
+
+            iqueue = iqueues[pool];
+
+            //SCLogInfo("Polling pool %d rank %d queue %d", pool, rank, i);
+            int n = gxio_mpipe_iqueue_try_peek(iqueue, &idesc);
+            if (likely(n > 0)) {
+                int j; int m;
+
+                //SCLogInfo("Got %d packets for pool %d %p", n, pool,
+                //          gxio_mpipe_idesc_get_va(idesc));
+
+                m = min(n, 4);
+
+                /* Prefetch the idescs (64 bytes each). */
+                for (j = 0; j < m; j++) {
+                    __insn_prefetch(&idesc[j]);
+                }
+                SCPerfCounterSetUI64(ptv->mpipe_depth, tv->sc_perf_pca,
+                                     (uint64_t)n);
+                /* HACK: cant seem to open more than 4 channels */
+                if (pool < MAX_PCI_CHANNELS) {
+                    gxpci_ctxt = gxpci_context[pool];
+                    int credits = gxpci_get_cmd_credits(gxpci_ctxt);
+                    if (credits == GXPCI_ERESET) {
+                        SCReturnInt(TM_ECODE_FAILED);
+                    }
+                    m = min(m, credits);
+                    for (j = 0; j < m; j++, idesc++) {
+                        if (likely(!idesc->be)) {
+                            unsigned char *pkt = gxio_mpipe_idesc_get_va(idesc);
+                            cmd[j].buffer = pkt - sizeof(gxio_mpipe_idesc_t);
+                            cmd[j].size = gxio_mpipe_idesc_get_l2_length(idesc)
+                                          + sizeof(gxio_mpipe_idesc_t);
+
+                            /* prepend idesc in headroom */
+			    memcpy(pkt - sizeof(gxio_mpipe_idesc_t),
+                                   idesc,
+                                   sizeof(gxio_mpipe_idesc_t));
+
+                            __insn_mf();
+
+                            //SCLogInfo("Sending %d length packet to queue %d",
+                            //          idesc->l2_size, pool);
+                            result = gxpci_pq_t2h_cmd(gxpci_ctxt, &cmd[j]);
+    			    VERIFY(result, "gxpci_pq_t2h_cmd()");
+
+                            p = MpipePrepPacket(ptv, idesc, &timeval);
+                            p->pool = pool;
+
+#ifdef LATE_MPIPE_CREDIT
+                            gxio_mpipe_iqueue_advance(iqueue, 1);
+#ifdef LATE_MPIPE_BUCKET_CREDIT
+                            gxio_mpipe_credit(iqueue->context, iqueue->ring, -1, 1);
+#endif
+#else
+                            gxio_mpipe_iqueue_consume(iqueue, idesc);
+#endif
+                        } else {
+                            gxio_mpipe_iqueue_consume(iqueue, idesc);
+                            SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
+                        }
+                    }
+                } else {
+                    for (j = 0; j < m; j++, idesc++) {
+                        if (likely(!idesc->be)) {
+                            p = MpipeProcessPacket(ptv,  idesc, &timeval);
+                            p->pool = pool;
+                            TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+#ifdef LATE_MPIPE_CREDIT
+                            gxio_mpipe_iqueue_advance(iqueue, 1);
+#ifdef LATE_MPIPE_BUCKET_CREDIT
+                            gxio_mpipe_credit(iqueue->context, iqueue->ring, -1, 1);
+#endif
+#else
+                            gxio_mpipe_iqueue_consume(iqueue, idesc);
+#endif
+                        } else {
+                            gxio_mpipe_iqueue_consume(iqueue, idesc);
+                            SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
+                        }
+                    }
+		}
+            } else {
+                tilera_fast_gettimeofday(&timeval);
+            }
+            /* HACK: cant seem to open more than 4 channels */
+            if (pool < MAX_PCI_CHANNELS) {
+                result = gxpci_get_comps(gxpci_context[pool], comp, 0,
+                                         MAX_CMDS_BATCH);
+                if (result == GXPCI_ERESET) {
+                    SCLogInfo("gxpci channel %d is reset", pool);
+                    SCReturnInt(TM_ECODE_FAILED);
+                } else if (result > 0) {
+                    int j;
+
+                    //SCLogInfo("gxpci channel %d received %d completions",
+                    //          pool, result);
+                    for (j = 0; j < result; j++) {
+                        u_char *pkt = comp[j].buffer + sizeof(gxio_mpipe_idesc_t);
+                        Packet *p = (Packet *)(pkt - sizeof(Packet) - headroom/*2*/);
+
+                        TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+                    }
+	        }
+            }
+            SCPerfSyncCountersIfSignalled(tv, 0);
+        }
+    }
+    SCReturnInt(TM_ECODE_OK);
+}
+
+TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
+#if 0
+    struct timeval timeval;
+#endif
+    MpipeThreadVars *ptv = (MpipeThreadVars *)data;
+    TmSlot *s = (TmSlot *)slot;
+#if 0
+    gxio_mpipe_iqueue_t* iqueue;
+    gxio_mpipe_idesc_t *idesc;
+    ptv->slot = s->slot_next;
+    Packet *p;
+    int cpu = tmc_cpus_get_my_cpu();
+    int rank = cpu-1;
+#endif
+    TmEcode rc;
+
+    SCEnter();
+
+#if 0
+    SCLogInfo("cpu: %d rank: %d", cpu, rank);
+
+    tilera_fast_gettimeofday(&timeval);
+#endif
+
+    if (capture_enabled)
+        rc = ReceiveMpipeCapturePollPair(tv, ptv, s);
+    else
+        rc = ReceiveMpipePollPair(tv, ptv, s);
+   
+    SCReturnInt(rc);
+#if 0 
     for (;;) {
         int i;
 
@@ -473,6 +755,7 @@ TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
     }
 
     SCReturnInt(TM_ECODE_OK);
+#endif
 }
 
 TmEcode MpipeRegisterPipeStage(void *td) {
@@ -624,6 +907,56 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             result = gxio_mpipe_link_open(&link, context, link_name, 0);
             VERIFY(result, "gxio_mpipe_link_open()");
         }
+        char *capture;
+        if (ConfGet("mpipe.capture.enabled", &capture) == 1) {
+            if (capture) {
+                if (strcmp(capture, "yes") == 0) {
+                    capture_enabled = 1;
+                    SCLogInfo("Enabling PCIe packet capture.");
+                } else if (strcmp(capture, "no") == 0) {
+                    capture_enabled = 0;
+                    SCLogInfo("Disabling PCIe packet capture.");
+                } else {
+                    SCLogInfo("Illegal PCIe capture configuration option %s",
+                              capture);
+                }
+            }
+	}
+
+	if (capture_enabled) {
+            result = gxio_trio_init(trio_context, trio_index);
+            VERIFY(result, "gxio_trio_init()");
+
+            for (queue_index = 0; queue_index < PIPELINES; queue_index++) {
+
+                gxpci_context[queue_index] = &gxpci_context_body[queue_index];
+
+                result = gxpci_init(trio_context, gxpci_context[queue_index],
+                                    trio_index, loc_mac);
+                VERIFY(result, "gxpci_init()");
+
+		/* HACK: cant seem to open more than 4 channels */
+                if (queue_index >= MAX_PCI_CHANNELS)
+                    continue;
+                /*
+                 * This indicates that we need to allocate an ASID ourselves,
+                 * instead of using one that is allocated somewhere else.
+                 */
+                int asid = GXIO_ASID_NULL;
+
+                printf("attempting to open queue_index %d\n", queue_index);
+                result = gxpci_open_queue(gxpci_context[queue_index],
+                                          asid,
+                                          GXPCI_PQ_T2H,
+                                          0,
+                                          queue_index,
+                                          0,
+                                          0);
+                VERIFY(result, "gxpci_open_queue()");
+                printf("pcie queue_index %d opened\n", queue_index);
+            }
+
+	}
 
         /* Allocate some iqueues. */
         iqueues = calloc(num_workers, sizeof(*iqueues));
@@ -778,6 +1111,21 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
                                               tile_vhuge_size, 0);
             VERIFY(result, "gxio_mpipe_register_page()");
 
+            if (capture_enabled && (stackidx == stack)) {
+                int i;
+		for (i = 0; i < PIPELINES; i++) {
+    	            SCLogInfo("Registering gxpci iomem for context %d", i);
+
+		    /* HACK: cant seem to open more than 4 channels */
+                    if (i >= MAX_PCI_CHANNELS)
+                        continue;
+
+                    result = gxpci_iomem_register(gxpci_context[i], page,
+                                                  tile_vhuge_size);
+                    VERIFY(result, "gxpci_iomem_register()");
+		}
+            }
+
             num_buffers -= ((stack_bytes / (sizeof(Packet) +buffer_size)) + 1);
             //num_buffers = ((stack_mem - stack_bytes) / 
             //               (sizeof(Packet) + buffer_size)) - 1;
@@ -808,6 +1156,10 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         gxio_mpipe_rules_t rules;
         gxio_mpipe_rules_init(&rules, context);
         gxio_mpipe_rules_begin(&rules, bucket, num_buckets, NULL);
+        if (capture_enabled) {
+            headroom = sizeof(gxio_mpipe_idesc_t) + 2;
+            gxio_mpipe_rules_set_headroom(&rules, headroom);
+        }
         result = gxio_mpipe_rules_commit(&rules);
         VERIFY(result, "gxio_mpipe_rules_commit()");
     }
