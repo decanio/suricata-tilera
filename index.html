@@ -7,7 +7,10 @@
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
 	<META NAME="CREATED" CONTENT="20120102;16542200">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
-	<META NAME="CHANGED" CONTENT="20120718;23275900">
+	<META NAME="CHANGED" CONTENT="20120808;14385200">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
@@ -31,57 +34,52 @@
 <P STYLE="margin-bottom: 0in"><BR>
 </P>
 <DIV ID="wiki-content" DIR="LTR">
-	<P><BR><BR>
-	</P>
 	<DIV ID="wiki-body" DIR="LTR">
-		<P STYLE="margin-bottom: 0in"><BR>
-		</P>
 		<DIV ID="template" DIR="LTR">
 			<H1 CLASS="western">Suricata for Tilera</H1>
 			<P><BR><BR>
 			</P>
 			<H1 CLASS="western"><STRONG>Overview</STRONG></H1>
-			<P>This repository contains port of Suricata to Tilera's multi
+			<P>This repository contains port of suricata to Tilera's multi
 			core processors. The intent of this repository is to collect work
-			in progress on the Suricata port to Tilera and make it available
-			to the community. Ultimately the modifications to Suricata to
-			support Tilera are expected to be folded back into the Suricata
+			in progress on the suricata port to Tilera and make it available
+			to the community. Ultimately the modifications to suricata to
+			support Tilera are expected to be folded back into the suricata
 			source base maintained by OISF.</P>
-			<P>This supports Suricata on Tile64, TilePRO and TileGX
-			processors. The main focus has been Suricata on the TileGX-36
+			<P>This supports suricata on Tile64, TilePRO and TileGX
+			processors. The main focus has been suricata on the TileGX-36
 			processor. The code contains support for Tile64 and TilePRO
 			processors, although this part of the code has not been maintained
 			and may no longer be functional. 
 			</P>
 			<P>Suricata runs on TileEncore-GX TilEmpower-GX and TilExtreme-GX
 			platforms.</P>
-			<P>This effort supports Suricata on Tilera as an Intrusion
+			<P>This effort supports suricata on Tilera as an Intrusion
 			Detection System (IDS).</P>
 			<P>Follow on work to support inline IPS operation will come later.
 			Suricata's IPS operation relies on either Netfilter/IPtables or
-			IPFW.  Our intent is to provide a higher performance solution than
+			IPFW. Our intent is to provide a higher performance solution than
 			we believe can be provided by a kernel based firewall.</P>
 			<P>Suricata on Tilera should support all of the accompanying tools
-			found alongside Suricata (ex. Barnyard, Snorby, Sguil, etc.).
+			found alongside suricata (ex. Barnyard, Snorby, Sguil, etc.).
 			although exhaustive testing of each is ongoing work.</P>
 			<H1 CLASS="western"><STRONG>Prerequisites for Suricata on Tilera</STRONG></H1>
-			<P>These instructions describe the proceedure for cross compiling
-			Suricata on an X86 host containing Tilera's MDE development
+			<P>These instructions describe the procedure for cross compiling
+			suricata on an x86 host containing Tilera's MDE development
 			software for a Tilera target platform.</P>
 			<P>Suricata for Tilera is provided in source code form. 
 			</P>
 			<P>For TileGX based systems you'll need:</P>
 			<UL>
-				<LI><P STYLE="margin-bottom: 0in">Tilera MDE 4.0.1 or later from
-				Tilera 
+				<LI><P STYLE="margin-bottom: 0in">A “full” install of Tilera
+				MDE 4.0.1 or later 
 				</P>
-				<LI><P>A suitable Tilera based TileGX platform from Tilera. 
-				</P>
+				<LI><P>A suitable Tilera TileGX based platform</P>
 			</UL>
 			<P>For Tile64 and TilePro based systems you'll need:</P>
 			<UL>
-				<LI><P STYLE="margin-bottom: 0in">Tilera MDE 3.0. or later from
-				Tilera 
+				<LI><P STYLE="margin-bottom: 0in">A “full” install of Tilera
+				MDE 3.0. or later 
 				</P>
 				<LI><P STYLE="margin-bottom: 0in">A suitable Tilera based
 				platform from Tilera or one of their hardware partners. 
@@ -90,160 +88,127 @@
 				currently being maintained. 
 				</P>
 			</UL>
-			<H1 CLASS="western"><STRONG>Acquiring Suricata for Tilera</STRONG></H1>
-			<P>This repository contains the source code for Suricata. Suricata
-			requires this libyaml and libmagic which, at the time this effort
-			was begun, weren't delivered by the Tilera Multicore Development
-			Envionment (MDE). Therefore copies of these libraries have been
-			made available here on github with instructions on building them.
-			These copies of libyaml and libmagic have been tested with
-			suricata on Tilera and are known to work. You may however use
-			alternate versions of these libraries if you desire.</P>
+			<P>Follow the instructions contained in Tilera's UG504 - “Getting
+			Started with the Multicore Development Environment” for
+			installing the Tilera MDE on your development system.</P>
 			<P>For assistance with acquiring Tilera hardware and development
 			tools visit
-			<A HREF="https://github.com/decanio/suricata/wiki/Tilera%20contact%20form">http://www.tilera.com/about_tilera/contact/contact_form</A>
-			.</P>
-			<P>The following discussion assumes you are placing the suricata
-			software in a <EM>work/TileGX/github</EM> subdirectory of your
-			home directory. Therefore do the following:</P>
+			<A HREF="https://github.com/decanio/suricata/wiki/Tilera%20contact%20form">http://www.tilera.com/about_tilera/contact/contact_form</A>.</P>
+			<H1 CLASS="western"><STRONG>Acquiring Suricata for Tilera</STRONG></H1>
+			<P>The source code to suricata can be obtained from either of two
+			places:</P>
+			<UL>
+				<LI><P>As a set of tar files delivered from Tilera</P>
+				<LI><P>As a set of git repositories available at github.com</P>
+			</UL>
+			<P>This source code delivery of suricatea for tilera comes as two
+			parts.</P>
+			<OL>
+				<LI><P>source code for suricata</P>
+				<LI><P>source code for for libyaml</P>
+			</OL>
+			<P>Suricata requires libyaml which, at the time this effort was
+			begun, wasn't delivered by the Tilera Multicore Development
+			Envionment (MDE). The copy of libyaml has been tested with
+			suricata on Tilera and is known to work. You may however use
+			alternate versions of these libraries if you desire.</P>
+			<P>The suricata source code and build environment delivered here
+			is assumed to run in your <I>~/work/TileGX/github</I> directory.
+			Therefore prepare your suricata environment as follows:</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd</CODE>
 <CODE CLASS="western">mkdir -p work/TileGX/github</CODE>
 <CODE CLASS="western">cd work/TileGX/github</CODE></PRE><P>
-			Retrieve the source code for Suricata, libyaml and libmagic as
-			follows:</P>
+			To install your source code you'll have to do one of the
+			following.</P>
+			<P>If you have been provided tarballs of suricata and libyaml
+			source code place them in your ~/work/TileGX/github directory and
+			do the following:</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">tar xvfz suricata*.tgz</CODE>
+<CODE CLASS="western">tar xvfz yaml*.tgz</CODE></PRE><P>
+			If you are retrieve the source code from github.com do the
+			following:</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">git clone git@github.com:decanio/suricata.git</CODE>
-<CODE CLASS="western">git clone git@github.com:decanio/yaml.git</CODE>
-<CODE CLASS="western">git clone git@github.com:decanio/libmagic.git</CODE></PRE><H1 CLASS="western">
-			<STRONG>Building Suricata for Tilera</STRONG></H1>
-			<P>Both the libyaml and libmagic libraries must be build prior to
-			building Suricata for Tilera.</P>
+<CODE CLASS="western">git clone git@github.com:decanio/yaml.git</CODE></PRE><P>
+			<CODE CLASS="western"><FONT FACE="Times New Roman, serif">Note
+			that to retrieve source code from github.com you'll need to be
+			provided access to the suricata repository on github.com.</FONT></CODE></P>
+			<H1 CLASS="western"><STRONG>Building Suricata for Tilera</STRONG></H1>
+			<H2 CLASS="western"><STRONG>Building libyaml</STRONG></H2>
+			<P>The libyaml library must be build prior to building suricata
+			for Tilera.</P>
 			<P>Build libyaml as follows:</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd yaml</CODE>
 <CODE CLASS="western">./configure --host=tile</CODE>
 <CODE CLASS="western">make</CODE></PRE><P>
-			Build libmagic as follows:</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd libmagic</CODE>
-<CODE CLASS="western">./configure --host=tile</CODE>
-<CODE CLASS="western">make</CODE></PRE><H1 CLASS="western">
-			<STRONG>Building Suricata for TileGX</STRONG></H1>
-			<P>The file doc/INSTALL.TILERA contains written instructions on
-			building Suricata for both the TilePro and TileGX architectures.</P>
-			<P>A Makefile tile/Makefile.tilegx has been provided that
-			automates building suricata with the build target &quot;build_static&quot;.
+			<STRONG><SPAN STYLE="font-weight: normal">Note than the
+			./configure stage may require that you install missing build tools
+			on your host.</SPAN></STRONG></P>
+			<H2 CLASS="western"><STRONG>Building suricata</STRONG></H2>
+			<P>A Makefile (<I>tile/Makefile.tilegx</I>) has been provided that
+			automates building suricata with the build target &quot;build&quot;.
 			This performs most of the operations required to build suricata
 			for Tilera.</P>
-			<P>It is probably necessary to modify several environment
-			variables to reflect your host environment. The file
-			suricata/tile/Makefile.tilegx contains the following section that
-			may need to be modified in whole or in part.</P>
+			<P>It is probably necessary to modify one or more environment
+			variables to reflect your host's build environment. The file
+			<I>~/work/TileGX/github/suricata/tile/Makefile.tilegx</I> contains
+			the following section that may need to be modified slightly.
+			You'll likely need to at least change <B>HOME_DIR</B> to match the
+			path to your home directory.</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">#</CODE>
 <CODE CLASS="western"># Local environment configuation</CODE>
 <CODE CLASS="western"># Go ahead and modify these:</CODE>
-<CODE CLASS="western">BASE_DIR=/home/tdecanio</CODE>
-<CODE CLASS="western">RULES_DIR=$(BASE_DIR)/work/TileGX/emergingthreats</CODE>
-<CODE CLASS="western">INSTALL_DIR=$(BASE_DIR)/work/TileGX/suricata-install-dir</CODE>
-<CODE CLASS="western">RULES_CONFIG=/opt/suricata/etc/suricata-etpro.yaml</CODE>
-<CODE CLASS="western">YAML_DIR=$(BASE_DIR)/work/TileGX/github/yaml</CODE>
-<CODE CLASS="western">LIBMAGIC_DIR=$(BASE_DIR)/work/TileGX/github/libmagic</CODE>
-<CODE CLASS="western">PCAPFILE=$(BASE_DIR)/work/suricata.pcap</CODE>
-<CODE CLASS="western">LOG_DIR=$(BASE_DIR)/work/TileGX/logs</CODE></PRE><P>
-			You will most need to modify the value of the BASE_DIR variable to
-			point to your own directory. If you install the Suricata source
-			code in someplace other than $(BASE_DIR)/work/TileGX you will need
-			to modify several other environment variable to point to the
-			proper directories.</P>
-			<P>After modifying tile/Makefile.tilegx as described suricata for
-			TileGX can be built as follows:</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd suricata</CODE>
+<CODE CLASS="western">#</CODE>
+<CODE CLASS="western">HOME_DIR=/home/tdecanio</CODE>
+<CODE CLASS="western">WORK_DIR=$(HOME_DIR)/work/TileGX</CODE>
+<CODE CLASS="western"># you can probably leave the following alone</CODE>
+<CODE CLASS="western">RULES_DIR=$(WORK_DIR)/rules</CODE>
+<CODE CLASS="western">INSTALL_DIR=$(WORK_DIR)/suricata-install-dir</CODE>
+<CODE CLASS="western">RULES_CONFIG=/opt/suricata/etc/suricata.yaml</CODE>
+<CODE CLASS="western">YAML_DIR=$(WORK_DIR)/github/yaml</CODE>
+<CODE CLASS="western">LIBMAGIC_DIR=$(WORK_DIR)/github/libmagic</CODE>
+<CODE CLASS="western">PCAPFILE=$(HOME_DIR)/work/napatech/suricata1.pcap</CODE>
+<CODE CLASS="western">LOG_DIR=$(WORK_DIR)/logs</CODE></PRE><P>
+			If you've placed the code in some directory other than
+			<I>~/work/TileGX</I> modify <B>WORK_DIR</B> to reflect the
+			difference. 
+			</P>
+			<P>After modifying
+			<I>~/work/TileGX/github/suricata/tile/Makefile.tilegx</I> as
+			described suricata for TileGX can be built as follows:</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/github/suricata</CODE>
 <CODE CLASS="western">./autogen.sh</CODE>
-<CODE CLASS="western">make -f tile/Makefile.tilegx build_static</CODE></PRE><P>
-			If you need to rebuild Suricata simply:</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd suricata</CODE>
+<CODE CLASS="western">make -f tile/Makefile.tilegx build</CODE></PRE><P>
+			Note than the autogen.sh stage may require that you install
+			missing build tools on your host.</P>
+			<P>If you ever need to rebuild Suricata because you've made some
+			changes you may simply:</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/github/suricata</CODE>
 <CODE CLASS="western">make</CODE></PRE><H1 CLASS="western">
-			<CODE CLASS="western"><STRONG><FONT FACE="Times New Roman, serif">Installing
-			Suricata on a TILEmpower-GX or TILExtreme-GX System</FONT></STRONG></CODE></H1>
-			<P>This section describes the procedure for installing Suricata on
-			the SSD storage contained within the TILEmpower-GX and
-			TILExtreme-GX system.</P>
-			<P>If your TILEmpower-GX or TILExtreme-GX does not already have at
-			least the minimum release of software installed (MDE 4.0.1) follow
-			the instructions in section 1.9 of the &quot;Gx MDE Getting
-			Started Guide&quot; to install the Linux runtime environment on
-			your system.</P>
-			<H2 CLASS="western"><STRONG><EM><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal">Customized
-			Hypervisor and Linux Kernel Image for Suricata</SPAN></SPAN></EM></STRONG></H2>
-			<P>In order to run Suricata your target needs to run a somewhat
-			modified Tilera hypervisor and Linux kernel configuration. The
-			tile/Makefile.tilegx makefile contains a target that will replace
-			the SPI ROM boot image with an image that contains the necessary
-			modifications to support Suricata.</P>
-			<P>tile/Makefile.tilegx contains the following line that needs to
-			be modified with the address of your target system.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">NET_ARGS=--net 192.168.0.11</CODE></PRE><P>
-			After changing the IP address run the following:</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd suricata</CODE>
-<CODE CLASS="western">make -f tile/Makefile.tilegx reimage_net</CODE></PRE><P>
-			This will take a couple of minutes to write a new boot image to
-			your target. When the above completes reboot your target.</P>
-			<H2 CLASS="western"><STRONG><EM><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal">Installing
-			the Suricata Binaries</SPAN></SPAN></EM></STRONG></H2>
-			<P>The build procedure above created a Makefile that contains a
-			build target that creates an installation directory,
-			$(INSTALL_DIR) above, that can be copied to your TILEmpower-GX or
-			TILExtreme-GX file system.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd suricata</CODE>
-<CODE CLASS="western">make install</CODE></PRE><P>
-			This will populate your $(INSTALL_DIR) directory with the Suricata
-			files to be copied to your TILEmpower-GX or TILExtreme-GX target.
-			The simplest way to do that is to create a tar file of the
-			$(INSTALL_DIR) contents. Copy the tar file to your target system
-			using scp. Then extract the contents of the tar file in the /
-			directory of your TILEmpower-GX or TILExtreme-GX system.</P>
-			<H1 CLASS="western"><STRONG>Preconfigured Tilera based Suricata
-			Systems</STRONG></H1>
-			<P>If you would like a system with suricata for Tilera already
-			installed please contact <A HREF="mailto:decanio.tom@gmail.com">decanio.tom@gmail.com</A>
-			for assistance.</P>
-			<H1 CLASS="western"><STRONG>Running Suricata on TILEmpower-GX or
-			TILExtreme-GX System</STRONG></H1>
-			<P>Suricata runs on Tilera based platforms much as it runs on
-			typical Intel based platforms.</P>
-			<P>Copy the suricata binary, built above, and your suricata
-			configuration files to your Tilera platform.</P>
-			<P>Execute suricata with a command such as the following:</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">suricata -c /opt/suricata/etc/suricata.yaml --mpipe</CODE></PRE><P>
-			Tilera tilegx platforms use Tilera's mpipe hardware to deliver
-			packets to Suricata. Therefore the --mpipe flag indicates usage of
-			the <EM>mpipe</EM> runmode using the given ethernet interface(s)
-			listed in the suricata.yaml configuration file that should be
-			monitored.</P>
-			<P>The 10 gigabit interface names are xgbe1, xgbe2, xgbe3 and
-			xgbe4. The 1 gigabit interface names are gbe1, gbe2, gbe3 and
-			gbe4.</P>
-			<H1 CLASS="western"><STRONG>Running Suricata on TILEncore-GX</STRONG></H1>
-			<P>A TILEncore-GX PCIe card does not contain any local storage
-			that is capable of holding Linux, suricata, its configuration and
-			the log files is produces. Instead it relies on booting the tilegx
-			processor on the PCIe card with software provided via the PCIe bus
-			from the host system.</P>
-			<P>If you haven't already done so follow the instructions in the
-			&quot;GX MDE Getting Started Guide&quot; to install the software
-			and drivers necessary to boot the Tilera PCIe card from your host
-			system.</P>
-			<P>Once that is done you should be able to run suricata on your
-			TILEncore-GX card by executing the following on your host system.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd suricata</CODE>
-<CODE CLASS="western">make -f tile/Makefile.tilegx run_pci_static</CODE></PRE><P>
-			This will reboot your TILEncore card, boot Linux on it and start
-			Suricata. The logs produced by Suricata will be available to the
-			host in the $(LOG_DIR) as specified in tile/Makefile.tilegx.</P>
-			<H1 CLASS="western"><STRONG>YAML Configuration for Tilera</STRONG></H1>
+			<STRONG>Suricata rules and configuration for Tilera</STRONG></H1>
+			<P><STRONG><SPAN STYLE="font-weight: normal">An example set of
+			rules and suricata.yaml configuration files can be obtained from
+			Tilera in the tar file </SPAN></STRONG><STRONG><I><SPAN STYLE="font-weight: normal">suricata-rules.tgz.</SPAN></I></STRONG></P>
+			<P><STRONG><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal"><SPAN STYLE="font-weight: normal">You
+			will probably want to extract the rules and sample suricata
+			configuration as follows:</SPAN></SPAN></SPAN></STRONG></P>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX</CODE>
+<CODE CLASS="western"><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal"><SPAN STYLE="font-weight: normal">tar xvfz suricata-rules.tgz</SPAN></SPAN></SPAN></CODE></PRE><P>
+			<STRONG><SPAN STYLE="font-weight: normal">If you are using either
+			a TILEncore-Gx pcie card or using a TILEmpower-Gx or TILExtreme-Gx
+			booting them using Tilera's tile-monitor, the automated methods
+			described below will cause the suricata running on the Tilera to
+			pick up its configuration from the </SPAN></STRONG><STRONG><I><SPAN STYLE="font-weight: normal">~/work/TileGX/rules</SPAN></I></STRONG><STRONG>
+			</STRONG><STRONG><SPAN STYLE="font-weight: normal">directory on
+			your host.</SPAN></STRONG></P>
+			<H2 CLASS="western"><STRONG>YAML Configuration for Tilera</STRONG></H2>
 			<P>The Tilera implementation of Suricata adds two optional
 			sections in the yaml configuration file. These affect the Tilera
 			specific runmode configuration and allow specification of a list
 			of monitored interfaces within the configuration file.</P>
 			<P>The section below configures suricata to monitor the two Tilera
-			gigabit ethernet interfaces gbe3 and gbe4.</P>
+			gigabit Ethernet interfaces gbe3 and gbe4. You may need to modify
+			the inputs section below if you are using other network interface
+			ports.</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"># Tilera mpipe configuration. for use on Tilera tilegx</CODE>
 <CODE CLASS="western">mpipe:</CODE>
 
@@ -265,8 +230,8 @@
 			one free non-dataplane tile to contain several overhead threads.</P>
 			<P>The configuration below is a typical configuration for the
 			Tilera tilegx-36 processor. This spawns 6 parallel pipelines each
-			pipeline utilizing 3 detect threads. 
-			</P>
+			pipeline utilizing 3 detect threads. The default configuration is
+			shown below. There should be no need for you to modify this.</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"># Tilera runmode configuration. for use on Tilera tilepro and tilegx</CODE>
 <CODE CLASS="western">tile:</CODE>
 
@@ -280,9 +245,121 @@
 <CODE CLASS="western">  </CODE><CODE CLASS="western">queue: simple</CODE>
 
 <CODE CLASS="western">  </CODE><CODE CLASS="western"># Use tilegx mica for zeroing memory</CODE>
-<CODE CLASS="western">  </CODE><CODE CLASS="western">mica-memcpy: no</CODE></PRE><P>
-			If this section is omitted in the YAML configuration file the
-			configuration above is used by default.</P>
+<CODE CLASS="western">  </CODE><CODE CLASS="western">mica-memcpy: no</CODE></PRE><H1 CLASS="western">
+			<STRONG>Running Suricata on TILEncore-Gx</STRONG></H1>
+			<P>A TILEncore-GX PCIe card does not contain any local storage
+			that is capable of holding Linux, suricata, its configuration and
+			the log files is produces. Instead it relies on booting the tilegx
+			processor on the PCIe card with software provided via the PCIe bus
+			from the host system.</P>
+			<P>If you haven't already done so follow the instructions in the
+			&quot;GX MDE Getting Started Guide&quot; to install the software
+			and drivers necessary to boot the Tilera PCIe card from your host
+			system.</P>
+			<P>Once that is done you should be able to run suricata on your
+			TILEncore-GX card by executing the following on your host system.</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/github/suricata</CODE>
+<CODE CLASS="western">make -f tile/Makefile.tilegx run_pci</CODE></PRE><P>
+			<STRONG><FONT FACE="Times New Roman, serif"><SPAN STYLE="font-weight: normal">This
+			will reboot your TILEncore card, boot Linux on it and start
+			Suricata. The logs produced by Suricata will be available to the
+			host in the $(LOG_DIR) as specified in
+			</SPAN></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><I><SPAN STYLE="font-weight: normal">~/work/TileGX/github/suricata/tile/Makefile.tilegx</SPAN></I></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><SPAN STYLE="font-weight: normal">.</SPAN></FONT></STRONG></P>
+			<H1 CLASS="western"><STRONG><FONT FACE="Times New Roman, serif">Running
+			Suricata on TILEmpower-Gx or TILExtreme-Gx Systems</FONT></STRONG></H1>
+			<P>Both the TILEmpower-Gx and TILExtreme-Gx platforms may be
+			operated similarly to the TILEncore-Gx as described above.</P>
+			<P>The systems will be booted not from over a PCIe bus, but over
+			one of the network interfaces or a USB connection. Note using a
+			network instead of a USB connection is probably preferred.</P>
+			<P>The ~/work/TileGX/github/suricata/tile/Makefile.tilegx file
+			contained a section as follows:</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"># Modify the following with the IP address of your Tilera target</CODE>
+<CODE CLASS="western">NET_ARGS=--net 192.168.0.11</CODE>
+<CODE CLASS="western"># Modify the following with the USB port attached to your Tilera target</CODE>
+<CODE CLASS="western">WILDCAT_ARGS=--dev usb1</CODE>
+<CODE CLASS="western"># Modify the following to point to your locally installed &quot;TILEncore-Gx&quot; card</CODE>
+<CODE CLASS="western">PCI_ARGS=--dev gxpci0</CODE></PRE><P STYLE="margin-left: 0.01in">
+			If you are going to boot your Tilera machine using the network
+			interface you should modify the IP address contained in the
+			<B>NET_ARGS</B> definition above to contain the IP address of your
+			Tilera machine.</P>
+			<P>Once that is done you should be able to run suricata on your
+			TILEmpower-Gx or TILExtreme-Gx system by executing the following
+			on your host.</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/github/suricata</CODE>
+<CODE CLASS="western">make -f tile/Makefile.tilegx run_net</CODE></PRE><P>
+			<STRONG><FONT FACE="Times New Roman, serif"><SPAN STYLE="font-weight: normal">This
+			will reboot your TILEmpower-Gx/TILExtreme-Gx system, boot Linux on
+			it and start Suricata. The logs produced by Suricata will be
+			available to the host in the $(LOG_DIR) as specified in
+			</SPAN></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><I><SPAN STYLE="font-weight: normal">~/work/TileGX/github/suricata/tile/Makefile.tilegx</SPAN></I></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><SPAN STYLE="font-weight: normal">.</SPAN></FONT></STRONG></P>
+			<H1 CLASS="western"><CODE CLASS="western"><STRONG><FONT FACE="Times New Roman, serif">Installing
+			Suricata on a TILEmpower-Gx or TILExtreme-Gx System's SSD Storage</FONT></STRONG></CODE></H1>
+			<P>This section describes the procedure for installing Suricata on
+			the SSD storage contained within the TILEmpower-Gx and
+			TILExtreme-Gx system. If you are going to use your TILEmpower-Gx
+			or TILExtreme-Gx with tile-monitor, as described above, you may
+			skip this section.</P>
+			<P>If your TILEmpower-Gx or TILExtreme-Gx does not already have at
+			least the minimum release of software installed (MDE 4.0.1) follow
+			the instructions in section 1.9 of the &quot;Gx MDE Getting
+			Started Guide&quot; to install the Linux runtime environment on
+			your system.</P>
+			<H2 CLASS="western"><STRONG><EM><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal">Customized
+			Hypervisor and Linux Kernel Image for Suricata</SPAN></SPAN></EM></STRONG></H2>
+			<P>In order to run Suricata your target needs to run a somewhat
+			modified Tilera hypervisor and Linux kernel configuration. The
+			tile/Makefile.tilegx makefile contains a target that will replace
+			the SPI ROM boot image with an image that contains the necessary
+			modifications to support Suricata.</P>
+			<P>tile/Makefile.tilegx contains the following line that needs to
+			be modified with the address of your target system.</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">NET_ARGS=--net 192.168.0.11</CODE></PRE><P>
+			After changing the IP address run the following:</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd suricata</CODE>
+<CODE CLASS="western">make -f tile/Makefile.tilegx reimage_net</CODE></PRE><P>
+			This will take a couple of minutes to write a new boot image to
+			your target. When the above completes reboot your target.</P>
+			<H2 CLASS="western"><STRONG><EM><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal">Installing
+			the Suricata Binaries on the System</SPAN></SPAN></EM></STRONG></H2>
+			<P>The build procedure above created a Makefile that contains a
+			build target that creates an installation directory,
+			$(INSTALL_DIR) above, that can be copied to your TILEmpower-GX or
+			TILExtreme-GX file system.</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd suricata</CODE>
+<CODE CLASS="western">make install</CODE></PRE><P>
+			This will populate your $(INSTALL_DIR) directory with the Suricata
+			files to be copied to your TILEmpower-GX or TILExtreme-GX target.
+			The simplest way to do that is to create a tar file of the
+			$(INSTALL_DIR) contents. Copy the tar file to your target system
+			using scp. Then extract the contents of the tar file in the /
+			directory of your TILEmpower-GX or TILExtreme-GX system.</P>
+			<H2 CLASS="western"><STRONG>Preconfigured Tilera based Suricata
+			Systems</STRONG></H2>
+			<P>If you would like a system with suricata for Tilera already
+			installed please contact <A HREF="mailto:decanio.tom@gmail.com">decanio.tom@gmail.com</A>
+			for assistance.</P>
+			<H2 CLASS="western"><STRONG>Running Suricata on TILEmpower-GX or
+			TILExtreme-GX System</STRONG></H2>
+			<P>Suricata runs on Tilera based platforms much as it runs on
+			typical Intel based platforms.</P>
+			<P>Copy the suricata binary, built above, and your suricata
+			configuration files to your Tilera platform.</P>
+			<P>Execute suricata with a command such as the following:</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">suricata -c /opt/suricata/etc/suricata.yaml --mpipe</CODE></PRE><P>
+			Tilera tilegx platforms use Tilera's mpipe hardware to deliver
+			packets to Suricata. Therefore the --mpipe flag indicates usage of
+			the <EM>mpipe</EM> runmode using the given ethernet interface(s)
+			listed in the suricata.yaml configuration file that should be
+			monitored.</P>
+			<P>The 10 gigabit interface names are xgbe1, xgbe2, xgbe3 and
+			xgbe4. The 1 gigabit interface names are gbe1, gbe2, gbe3 and
+			gbe4.</P>
+			<H1 CLASS="western"><BR><BR>
+			</H1>
+			<H1 CLASS="western"><BR><BR>
+			</H1>
 		</DIV>
 	</DIV>
 </DIV>
