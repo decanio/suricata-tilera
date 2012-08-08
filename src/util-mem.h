@@ -328,8 +328,8 @@ extern tmc_mspace mpm_mspace;
     extern void *tile_pcre_malloc(size_t size); \
     extern void tile_pcre_free(void *ptr); \
     extern void *tile_packet_page; \
-    size_t global_capacity = 8ULL*1024ULL*1024ULL*1024ULL; \
-    /*size_t global_capacity = 4ULL*1024ULL*1024ULL*1024ULL;*/ \
+    /*size_t global_capacity = 8ULL*1024ULL*1024ULL*1024ULL;*/ \
+    size_t global_capacity = 4ULL*1024ULL*1024ULL*1024ULL; \
     unsigned long pagesizes = tmc_alloc_get_pagesizes(); \
     char log[64]; char str[8]; \
     log[0] = '\0'; \

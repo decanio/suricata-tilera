@@ -1790,13 +1790,8 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-#ifndef __tile__
-    /*
-     * removed temporarily on Tilera
-     */
     if (MagicInit() != 0)
         exit(EXIT_FAILURE);
-#endif
 
     if (SigLoadSignatures(de_ctx, sig_file, sig_file_exclusive) < 0) {
         if (sig_file == NULL) {

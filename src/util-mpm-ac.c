@@ -908,7 +908,7 @@ static inline void SCACInsertCaseSensitiveEntriesForPatterns(MpmCtx *mpm_ctx)
     return;
 }
 
-#if 1
+#if 0
 static void SCACPrintDeltaTable(MpmCtx *mpm_ctx)
 {
     SCACCtx *ctx = (SCACCtx *)mpm_ctx->ctx;
@@ -955,7 +955,7 @@ static inline void SCACPrepareStateTable(MpmCtx *mpm_ctx)
     /* club nocase entries */
     SCACInsertCaseSensitiveEntriesForPatterns(mpm_ctx);
 
-#if 1
+#if 0
     SCACPrintDeltaTable(mpm_ctx);
 #endif
 
