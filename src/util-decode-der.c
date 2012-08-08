@@ -761,7 +761,7 @@ void DerFree(Asn1Generic *a)
             DerFree(it->data);
         }
         if (it->str)
-            free(it->str);
+            SCFree(it->str);
         memset(it, 0xff, sizeof(Asn1Generic));
         SCFree(it);
         it = n;
