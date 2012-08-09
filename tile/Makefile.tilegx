@@ -9,10 +9,6 @@
 #
 # make -f Makefile.tilegx run_net
 #
-# or in the Tilera simulation:
-# 
-# make -f Makefile.tilegx run_sim
-#
 # \author Tom DeCanio <decanio.tom@gmail.com>
 #
 
@@ -27,7 +23,7 @@ all:
 # Local environment configuation
 # Go ahead and modify these:
 #
-HOME_DIR=/home/decanio
+HOME_DIR=/home/tdecanio
 WORK_DIR=$(HOME_DIR)/work/TileGX
 # you can probably leave the following alone
 RULES_DIR=$(WORK_DIR)/rules
@@ -343,39 +339,35 @@ SIM_ARGS := --sim-args -+- --extra-shim-args "$(ARGS)" -+-
 
 SIM_DEPS := $(PCAP_FILE)
 
-run_sim: $(SIM_DEPS) $(IMAGE_FILE)
-	$(TILE_MONITOR) --image-file $(IMAGE_FILE) \
-     $(FUNCTIONAL) \
-     $(PROFILE) \
-     --debug-on-crash \
-	 $(SIM_ARGS) $(TILE_MONITOR_ARGS)
+#
+# The following make targets are intended for Suricata "users" to execute
+# suricata on Tilera platforms.
+#
 
-run_sim_static: $(SIM_DEPS) $(IMAGE_FILE)
-	$(TILE_MONITOR) --image-file $(IMAGE_FILE) \
-     $(FUNCTIONAL) \
-     $(PROFILE) \
-     --debug-on-crash \
-	 $(SIM_ARGS) $(TILE_MONITOR_STATIC_ARGS)
-
-run_ut_sim: $(SIM_DEPS) $(IMAGE_FILE)
-	$(TILE_MONITOR) --image-file $(IMAGE_FILE) \
-     --functional \
-     --debug-on-crash \
-	 $(SIM_ARGS) $(TILE_MONITOR_UT_ARGS)
-
-fb_sim: $(SIM_DEPS) $(IMAGE_FILE)
-	$(TILE_MONITOR) --image-file $(IMAGE_FILE) \
-        $(FUNCTIONAL) \
-     --debug-on-crash \
-	    $(SIM_ARGS) $(TILE_MONITOR_WILDCAT_FEEDBACK_ARGS)
-
-
-run_wc_dyn: $(SIM_DEPS) $(IMAGE_FILE)
+# boot and run suricata via a network interface
+run_net: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
-        $(WILDCAT_ARGS) \
+        $(NET_ARGS) \
 	--debug-on-crash \
-	$(TILE_MONITOR_WILDCAT_ARGS)
+	$(TILE_MONITOR_WILDCAT_STATIC_ARGS)
 
+# boot and run suricata on a "TILEncore-Gx" card via pcie interface
+run_pci: $(SIM_DEPS) $(IMAGE_FILE)
+	$(TILE_MONITOR) \
+        $(PCI_ARGS) \
+	--debug-on-crash \
+	$(TILE_MONITOR_CANNON_STATIC_ARGS)
+
+# boot and run suricata on a "TILEncore-Gx" card via pcie interface
+# with pcie forwarding enabled
+run_pci_capture: $(SIM_DEPS) $(IMAGE_FILE)
+	$(TILE_MONITOR) \
+        $(PCI_ARGS) \
+	--debug-on-crash \
+	$(TILE_MONITOR_CANNON_CAPTURE_ARGS)
+
+# place a proper tilera boot image on a "TILEmpower-Gx" or "TILExtreme-Gx"
+# system in anticipation of running suricata from the machine's SSD
 reimage_net:
 	$(TILE_MONITOR) \
         $(NET_ARGS) \
@@ -385,79 +377,114 @@ reimage_net:
         --hvd MEMPROF_TILE=5,5 \
 	--rootfs /dev/sda1 -- mount
 
-run_net_dyn: $(SIM_DEPS) $(IMAGE_FILE)
-	$(TILE_MONITOR) \
-        $(NET_ARGS) \
-	--debug-on-crash \
-	$(TILE_MONITOR_WILDCAT_ARGS)
-
-run_net: $(SIM_DEPS) $(IMAGE_FILE)
-	$(TILE_MONITOR) \
-        $(NET_ARGS) \
-	--debug-on-crash \
-	$(TILE_MONITOR_WILDCAT_STATIC_ARGS)
-
+# boot and run suricata via USB interface
 run_wc: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_STATIC_ARGS)
 
-# This target runs suricata on a "TILEncore-Gx" card
-run_pci: $(SIM_DEPS) $(IMAGE_FILE)
-	$(TILE_MONITOR) \
-        $(PCI_ARGS) \
-	--debug-on-crash \
-	$(TILE_MONITOR_CANNON_STATIC_ARGS)
+#
+# The following make targets are intended for Suricata "developers" to execute
+# suricata on Tilera platforms and perform additional analysis
+#
 
-# This target runs suricata on a "TILEncore-Gx" card
-# with pcie forwarding enabled
-run_pci_capture: $(SIM_DEPS) $(IMAGE_FILE)
+# run a dynamically linked suricata 
+run_wc_dyn: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
-        $(PCI_ARGS) \
+        $(WILDCAT_ARGS) \
 	--debug-on-crash \
-	$(TILE_MONITOR_CANNON_CAPTURE_ARGS)
+	$(TILE_MONITOR_WILDCAT_ARGS)
 
+
+# run a dynamically linked suricata 
+run_net_dyn: $(SIM_DEPS) $(IMAGE_FILE)
+	$(TILE_MONITOR) \
+        $(NET_ARGS) \
+	--debug-on-crash \
+	$(TILE_MONITOR_WILDCAT_ARGS)
+
+# produce compiler feedback on dynamic linked suricata
 fb_wc: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_FEEDBACK_ARGS)
 
+# produce compiler feedback on static linked suricata
 fb_wc_static: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_FEEDBACK_STATIC_ARGS)
 
+# produce compiler feedback on static linked suricata
 fb_net_static: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
         $(NET_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_FEEDBACK_STATIC_ARGS)
 
+# profile suricata
 prof_wc: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_PROFILE_ARGS)
 
+# profile suricata staticaly linked suricata
 prof_wc_static: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_PROFILE_STATIC_ARGS)
 
+# profile suricata dynamically linked suricata via network
 prof_net: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
         $(NET_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_PROFILE_ARGS)
 
+# profile suricata statically linked suricata via network
 prof_net_static: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
         $(NET_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_PROFILE_STATIC_ARGS)
+
+#
+# The following make targets are no longer supported but have been
+# kept here in commented form in case they are resurrected at some
+# future time
+#
+
+#
+#run_sim: $(SIM_DEPS) $(IMAGE_FILE)
+#	$(TILE_MONITOR) --image-file $(IMAGE_FILE) \
+#     $(FUNCTIONAL) \
+#     $(PROFILE) \
+#     --debug-on-crash \
+#	 $(SIM_ARGS) $(TILE_MONITOR_ARGS)
+
+#run_sim_static: $(SIM_DEPS) $(IMAGE_FILE)
+#	$(TILE_MONITOR) --image-file $(IMAGE_FILE) \
+#     $(FUNCTIONAL) \
+#     $(PROFILE) \
+#     --debug-on-crash \
+#	 $(SIM_ARGS) $(TILE_MONITOR_STATIC_ARGS)
+
+#run_ut_sim: $(SIM_DEPS) $(IMAGE_FILE)
+#	$(TILE_MONITOR) --image-file $(IMAGE_FILE) \
+#     --functional \
+#     --debug-on-crash \
+#	 $(SIM_ARGS) $(TILE_MONITOR_UT_ARGS)
+
+#fb_sim: $(SIM_DEPS) $(IMAGE_FILE)
+#	$(TILE_MONITOR) --image-file $(IMAGE_FILE) \
+#        $(FUNCTIONAL) \
+#     --debug-on-crash \
+#	    $(SIM_ARGS) $(TILE_MONITOR_WILDCAT_FEEDBACK_ARGS)
+
 
 .PHONY: run_sim
