@@ -358,13 +358,12 @@ run_pci: $(SIM_DEPS) $(IMAGE_FILE)
 	--debug-on-crash \
 	$(TILE_MONITOR_CANNON_STATIC_ARGS)
 
-# boot and run suricata on a "TILEncore-Gx" card via pcie interface
-# with pcie forwarding enabled
-run_pci_capture: $(SIM_DEPS) $(IMAGE_FILE)
+# boot and run suricata via USB interface
+run_usb: $(SIM_DEPS) $(IMAGE_FILE)
 	$(TILE_MONITOR) \
-        $(PCI_ARGS) \
+        $(WILDCAT_ARGS) \
 	--debug-on-crash \
-	$(TILE_MONITOR_CANNON_CAPTURE_ARGS)
+	$(TILE_MONITOR_WILDCAT_STATIC_ARGS)
 
 # place a proper tilera boot image on a "TILEmpower-Gx" or "TILExtreme-Gx"
 # system in anticipation of running suricata from the machine's SSD
@@ -377,17 +376,19 @@ reimage_net:
         --hvd MEMPROF_TILE=5,5 \
 	--rootfs /dev/sda1 -- mount
 
-# boot and run suricata via USB interface
-run_wc: $(SIM_DEPS) $(IMAGE_FILE)
-	$(TILE_MONITOR) \
-        $(WILDCAT_ARGS) \
-	--debug-on-crash \
-	$(TILE_MONITOR_WILDCAT_STATIC_ARGS)
-
 #
 # The following make targets are intended for Suricata "developers" to execute
 # suricata on Tilera platforms and perform additional analysis
 #
+
+# boot and run suricata on a "TILEncore-Gx" card via pcie interface
+# with pcie forwarding enabled (note requires gxpci_host_pq and a
+# modified MDE.  NOT FOR GENERAL CONSUMPTION.
+run_pci_capture: $(SIM_DEPS) $(IMAGE_FILE)
+	$(TILE_MONITOR) \
+        $(PCI_ARGS) \
+	--debug-on-crash \
+	$(TILE_MONITOR_CANNON_CAPTURE_ARGS)
 
 # run a dynamically linked suricata 
 run_wc_dyn: $(SIM_DEPS) $(IMAGE_FILE)
