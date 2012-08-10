@@ -1,0 +1,390 @@
+﻿
+
+
+Suricata for Tilera
+
+
+Overview
+
+This repository contains port of suricata to Tilera's multi core processors.
+The intent of this repository is to collect work in progress on the suricata
+port to Tilera and make it available to the community. Ultimately the
+modifications to suricata to support Tilera are expected to be folded back into
+the suricata source base maintained by OISF.
+
+This supports suricata on Tile64, TilePRO and TileGX processors. The main focus
+has been suricata on the TileGX-36 processor. The code contains support for
+Tile64 and TilePRO processors, although this part of the code has not been
+maintained and may no longer be functional. 
+
+Suricata runs on TileEncore-GX TilEmpower-GX and TilExtreme-GX platforms.
+
+This effort supports suricata on Tilera as an Intrusion Detection System (IDS).
+
+Follow on work to support inline IPS operation will come later. Suricata's IPS
+operation relies on either Netfilter/IPtables or IPFW. Our intent is to provide
+a higher performance solution than we believe can be provided by a kernel basedo
+firewall.
+
+Suricata on Tilera should support all of the accompanying tools found alongside
+suricata (ex. Barnyard, Snorby, Sguil, etc.). although exhaustive testing of
+each is ongoing work.
+
+
+Prerequisites for Suricata on Tilera
+
+These instructions describe the procedure for cross compiling suricata on an
+x86 host containing Tilera's MDE development software for a Tilera target
+platform.
+
+Suricata for Tilera is provided in source code form. 
+
+For TileGX based systems you'll need:
+
+    - A full install of Tilera MDE 4.0.1 or later 
+    - A suitable Tilera TileGX based platform
+
+For Tile64 and TilePro based systems you'll need:
+
+    - A full install of Tilera MDE 3.0. or later 
+    - A suitable Tilera based platform from Tilera or one of their hardware
+      partners. 
+    - Note: as mentioned Suricata for Tile64 and TilePro isn't currently being
+      maintained. 
+
+Follow the instructions contained in Tilera's UG504 - “Getting Started with the
+Multicore Development Environment” for installing the Tilera MDE on your
+development system. Section 1.4 of Tilera UG504 describes the procedure for
+installing the full MDE software.
+
+For assistance with acquiring Tilera hardware and development tools visit
+http://www.tilera.com/about_tilera/contact/contact_form.
+
+
+Acquiring Suricata for Tilera
+
+The source code to suricata can be obtained from either of two places:
+
+    - As a set of tar files delivered from Tilera
+    - As a set of git repositories available at github.com
+
+This source code delivery of suricatea for tilera comes as two parts.
+
+    1. source code for suricata
+    2. source code for for libyaml
+
+Suricata requires libyaml which, at the time this effort was begun, wasn't
+delivered by the Tilera Multicore Development Envionment (MDE). The copy of
+libyaml has been tested with suricata on Tilera and is known to work. You may
+however use alternate versions of these libraries if you desire.
+
+The suricata source code and build environment delivered here is assumed to 
+run in your ~/work/TileGX/github directory. Suricata logs will be placed in
+~/work/TileGX/logs. Therefore prepare your suricata environment as follows:
+
+    cd
+    mkdir -p work/TileGX/github
+    mkdir -p work/TileGX/logs
+    cd work/TileGX/github
+
+To install your source code you'll have to do one of the following.
+
+If you have been provided tarballs of suricata and libyaml source code place
+them in your ~/work/TileGX/github directory and do the following:
+
+    tar xvfz suricata*.tgz
+    tar xvfz yaml*.tgz
+
+If you are retrieve the source code from github.com do the following:
+
+    git clone git@github.com:decanio/suricata.git
+    git clone git@github.com:decanio/yaml.git
+
+Note that to retrieve source code from github.com you'll need to be provided
+access to the suricata repository on github.com.
+
+
+Building Suricata for Tilera
+
+Building suricata for Tilera requires building libyaml followed by building
+suricata. These are build as follows.
+
+Note that some of the build steps require the TILERA_ROOT environment variable
+be set in your host's shell environment. Section 1.5 of Tilera UG504 describes
+how to accomplish this.
+
+
+Building libyaml
+
+The libyaml library must be build prior to building suricata for Tilera.
+
+Build libyaml as follows:
+
+    cd yaml
+    ./configure --host=tile
+    make
+
+Note than the ./configure stage may require that you install missing build
+tools on your host.
+
+
+Building suricata
+
+A Makefile (tile/Makefile.tilegx) has been provided that automates building
+suricata with the build target "build". This performs most of the operations
+required to build suricata for Tilera.
+
+It is probably necessary to modify one or more environment variables to reflect
+your host's build environment. The file 
+~/work/TileGX/github/suricata/tile/Makefile.tilegx contains the following
+section that may need to be modified slightly. You'll likely need to at least
+change HOME_DIR to match the path to your home directory.
+
+    #
+    # Local environment configuation
+    # Go ahead and modify these:
+    #
+    HOME_DIR=/home/tdecanio
+    WORK_DIR=$(HOME_DIR)/work/TileGX
+    # you can probably leave the following alone
+    RULES_DIR=$(WORK_DIR)/rules
+    INSTALL_DIR=$(WORK_DIR)/suricata-install-dir
+    RULES_CONFIG=/opt/suricata/etc/suricata.yaml
+    YAML_DIR=$(WORK_DIR)/github/yaml
+    LIBMAGIC_DIR=$(WORK_DIR)/github/libmagic
+    PCAPFILE=$(HOME_DIR)/work/napatech/suricata1.pcap
+    LOG_DIR=$(WORK_DIR)/logs
+
+If you've placed the code in some directory other than ~/work/TileGX modify
+WORK_DIR to reflect the difference. 
+
+After modifying ~/work/TileGX/github/suricata/tile/Makefile.tilegx as described
+suricata for TileGX can be built as follows:
+
+    cd ~/work/TileGX/github/suricata
+    ./autogen.sh
+    make -f tile/Makefile.tilegx build
+
+Note than the autogen.sh stage may require that you install missing build tools
+on your host.
+
+If you ever need to rebuild Suricata because you've made some changes you may
+simply:
+
+    cd ~/work/TileGX/github/suricata
+    make
+
+
+Suricata rules and configuration for Tilera
+
+An example set of rules and suricata.yaml configuration files can be obtained
+from Tilera in the tar file suricata-rules.tgz.
+
+You will probably want to extract the rules and sample suricata configuration
+as follows:
+
+    cd ~/work/TileGX
+    tar xvfz suricata-rules.tgz
+
+If you are using either a TILEncore-Gx pcie card or using a TILEmpower-Gx or
+TILExtreme-Gx booting them using Tilera's tile-monitor, the automated methods
+described below will cause the suricata running on the Tilera to pick up its
+configuration from the ~/work/TileGX/rules directory on your host.
+
+The suricata configuration is typically found in a suricata.yaml file. A
+suricata.yaml file can be found either in the suricata-rules.tgz file extracted
+above, or in ~/work/TileGX/github/suricata/suricata.yaml file.
+
+The instructions that follow use the configuration contained in
+suricata-rules.tgz along with the rules contained in the tar file.
+
+Experienced suricata users are free to use their own rules or obtain them from
+other sources.
+
+
+YAML Configuration for Tilera
+
+The Tilera implementation of Suricata adds two optional sections in the yaml
+configuration file. These affect the Tilera specific runmode configuration and
+allow specification of a list of monitored interfaces within the configuration
+file.
+
+The section below configures suricata to monitor the two Tilera gigabit
+Ethernet interfaces gbe3 and gbe4. You may need to modify the inputs section
+below if you are using other network interface ports.
+
+    # Tilera mpipe configuration. for use on Tilera tilegx
+    mpipe:
+
+      # Load balancing mode "static" or "dynamic".
+      load-balance: static
+
+      # Enable packet capture to pcie
+      capture:
+          enabled: no
+
+      # List of interfaces we will listen on.
+      inputs:
+        - interface: gbe3
+        - interface: gbe4
+
+Suricata can be configured to utilize available tiles on different Tilera
+processors by indicating the number of parallel processing pipelines to be
+spawned and the number of detect threads to be utilized on each of those
+pipelines. The configuration must leave one free non-dataplane tile to contain
+several overhead threads.
+
+The configuration below is a typical configuration for the Tilera tilegx-36
+processor. This spawns 6 parallel pipelines each pipeline utilizing 3 detect
+threads. The default configuration is shown below. There should be no need for
+you to modify this.
+
+    # Tilera runmode configuration. for use on Tilera tilepro and tilegx
+    tile:
+
+      # Number of parallel processing pipelines
+      pipelines: 6
+
+      # Number of detect threads per pipeline
+      detect-per-pipeline: 3
+
+      # Inter-tile queueing method ("simple" or "tmc")
+      queue: simple
+
+      # Use tilegx mica for zeroing memory
+      mica-memcpy: no
+
+
+Running Suricata on TILEncore-Gx
+
+A TILEncore-GX PCIe card does not contain any local storage that is capable of
+holding Linux, suricata, its configuration and the log files is produces.
+Instead it relies on booting the tilegx processor on the PCIe card with
+software provided via the PCIe bus from the host system.
+
+If you haven't already done so follow the instructions in the "GX MDE Getting
+Started Guide" to install the software and drivers necessary to boot the Tilera 
+PCIe card from your host system.
+
+Once that is done you should be able to run suricata on your TILEncore-GX card
+by executing the following on your host system.
+
+    cd ~/work/TileGX/github/suricata
+    make -f tile/Makefile.tilegx run_pci
+
+This will reboot your TILEncore card, boot Linux on it and start Suricata. The
+logs produced by Suricata will be available to the host in the $(LOG_DIR) as
+specified in ~/work/TileGX/github/suricata/tile/Makefile.tilegx.
+
+
+Running Suricata on TILEmpower-Gx or TILExtreme-Gx Systems
+
+Both the TILEmpower-Gx and TILExtreme-Gx platforms may be operated similarly
+to the TILEncore-Gx as described above.
+
+The systems will be booted not from over a PCIe bus, but over one of the
+network interfaces or a USB connection. Note using a network instead of a USB
+connection is probably preferred.
+
+The ~/work/TileGX/github/suricata/tile/Makefile.tilegx file contained a section
+as follows:
+
+    # Modify the following with the IP address of your Tilera target
+    NET_ARGS=--net 192.168.0.11
+    # Modify the following with the USB port attached to your Tilera target
+    WILDCAT_ARGS=--dev usb1
+    # Modify the following to point to your locally installed "TILEncore-Gx" card
+    PCI_ARGS=--dev gxpci0
+
+If you are going to boot your Tilera machine using the network interface you
+should modify the IP address contained in the NET_ARGS definition above to
+contain the IP address of your Tilera machine.
+
+Once that is done you should be able to run suricata on your TILEmpower-Gx or
+TILExtreme-Gx system by executing the following on your host.
+
+    cd ~/work/TileGX/github/suricata
+    make -f tile/Makefile.tilegx run_net
+
+This will reboot your TILEmpower-Gx/TILExtreme-Gx system, boot Linux on it and
+start Suricata. The logs produced by Suricata will be available to the host in
+the $(LOG_DIR) as specified in 
+~/work/TileGX/github/suricata/tile/Makefile.tilegx.
+
+
+Installing Suricata on a TILEmpower-Gx or TILExtreme-Gx System's SSD Storage
+
+This section describes the procedure for installing Suricata on the SSD storage
+contained within the TILEmpower-Gx and TILExtreme-Gx system. If you are going
+to use your TILEmpower-Gx or TILExtreme-Gx with tile-monitor, as described
+above, you may skip this section.
+
+If your TILEmpower-Gx or TILExtreme-Gx does not already have at least the
+minimum release of software installed (MDE 4.0.1) follow the instructions in
+section 1.9 of the "Gx MDE Getting Started Guide" to install the Linux runtime
+environment on your system.
+
+
+Customized Hypervisor and Linux Kernel Image for Suricata
+
+In order to run Suricata your target needs to run a somewhat modified Tilera
+hypervisor and Linux kernel configuration. The tile/Makefile.tilegx makefile
+contains a target that will replace the SPI ROM boot image with an image that
+contains the necessary modifications to support Suricata.
+
+tile/Makefile.tilegx contains the following line that needs to be modified
+with the address of your target system.
+
+    NET_ARGS=--net 192.168.0.11
+
+After changing the IP address run the following:
+
+    cd ~/work/TileGX/github/suricata
+    make -f tile/Makefile.tilegx reimage_net
+
+This will take a couple of minutes to write a new boot image to your target.
+When the above completes reboot your target.
+
+
+Installing the Suricata Binaries on the System
+
+The build procedure above created a Makefile that contains a build target that
+creates an installation directory, $(INSTALL_DIR) above, that can be copied to
+your TILEmpower-GX or TILExtreme-GX file system.
+
+    cd ~/work/TileGX/github/suricata
+    make install
+
+This will populate your $(INSTALL_DIR) directory with the Suricata files to be
+copied to your TILEmpower-GX or TILExtreme-GX target. 
+
+To copy the $(INSTALL_DIR) contents to your system's SSD create a tar file of
+the $(INSTALL_DIR) contents as follows. 
+
+    cd ~/work/TileGX/suricata-install-dir
+    tar cfz ../suricata-install.tgz *
+
+Copy the tar file to your target system using scp or other means. Then extract
+the contents of the tar file in the / directory of your TILEmpower-GX or
+TILExtreme-GX system.
+
+
+Running Suricata on TILEmpower-GX or TILExtreme-GX System
+
+Suricata runs on Tilera based platforms much as it runs on typical Intel based
+platforms.
+
+Copy the suricata binary, built above, and your suricata configuration files to
+your Tilera platform.
+
+Execute suricata with a command such as the following:
+
+    suricata -c /opt/suricata/etc/suricata.yaml --mpipe
+
+Tilera tilegx platforms use Tilera's mpipe hardware to deliver packets to
+Suricata. Therefore the --mpipe flag indicates usage of the mpipe runmode
+using the given ethernet interface(s) listed in the suricata.yaml configuration
+file that should be monitored.
+
+The 10 gigabit interface names are xgbe1, xgbe2, xgbe3 and xgbe4. The 1 gigabit
+interface names are gbe1, gbe2, gbe3 and gbe4.
