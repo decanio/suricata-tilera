@@ -6,8 +6,8 @@
 	<META NAME="GENERATOR" CONTENT="LibreOffice 3.5  (Linux)">
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
 	<META NAME="CREATED" CONTENT="20120102;16542200">
+	<META NAME="CHANGED" CONTENT="20120809;16023300">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
-	<META NAME="CHANGED" CONTENT="20120808;14385200">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
@@ -34,7 +34,11 @@
 <P STYLE="margin-bottom: 0in"><BR>
 </P>
 <DIV ID="wiki-content" DIR="LTR">
+	<P><BR><BR>
+	</P>
 	<DIV ID="wiki-body" DIR="LTR">
+		<P><BR><BR>
+		</P>
 		<DIV ID="template" DIR="LTR">
 			<H1 CLASS="western">Suricata for Tilera</H1>
 			<P><BR><BR>
@@ -71,15 +75,15 @@
 			</P>
 			<P>For TileGX based systems you'll need:</P>
 			<UL>
-				<LI><P STYLE="margin-bottom: 0in">A “full” install of Tilera
-				MDE 4.0.1 or later 
+				<LI><P STYLE="margin-bottom: 0in">A full install of Tilera MDE
+				4.0.1 or later 
 				</P>
 				<LI><P>A suitable Tilera TileGX based platform</P>
 			</UL>
 			<P>For Tile64 and TilePro based systems you'll need:</P>
 			<UL>
-				<LI><P STYLE="margin-bottom: 0in">A “full” install of Tilera
-				MDE 3.0. or later 
+				<LI><P STYLE="margin-bottom: 0in">A full install of Tilera MDE
+				3.0. or later 
 				</P>
 				<LI><P STYLE="margin-bottom: 0in">A suitable Tilera based
 				platform from Tilera or one of their hardware partners. 
@@ -90,7 +94,9 @@
 			</UL>
 			<P>Follow the instructions contained in Tilera's UG504 - “Getting
 			Started with the Multicore Development Environment” for
-			installing the Tilera MDE on your development system.</P>
+			installing the Tilera MDE on your development system.  Section 1.4
+			of Tilera UG504 describes the procedure for installing the full
+			MDE software.</P>
 			<P>For assistance with acquiring Tilera hardware and development
 			tools visit
 			<A HREF="https://github.com/decanio/suricata/wiki/Tilera%20contact%20form">http://www.tilera.com/about_tilera/contact/contact_form</A>.</P>
@@ -114,9 +120,11 @@
 			alternate versions of these libraries if you desire.</P>
 			<P>The suricata source code and build environment delivered here
 			is assumed to run in your <I>~/work/TileGX/github</I> directory.
+			Suricata logs will be placed in <I>~/work/TileGX/logs</I>.
 			Therefore prepare your suricata environment as follows:</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd</CODE>
 <CODE CLASS="western">mkdir -p work/TileGX/github</CODE>
+<CODE CLASS="western">mkdir -p work/TileGX/logs</CODE>
 <CODE CLASS="western">cd work/TileGX/github</CODE></PRE><P>
 			To install your source code you'll have to do one of the
 			following.</P>
@@ -133,6 +141,13 @@
 			that to retrieve source code from github.com you'll need to be
 			provided access to the suricata repository on github.com.</FONT></CODE></P>
 			<H1 CLASS="western"><STRONG>Building Suricata for Tilera</STRONG></H1>
+			<P><STRONG><SPAN STYLE="font-weight: normal">Building suricata for
+			Tilera requires building libyaml followed by building suricata. 
+			These are build as follows.</SPAN></STRONG></P>
+			<P><STRONG><SPAN STYLE="font-weight: normal">Note that some of the
+			build steps require the TILERA_ROOT environment variable be set in
+			your host's shell environment.  Section 1.5 of Tilera UG504
+			describes how to accomplish this.</SPAN></STRONG></P>
 			<H2 CLASS="western"><STRONG>Building libyaml</STRONG></H2>
 			<P>The libyaml library must be build prior to building suricata
 			for Tilera.</P>
@@ -200,6 +215,17 @@
 			pick up its configuration from the </SPAN></STRONG><STRONG><I><SPAN STYLE="font-weight: normal">~/work/TileGX/rules</SPAN></I></STRONG><STRONG>
 			</STRONG><STRONG><SPAN STYLE="font-weight: normal">directory on
 			your host.</SPAN></STRONG></P>
+			<P>The suricata configuration is typically found in a
+			<I>suricata.yaml</I> file.  A suricata.yaml file can be found
+			either in the <I>suricata-rules.tgz</I> file extracted above, or
+			in  <I>~/work/TileGX/github/suricata/suricata.yaml</I> file.</P>
+			<P><STRONG><SPAN STYLE="font-weight: normal">The instructions that
+			follow use the configuration contained in </SPAN></STRONG><STRONG><I><SPAN STYLE="font-weight: normal">suricata-rules.tgz
+			</SPAN></I></STRONG><STRONG><SPAN STYLE="font-style: normal"><SPAN STYLE="font-weight: normal">along
+			with the rules contained in the tar file.</SPAN></SPAN></STRONG></P>
+			<P><STRONG><SPAN STYLE="font-style: normal"><SPAN STYLE="font-weight: normal">Experienced
+			suricata users are free to use their own rules or obtain them from
+			other sources.</SPAN></SPAN></STRONG></P>
 			<H2 CLASS="western"><STRONG>YAML Configuration for Tilera</STRONG></H2>
 			<P>The Tilera implementation of Suricata adds two optional
 			sections in the yaml configuration file. These affect the Tilera
@@ -317,7 +343,7 @@
 			be modified with the address of your target system.</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">NET_ARGS=--net 192.168.0.11</CODE></PRE><P>
 			After changing the IP address run the following:</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd suricata</CODE>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd </CODE><CODE CLASS="western">~/work/TileGX/github/</CODE><CODE CLASS="western">suricata</CODE>
 <CODE CLASS="western">make -f tile/Makefile.tilegx reimage_net</CODE></PRE><P>
 			This will take a couple of minutes to write a new boot image to
 			your target. When the above completes reboot your target.</P>
@@ -327,7 +353,7 @@
 			build target that creates an installation directory,
 			$(INSTALL_DIR) above, that can be copied to your TILEmpower-GX or
 			TILExtreme-GX file system.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd suricata</CODE>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd </CODE><CODE CLASS="western">~/work/TileGX/github/</CODE><CODE CLASS="western">suricata</CODE>
 <CODE CLASS="western">make install</CODE></PRE><P>
 			This will populate your $(INSTALL_DIR) directory with the Suricata
 			files to be copied to your TILEmpower-GX or TILExtreme-GX target.
@@ -335,8 +361,9 @@
 			$(INSTALL_DIR) contents. Copy the tar file to your target system
 			using scp. Then extract the contents of the tar file in the /
 			directory of your TILEmpower-GX or TILExtreme-GX system.</P>
-			<H2 CLASS="western"><STRONG>Preconfigured Tilera based Suricata
-			Systems</STRONG></H2>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/suricata-install-dir</CODE>
+<CODE CLASS="western">make install</CODE></PRE><H2 CLASS="western">
+			<STRONG>Preconfigured Tilera based Suricata Systems</STRONG></H2>
 			<P>If you would like a system with suricata for Tilera already
 			installed please contact <A HREF="mailto:decanio.tom@gmail.com">decanio.tom@gmail.com</A>
 			for assistance.</P>
