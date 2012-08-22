@@ -23,7 +23,7 @@ all:
 # Local environment configuation
 # Go ahead and modify these:
 #
-HOME_DIR=/home/tdecanio
+HOME_DIR=/home/decanio
 WORK_DIR=$(HOME_DIR)/work/TileGX
 # you can probably leave the following alone
 RULES_DIR=$(WORK_DIR)/rules
