@@ -1,6 +1,6 @@
 #TODO A better place for default CFLAGS?
 
-AC_INIT(configure.in)
+AC_INIT(configure.ac)
 
     AM_CONFIG_HEADER(config.h)
     AM_INIT_AUTOMAKE(suricata, 1.3dev)
@@ -139,18 +139,18 @@ AC_INIT(configure.in)
                     LDFLAGS="${LDFLAGS} -L/usr/local/lib -I/usr/local/lib/libnet-1.1"
 		    e_magic_file="/usr/local/share/file/magic.mgc"
                     ;;
-    	   *darwin*|*Darwin*)
+	   *darwin*|*Darwin*)
                     CFLAGS="${CFLAGS} -DOS_DARWIN"
                     CPPFLAGS="${CPPFLAGS} -I/opt/local/include"
                     LDFLAGS="${LDFLAGS} -L/opt/local/lib"
-        		    ;;
+			    ;;
            *-*-linux*)
                     #for now do nothing
                     ;;
            *-*-mingw32*)
                     CFLAGS="${CFLAGS} -DOS_WIN32"
                     LDFLAGS="${LDFLAGS} -lws2_32"
-          		    WINDOWS_PATH="yes"
+			    WINDOWS_PATH="yes"
                     ;;
            *-*-cygwin)
 		              WINDOWS_PATH="yes"
@@ -553,11 +553,16 @@ AC_INIT(configure.in)
         AC_CHECK_LIB(netfilter_queue, nfq_open,, NFQ="no",)
         AC_CHECK_LIB([netfilter_queue], [nfq_set_queue_maxlen],AC_DEFINE_UNQUOTED([HAVE_NFQ_MAXLEN],[1],[Found queue max length support in netfilter_queue]) ,,[-lnfnetlink])
         AC_CHECK_LIB([netfilter_queue], [nfq_set_verdict2],AC_DEFINE_UNQUOTED([HAVE_NFQ_SET_VERDICT2],[1],[Found nfq_set_verdict2 function in netfilter_queue]) ,,[-lnfnetlink])
+        AC_CHECK_LIB([netfilter_queue], [nfq_set_queue_flags],AC_DEFINE_UNQUOTED([HAVE_NFQ_SET_QUEUE_FLAGS],[1],[Found nfq_set_queue_flags function in netfilter_queue]) ,,[-lnfnetlink])
 
         # check if the argument to nfq_get_payload is signed or unsigned
         AC_MSG_CHECKING([for signed nfq_get_payload payload argument])
         STORECFLAGS="${CFLAGS}"
-        CFLAGS="${CFLAGS} -Werror"
+        if test `basename $CC` = "clang"; then
+            CFLAGS="${CFLAGS} -Werror=incompatible-pointer-types"
+        else
+            CFLAGS="${CFLAGS} -Werror=pointer-sign"
+        fi
         AC_COMPILE_IFELSE(
             [AC_LANG_PROGRAM(
                 [
@@ -571,7 +576,7 @@ AC_INIT(configure.in)
             [libnetfilter_queue_nfq_get_payload_signed="no"])
         AC_MSG_RESULT($libnetfilter_queue_nfq_get_payload_signed)
         if test "x$libnetfilter_queue_nfq_get_payload_signed" = "xyes"; then
-            AC_DEFINE([NFQ_GET_PAYLOAD_SIGNED], [], [For signed version of nfq_get_payload])
+            AC_DEFINE([NFQ_GET_PAYLOAD_SIGNED], [1], [For signed version of nfq_get_payload])
         fi
         CFLAGS="${STORECFLAGS}"
     ;;
@@ -585,7 +590,7 @@ AC_INIT(configure.in)
         echo "   for headers etc. when the --with-libnfq-includes directive"
         echo "   is used"
         echo
-        exit 1 
+        exit 1
     fi
   ])
 
@@ -1242,25 +1247,32 @@ eval "$2=[$]$2$3"
 
 # suricata log dir
 if test "$WINDOWS_PATH" = "yes"; then
-  systemtype="`systeminfo | grep \"System Type\"`"
-  case $systemtype in
+  systemtype="`systeminfo | grep \"based PC\"`"
+  case "$systemtype" in
     *x64*)
-      e_logdir="C:\\Program Files (x86)\\Suricata\\log\\"
-      e_sysconfdir="C:\\Program Files (x86)\\Suricata\\"
-      e_magic_file="C:\\Program Files (x86)\\Suricata\\magic.mgc"
+      e_winbase="C:\\\\Program Files (x86)\\\\Suricata"
       ;;
     *)
-      e_logdir="C:\\Program Files\\Suricata\\log\\"
-      e_sysconfdir="C:\\Program Files\\Suricata\\"
-      e_magic_file="C:\\Program Files\\Suricata\\magic.mgc"
+      e_winbase="C:\\\\Program Files\\\\Suricata"
       ;;
   esac
+
+  e_sysconfdir="$e_winbase\\\\"
+  e_sysconfrulesdir="$e_winbase\\\\rules\\\\"
+  e_magic_file="$e_winbase\\\\magic.mgc"
+  e_logdir="$e_winbase\\\\log"
+  e_logfilesdir="$e_logdir\\\\files"
 else
   EXPAND_VARIABLE(localstatedir, e_logdir, "/log/suricata/")
+  EXPAND_VARIABLE(localstatedir, e_logfilesdir, "/log/suricata/files")
   EXPAND_VARIABLE(sysconfdir, e_sysconfdir, "/suricata/")
+  EXPAND_VARIABLE(sysconfdir, e_sysconfrulesdir, "/suricata/rules")
 fi
 AC_SUBST(e_logdir)
+AC_SUBST(e_logfilesdir)
 AC_SUBST(e_sysconfdir)
+AC_SUBST(e_sysconfrulesdir)
+AC_DEFINE_UNQUOTED([CONFIG_DIR],["$e_sysconfdir"],[Our CONFIG_DIR])
 AC_SUBST(e_magic_file)
 
 AC_OUTPUT(Makefile src/Makefile qa/Makefile qa/coccinelle/Makefile rules/Makefile doc/Makefile suricata.yaml)
@@ -1309,4 +1321,3 @@ echo "To install Suricata into /usr/bin/suricata, have the config in
 /etc/suricata and use /var/log/suricata as log dir, use:
 ./configure --prefix=/usr/ --sysconfdir=/etc/ --localstatedir=/var/"
 echo
-

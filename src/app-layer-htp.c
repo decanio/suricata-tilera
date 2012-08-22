@@ -823,6 +823,8 @@ error:
 /**
  *  \brief Normalize the query part of the URI as if it's part of the URI.
  *
+ *  Called twice if double decoding is enabled.
+ *
  *  \param c HTP connection pointer
  *
  *  \retval HOOK_OK we won't fail
@@ -830,7 +832,7 @@ error:
  *  This functionality requires the uri normalize hook introduced in libhtp
  *  version 0.2.5.
  */
-static int HTPCallbackRequestUriNormalize(htp_connp_t *c)
+static int HTPCallbackRequestUriNormalizeQuery(htp_connp_t *c)
 {
     SCEnter();
 
@@ -839,32 +841,55 @@ static int HTPCallbackRequestUriNormalize(htp_connp_t *c)
         SCReturnInt(HOOK_OK);
     }
 
-    /* uri normalize the path string again -- while loop to unroll
-     * double+ encodings */
-    if (c->in_tx->parsed_uri->path != NULL) {
-        while (1) {
-            size_t origlen = bstr_len(c->in_tx->parsed_uri->path);
-            htp_decode_path_inplace(c->cfg, c->in_tx,
-                    c->in_tx->parsed_uri->path);
-            if (origlen == bstr_len(c->in_tx->parsed_uri->path))
-                break;
-        }
-    }
-
-    /* uri normalize the query string as well -- while loop to unroll
-     * double+ encodings */
+    /* uri normalize the query string as well */
     if (c->in_tx->parsed_uri->query != NULL) {
-        while (1) {
-            size_t origlen = bstr_len(c->in_tx->parsed_uri->query);
-            htp_decode_path_inplace(c->cfg, c->in_tx,
-                    c->in_tx->parsed_uri->query);
-            if (origlen == bstr_len(c->in_tx->parsed_uri->query))
-                break;
-        }
+        htp_decode_path_inplace(c->cfg, c->in_tx,
+                c->in_tx->parsed_uri->query);
     }
     SCReturnInt(HOOK_OK);
 }
-#endif
+
+/**
+ *  \brief Normalize the path part of the URI (again). Used by double decoding
+ *         option.
+ *
+ *  \param c HTP connection pointer
+ *
+ *  \retval HOOK_OK we won't fail
+ *
+ *  This functionality requires the uri normalize hook introduced in libhtp
+ *  version 0.2.5.
+ */
+static int HTPCallbackRequestUriNormalizePath(htp_connp_t *c)
+{
+    SCEnter();
+
+    if (c == NULL || c->in_tx == NULL || c->in_tx->parsed_uri == NULL)
+    {
+        SCReturnInt(HOOK_OK);
+    }
+
+    /* uri normalize the path string  */
+    if (c->in_tx->parsed_uri->path != NULL) {
+        htp_decode_path_inplace(c->cfg, c->in_tx,
+                c->in_tx->parsed_uri->path);
+
+        /* Handle UTF-8 in path */
+        if (c->cfg->path_convert_utf8) {
+            /* Decode Unicode characters into a single-byte stream, using best-fit mapping */
+            htp_utf8_decode_path_inplace(c->cfg, c->in_tx, c->in_tx->parsed_uri->path);
+        } else {
+            /* Only validate path as a UTF-8 stream */
+            htp_utf8_validate_path(c->in_tx, c->in_tx->parsed_uri->path);
+        }
+
+        /* normalize after decoding */
+        htp_normalize_uri_path_inplace(c->in_tx->parsed_uri->path);
+    }
+
+    SCReturnInt(HOOK_OK);
+}
+#endif /* HAVE_HTP_URI_NORMALIZE_HOOK */
 
 /**
  *  \param name /Lowercase/ version of the variable name
@@ -2107,7 +2132,7 @@ static void HTPConfigure(void)
     htp_config_register_response(cfglist.cfg, HTPCallbackResponse);
 #ifdef HAVE_HTP_URI_NORMALIZE_HOOK
     htp_config_register_request_uri_normalize(cfglist.cfg,
-            HTPCallbackRequestUriNormalize);
+            HTPCallbackRequestUriNormalizeQuery);
 #endif
     htp_config_set_generate_request_uri_normalized(cfglist.cfg, 1);
 
@@ -2171,6 +2196,26 @@ static void HTPConfigure(void)
                                p->val);
                     exit(EXIT_FAILURE);
                 }
+            } else if (strcasecmp("double-decode-path", p->name) == 0) {
+                if (ConfValIsTrue(p->val)) {
+#ifdef HAVE_HTP_URI_NORMALIZE_HOOK
+                    htp_config_register_request_uri_normalize(cfglist.cfg,
+                            HTPCallbackRequestUriNormalizePath);
+#else
+                    SCLogWarning(SC_WARN_OUTDATED_LIBHTP, "\"double-decode-path\" "
+                            "option requires at least libhtp version 0.2.5");
+#endif
+                }
+            } else if (strcasecmp("double-decode-query", p->name) == 0) {
+                if (ConfValIsTrue(p->val)) {
+#ifdef HAVE_HTP_URI_NORMALIZE_HOOK
+                    htp_config_register_request_uri_normalize(cfglist.cfg,
+                            HTPCallbackRequestUriNormalizeQuery);
+#else
+                    SCLogWarning(SC_WARN_OUTDATED_LIBHTP, "\"double-decode-query\" "
+                            "option requires at least libhtp version 0.2.5");
+#endif
+                }
             } else {
                 SCLogWarning(SC_ERR_UNKNOWN_VALUE,
                         "LIBHTP Ignoring unknown default config: %s",
@@ -2232,7 +2277,7 @@ static void HTPConfigure(void)
             htp_config_register_response(htp, HTPCallbackResponse);
 #ifdef HAVE_HTP_URI_NORMALIZE_HOOK
             htp_config_register_request_uri_normalize(htp,
-                    HTPCallbackRequestUriNormalize);
+                    HTPCallbackRequestUriNormalizeQuery);
 #endif
             htp_config_set_generate_request_uri_normalized(htp, 1);
 
@@ -2329,6 +2374,26 @@ static void HTPConfigure(void)
                                    "from conf file - %s.  Killing engine",
                                    p->val);
                         exit(EXIT_FAILURE);
+                    }
+                } else if (strcasecmp("double-decode-path", p->name) == 0) {
+                    if (ConfValIsTrue(p->val)) {
+#ifdef HAVE_HTP_URI_NORMALIZE_HOOK
+                        htp_config_register_request_uri_normalize(htp,
+                                HTPCallbackRequestUriNormalizePath);
+#else
+                        SCLogWarning(SC_WARN_OUTDATED_LIBHTP, "\"double-decode-path\" "
+                                "option requires at least libhtp version 0.2.5");
+#endif
+                    }
+                } else if (strcasecmp("double-decode-query", p->name) == 0) {
+                    if (ConfValIsTrue(p->val)) {
+#ifdef HAVE_HTP_URI_NORMALIZE_HOOK
+                        htp_config_register_request_uri_normalize(htp,
+                                HTPCallbackRequestUriNormalizeQuery);
+#else
+                        SCLogWarning(SC_WARN_OUTDATED_LIBHTP, "\"double-decode-query\" "
+                                "option requires at least libhtp version 0.2.5");
+#endif
                     }
                 } else {
                     SCLogWarning(SC_ERR_UNKNOWN_VALUE,
@@ -3308,14 +3373,16 @@ static int HTPParserTest11(void) {
 
     htp_tx_t *tx = list_get(htp_state->connp->conn->transactions, 0);
     if (tx != NULL && tx->request_uri_normalized != NULL) {
-        if (2 != bstr_size(tx->request_uri_normalized)) {
+        if (4 != bstr_size(tx->request_uri_normalized)) {
             printf("normalized uri len should be 2, is %"PRIuMAX,
                 (uintmax_t)bstr_size(tx->request_uri_normalized));
             goto end;
         }
 
         if (bstr_ptr(tx->request_uri_normalized)[0] != '/' ||
-            bstr_ptr(tx->request_uri_normalized)[1] != '\0')
+            bstr_ptr(tx->request_uri_normalized)[1] != '%' ||
+            bstr_ptr(tx->request_uri_normalized)[2] != '0' ||
+            bstr_ptr(tx->request_uri_normalized)[3] != '0')
         {
             printf("normalized uri \"");
             PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
@@ -3380,7 +3447,7 @@ static int HTPParserTest12(void) {
 
     htp_tx_t *tx = list_get(htp_state->connp->conn->transactions, 0);
     if (tx != NULL && tx->request_uri_normalized != NULL) {
-        if (5 != bstr_size(tx->request_uri_normalized)) {
+        if (7 != bstr_size(tx->request_uri_normalized)) {
             printf("normalized uri len should be 5, is %"PRIuMAX,
                 (uintmax_t)bstr_size(tx->request_uri_normalized));
             goto end;
@@ -3390,7 +3457,9 @@ static int HTPParserTest12(void) {
             bstr_ptr(tx->request_uri_normalized)[1] != '?' ||
             bstr_ptr(tx->request_uri_normalized)[2] != 'a' ||
             bstr_ptr(tx->request_uri_normalized)[3] != '=' ||
-            bstr_ptr(tx->request_uri_normalized)[4] != '\0')
+            bstr_ptr(tx->request_uri_normalized)[4] != '%' ||
+            bstr_ptr(tx->request_uri_normalized)[5] != '0' ||
+            bstr_ptr(tx->request_uri_normalized)[6] != '0')
         {
             printf("normalized uri \"");
             PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
@@ -3888,6 +3957,444 @@ end:
     return result;
 }
 
+/** \test Test %2f decoding in profile Apache_2_2
+ *
+ *        %2f in path is left untouched
+ *        %2f in query string is normalized to %2F
+ *        %252f in query string is decoded/normalized to %2F
+ */
+static int HTPParserDecodingTest01(void)
+{
+    int result = 0;
+    Flow *f = NULL;
+    uint8_t httpbuf1[] =
+        "GET /abc%2fdef HTTP/1.1\r\nHost: www.domain.ltd\r\n\r\n"
+        "GET /abc/def?ghi%2fjkl HTTP/1.1\r\nHost: www.domain.ltd\r\n\r\n"
+        "GET /abc/def?ghi%252fjkl HTTP/1.1\r\nHost: www.domain.ltd\r\n\r\n";
+    uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
+    TcpSession ssn;
+
+    HtpState *htp_state =  NULL;
+    int r = 0;
+    char input[] = "\
+%YAML 1.1\n\
+---\n\
+libhtp:\n\
+\n\
+  default-config:\n\
+    personality: Apache_2_2\n\
+";
+
+    ConfCreateContextBackup();
+    ConfInit();
+    HtpConfigCreateBackup();
+    ConfYamlLoadString(input, strlen(input));
+    HTPConfigure();
+    char *addr = "4.3.2.1";
+    memset(&ssn, 0, sizeof(ssn));
+
+    f = UTHBuildFlow(AF_INET, "1.2.3.4", addr, 1024, 80);
+    if (f == NULL)
+        goto end;
+    f->protoctx = &ssn;
+
+    StreamTcpInitConfig(TRUE);
+
+    uint32_t u;
+    for (u = 0; u < httplen1; u++) {
+        uint8_t flags = 0;
+
+        if (u == 0) flags = STREAM_TOSERVER|STREAM_START;
+        else if (u == (httplen1 - 1)) flags = STREAM_TOSERVER|STREAM_EOF;
+        else flags = STREAM_TOSERVER;
+
+        r = AppLayerParse(NULL, f, ALPROTO_HTTP, flags, &httpbuf1[u], 1);
+        if (r != 0) {
+            printf("toserver chunk %" PRIu32 " returned %" PRId32 ", expected"
+                    " 0: ", u, r);
+            result = 0;
+            goto end;
+        }
+    }
+
+    htp_state = f->alstate;
+    if (htp_state == NULL) {
+        printf("no http state: ");
+        result = 0;
+        goto end;
+    }
+
+    uint8_t ref1[] = "/abc%2fdef";
+    size_t reflen = sizeof(ref1) - 1;
+
+    htp_tx_t *tx = list_get(htp_state->connp->conn->transactions, 0);
+    if (tx != NULL && tx->request_uri_normalized != NULL) {
+        if (reflen != bstr_size(tx->request_uri_normalized)) {
+            printf("normalized uri len should be %"PRIuMAX", is %"PRIuMAX,
+                (uintmax_t)reflen,
+                (uintmax_t)bstr_size(tx->request_uri_normalized));
+            goto end;
+        }
+
+        if (memcmp(bstr_ptr(tx->request_uri_normalized), ref1,
+                    bstr_size(tx->request_uri_normalized)) != 0)
+        {
+            printf("normalized uri \"");
+            PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
+            printf("\" != \"");
+            PrintRawUriFp(stdout, ref1, reflen);
+            printf("\": ");
+            goto end;
+        }
+    }
+
+    uint8_t ref2[] = "/abc/def?ghi%2Fjkl";
+    reflen = sizeof(ref2) - 1;
+
+    tx = list_get(htp_state->connp->conn->transactions, 1);
+    if (tx != NULL && tx->request_uri_normalized != NULL) {
+        if (reflen != bstr_size(tx->request_uri_normalized)) {
+            printf("normalized uri len should be %"PRIuMAX", is %"PRIuMAX,
+                (uintmax_t)reflen,
+                (uintmax_t)bstr_size(tx->request_uri_normalized));
+            goto end;
+        }
+
+        if (memcmp(bstr_ptr(tx->request_uri_normalized), ref2,
+                    bstr_size(tx->request_uri_normalized)) != 0)
+        {
+            printf("normalized uri \"");
+            PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
+            printf("\" != \"");
+            PrintRawUriFp(stdout, ref2, reflen);
+            printf("\": ");
+            goto end;
+        }
+    }
+
+    uint8_t ref3[] = "/abc/def?ghi%2Fjkl";
+    reflen = sizeof(ref2) - 1;
+    tx = list_get(htp_state->connp->conn->transactions, 2);
+    if (tx != NULL && tx->request_uri_normalized != NULL) {
+        if (reflen != bstr_size(tx->request_uri_normalized)) {
+            printf("normalized uri len should be %"PRIuMAX", is %"PRIuMAX,
+                (uintmax_t)reflen,
+                (uintmax_t)bstr_size(tx->request_uri_normalized));
+            goto end;
+        }
+
+        if (memcmp(bstr_ptr(tx->request_uri_normalized), ref3,
+                    bstr_size(tx->request_uri_normalized)) != 0)
+        {
+            printf("normalized uri \"");
+            PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
+            printf("\" != \"");
+            PrintRawUriFp(stdout, ref3, reflen);
+            printf("\": ");
+            goto end;
+        }
+    }
+
+    result = 1;
+
+end:
+    HTPFreeConfig();
+    ConfDeInit();
+    ConfRestoreContextBackup();
+    HtpConfigRestoreBackup();
+
+    StreamTcpFreeConfig(TRUE);
+    if (htp_state != NULL)
+        HTPStateFree(htp_state);
+    UTHFreeFlow(f);
+    return result;
+}
+
+/** \test Test %2f decoding in profile IDS
+ *
+ *        %2f in path decoded to /
+ *        %2f in query string is decoded to /
+ *        %252f in query string is decoded to %2F
+ */
+static int HTPParserDecodingTest02(void)
+{
+    int result = 0;
+    Flow *f = NULL;
+    uint8_t httpbuf1[] =
+        "GET /abc%2fdef HTTP/1.1\r\nHost: www.domain.ltd\r\n\r\n"
+        "GET /abc/def?ghi%2fjkl HTTP/1.1\r\nHost: www.domain.ltd\r\n\r\n"
+        "GET /abc/def?ghi%252fjkl HTTP/1.1\r\nHost: www.domain.ltd\r\n\r\n";
+    uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
+    TcpSession ssn;
+
+    HtpState *htp_state =  NULL;
+    int r = 0;
+    char input[] = "\
+%YAML 1.1\n\
+---\n\
+libhtp:\n\
+\n\
+  default-config:\n\
+    personality: IDS\n\
+    double-decode-path: no\n\
+    double-decode-query: no\n\
+";
+
+    ConfCreateContextBackup();
+    ConfInit();
+    HtpConfigCreateBackup();
+    ConfYamlLoadString(input, strlen(input));
+    HTPConfigure();
+    char *addr = "4.3.2.1";
+    memset(&ssn, 0, sizeof(ssn));
+
+    f = UTHBuildFlow(AF_INET, "1.2.3.4", addr, 1024, 80);
+    if (f == NULL)
+        goto end;
+    f->protoctx = &ssn;
+
+    StreamTcpInitConfig(TRUE);
+
+    uint32_t u;
+    for (u = 0; u < httplen1; u++) {
+        uint8_t flags = 0;
+
+        if (u == 0) flags = STREAM_TOSERVER|STREAM_START;
+        else if (u == (httplen1 - 1)) flags = STREAM_TOSERVER|STREAM_EOF;
+        else flags = STREAM_TOSERVER;
+
+        r = AppLayerParse(NULL, f, ALPROTO_HTTP, flags, &httpbuf1[u], 1);
+        if (r != 0) {
+            printf("toserver chunk %" PRIu32 " returned %" PRId32 ", expected"
+                    " 0: ", u, r);
+            result = 0;
+            goto end;
+        }
+    }
+
+    htp_state = f->alstate;
+    if (htp_state == NULL) {
+        printf("no http state: ");
+        result = 0;
+        goto end;
+    }
+
+    uint8_t ref1[] = "/abc/def";
+    size_t reflen = sizeof(ref1) - 1;
+
+    htp_tx_t *tx = list_get(htp_state->connp->conn->transactions, 0);
+    if (tx != NULL && tx->request_uri_normalized != NULL) {
+        if (reflen != bstr_size(tx->request_uri_normalized)) {
+            printf("normalized uri len should be %"PRIuMAX", is %"PRIuMAX,
+                (uintmax_t)reflen,
+                (uintmax_t)bstr_size(tx->request_uri_normalized));
+            goto end;
+        }
+
+        if (memcmp(bstr_ptr(tx->request_uri_normalized), ref1,
+                    bstr_size(tx->request_uri_normalized)) != 0)
+        {
+            printf("normalized uri \"");
+            PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
+            printf("\" != \"");
+            PrintRawUriFp(stdout, ref1, reflen);
+            printf("\": ");
+            goto end;
+        }
+    }
+
+    uint8_t ref2[] = "/abc/def?ghi/jkl";
+    reflen = sizeof(ref2) - 1;
+
+    tx = list_get(htp_state->connp->conn->transactions, 1);
+    if (tx != NULL && tx->request_uri_normalized != NULL) {
+        if (reflen != bstr_size(tx->request_uri_normalized)) {
+            printf("normalized uri len should be %"PRIuMAX", is %"PRIuMAX,
+                (uintmax_t)reflen,
+                (uintmax_t)bstr_size(tx->request_uri_normalized));
+            goto end;
+        }
+
+        if (memcmp(bstr_ptr(tx->request_uri_normalized), ref2,
+                    bstr_size(tx->request_uri_normalized)) != 0)
+        {
+            printf("normalized uri \"");
+            PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
+            printf("\" != \"");
+            PrintRawUriFp(stdout, ref2, reflen);
+            printf("\": ");
+            goto end;
+        }
+    }
+
+    uint8_t ref3[] = "/abc/def?ghi%2Fjkl";
+    reflen = sizeof(ref3) - 1;
+    tx = list_get(htp_state->connp->conn->transactions, 2);
+    if (tx != NULL && tx->request_uri_normalized != NULL) {
+        if (reflen != bstr_size(tx->request_uri_normalized)) {
+            printf("normalized uri len should be %"PRIuMAX", is %"PRIuMAX" (3): ",
+                (uintmax_t)reflen,
+                (uintmax_t)bstr_size(tx->request_uri_normalized));
+            goto end;
+        }
+
+        if (memcmp(bstr_ptr(tx->request_uri_normalized), ref3,
+                    bstr_size(tx->request_uri_normalized)) != 0)
+        {
+            printf("normalized uri \"");
+            PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
+            printf("\" != \"");
+            PrintRawUriFp(stdout, ref3, reflen);
+            printf("\": ");
+            goto end;
+        }
+    }
+
+    result = 1;
+
+end:
+    HTPFreeConfig();
+    ConfDeInit();
+    ConfRestoreContextBackup();
+    HtpConfigRestoreBackup();
+
+    StreamTcpFreeConfig(TRUE);
+    if (htp_state != NULL)
+        HTPStateFree(htp_state);
+    UTHFreeFlow(f);
+    return result;
+}
+
+/** \test Test %2f decoding in profile IDS with double-decode-* options
+ *
+ *        %252f in path decoded to /
+ *        %252f in query string is decoded to /
+ */
+static int HTPParserDecodingTest03(void)
+{
+    int result = 0;
+    Flow *f = NULL;
+    uint8_t httpbuf1[] =
+        "GET /abc%252fdef HTTP/1.1\r\nHost: www.domain.ltd\r\n\r\n"
+        "GET /abc/def?ghi%252fjkl HTTP/1.1\r\nHost: www.domain.ltd\r\n\r\n";
+    uint32_t httplen1 = sizeof(httpbuf1) - 1; /* minus the \0 */
+    TcpSession ssn;
+
+    HtpState *htp_state =  NULL;
+    int r = 0;
+    char input[] = "\
+%YAML 1.1\n\
+---\n\
+libhtp:\n\
+\n\
+  default-config:\n\
+    personality: IDS\n\
+    double-decode-path: yes\n\
+    double-decode-query: yes\n\
+";
+
+    ConfCreateContextBackup();
+    ConfInit();
+    HtpConfigCreateBackup();
+    ConfYamlLoadString(input, strlen(input));
+    HTPConfigure();
+    char *addr = "4.3.2.1";
+    memset(&ssn, 0, sizeof(ssn));
+
+    f = UTHBuildFlow(AF_INET, "1.2.3.4", addr, 1024, 80);
+    if (f == NULL)
+        goto end;
+    f->protoctx = &ssn;
+
+    StreamTcpInitConfig(TRUE);
+
+    uint32_t u;
+    for (u = 0; u < httplen1; u++) {
+        uint8_t flags = 0;
+
+        if (u == 0) flags = STREAM_TOSERVER|STREAM_START;
+        else if (u == (httplen1 - 1)) flags = STREAM_TOSERVER|STREAM_EOF;
+        else flags = STREAM_TOSERVER;
+
+        r = AppLayerParse(NULL, f, ALPROTO_HTTP, flags, &httpbuf1[u], 1);
+        if (r != 0) {
+            printf("toserver chunk %" PRIu32 " returned %" PRId32 ", expected"
+                    " 0: ", u, r);
+            result = 0;
+            goto end;
+        }
+    }
+
+    htp_state = f->alstate;
+    if (htp_state == NULL) {
+        printf("no http state: ");
+        result = 0;
+        goto end;
+    }
+
+    uint8_t ref1[] = "/abc/def";
+    size_t reflen = sizeof(ref1) - 1;
+
+    htp_tx_t *tx = list_get(htp_state->connp->conn->transactions, 0);
+    if (tx != NULL && tx->request_uri_normalized != NULL) {
+        if (reflen != bstr_size(tx->request_uri_normalized)) {
+            printf("normalized uri len should be %"PRIuMAX", is %"PRIuMAX,
+                (uintmax_t)reflen,
+                (uintmax_t)bstr_size(tx->request_uri_normalized));
+            goto end;
+        }
+
+        if (memcmp(bstr_ptr(tx->request_uri_normalized), ref1,
+                    bstr_size(tx->request_uri_normalized)) != 0)
+        {
+            printf("normalized uri \"");
+            PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
+            printf("\" != \"");
+            PrintRawUriFp(stdout, ref1, reflen);
+            printf("\": ");
+            goto end;
+        }
+    }
+
+    uint8_t ref2[] = "/abc/def?ghi/jkl";
+    reflen = sizeof(ref2) - 1;
+
+    tx = list_get(htp_state->connp->conn->transactions, 1);
+    if (tx != NULL && tx->request_uri_normalized != NULL) {
+        if (reflen != bstr_size(tx->request_uri_normalized)) {
+            printf("normalized uri len should be %"PRIuMAX", is %"PRIuMAX,
+                (uintmax_t)reflen,
+                (uintmax_t)bstr_size(tx->request_uri_normalized));
+            goto end;
+        }
+
+        if (memcmp(bstr_ptr(tx->request_uri_normalized), ref2,
+                    bstr_size(tx->request_uri_normalized)) != 0)
+        {
+            printf("normalized uri \"");
+            PrintRawUriFp(stdout, (uint8_t *)bstr_ptr(tx->request_uri_normalized), bstr_size(tx->request_uri_normalized));
+            printf("\" != \"");
+            PrintRawUriFp(stdout, ref2, reflen);
+            printf("\": ");
+            goto end;
+        }
+    }
+
+    result = 1;
+
+end:
+    HTPFreeConfig();
+    ConfDeInit();
+    ConfRestoreContextBackup();
+    HtpConfigRestoreBackup();
+
+    StreamTcpFreeConfig(TRUE);
+    if (htp_state != NULL)
+        HTPStateFree(htp_state);
+    UTHFreeFlow(f);
+    return result;
+}
+
 #endif /* UNITTESTS */
 
 /**
@@ -3911,6 +4418,10 @@ void HTPParserRegisterTests(void) {
     UtRegisterTest("HTPParserConfigTest01", HTPParserConfigTest01, 1);
     UtRegisterTest("HTPParserConfigTest02", HTPParserConfigTest02, 1);
     UtRegisterTest("HTPParserConfigTest03", HTPParserConfigTest03, 1);
+
+    UtRegisterTest("HTPParserDecodingTest01", HTPParserDecodingTest01, 1);
+    UtRegisterTest("HTPParserDecodingTest02", HTPParserDecodingTest02, 1);
+    UtRegisterTest("HTPParserDecodingTest03", HTPParserDecodingTest03, 1);
 
     HTPFileParserRegisterTests();
 #endif /* UNITTESTS */

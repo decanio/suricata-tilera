@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2012 Open Information Security Foundation
+/* Copyright (C) 2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -15,21 +15,5 @@
  * 02110-1301, USA.
  */
 
-/**
- * \file
- *
- * \author Eileen Donlon <emdonlo@gmail.com>
- */
-
-#ifndef __DETECT_ENGINE_ANALYZER_H__
-#define __DETECT_ENGINE_ANALYZER_H__
-
-#include <stdint.h>
-
-int SetupRuleAnalyzer(void);
-void CleanupRuleAnalyzer (void);
-int PerCentEncodingSetup ();
-int PerCentEncodingMatch (uint8_t *content, uint8_t content_len);
-void EngineAnalysisRules(Signature *s, char *line);
-
-#endif /* __DETECT_ENGINE_ANALYZER_H__ */
+int DecodeTeredo(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
+                 uint8_t *pkt, uint16_t len, PacketQueue *pq);

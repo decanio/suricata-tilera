@@ -36,13 +36,14 @@ static int rule_warnings_only = 0;
 static FILE *rule_engine_analysis_FD = NULL;
 static pcre *percent_re = NULL;
 static pcre_extra *percent_re_study = NULL;
+static char log_path[PATH_MAX];
 
 /**
  * \brief Sets up the rule analyzer according to the config
  * \retval 1 if rule analyzer successfully enabled
  * \retval 0 if not enabled
  */
-int SetupRuleAnalyzer(char *log_path)
+int SetupRuleAnalyzer(void)
 {
     ConfNode *conf = ConfGetNode("engine-analysis");
     int enabled = 0;
@@ -58,10 +59,10 @@ int SetupRuleAnalyzer(char *log_path)
             char *log_dir;
             if (ConfGet("default-log-dir", &log_dir) != 1)
                 log_dir = DEFAULT_LOG_DIR;
-            snprintf(log_path, 256, "%s/%s", log_dir, "rules_analysis.txt");
+            snprintf(log_path, sizeof(log_path), "%s/%s", log_dir, "rules_analysis.txt");
             rule_engine_analysis_FD = fopen(log_path, "w");
             if (rule_engine_analysis_FD == NULL) {
-                SCLogError(SC_ERR_FOPEN, "ERROR: failed to open %s: %s", log_path, strerror(errno));
+                SCLogError(SC_ERR_FOPEN, "failed to open %s: %s", log_path, strerror(errno));
                 return 0;
             }
 
@@ -96,7 +97,7 @@ int SetupRuleAnalyzer(char *log_path)
     return 1;
 }
 
-void CleanupRuleAnalyzer(char *log_path) {
+void CleanupRuleAnalyzer(void) {
     if (rule_engine_analysis_FD != NULL) {
          SCLogInfo("Engine-Analyis for rules printed to file - %s", log_path);
         fclose(rule_engine_analysis_FD);
@@ -198,6 +199,7 @@ void EngineAnalysisRules(Signature *s, char *line)
     uint32_t http_stat_msg_buf = 0;
     uint32_t http_raw_header_buf = 0;
     uint32_t http_raw_uri_buf = 0;
+    uint32_t http_ua_buf = 0;
     uint32_t warn_pcre_no_content = 0;
     uint32_t warn_pcre_http_content = 0;
     uint32_t warn_pcre_http = 0;
@@ -210,6 +212,8 @@ void EngineAnalysisRules(Signature *s, char *line)
     uint32_t warn_method_serverbody = 0;
     uint32_t warn_pcre_method = 0;
     uint32_t warn_encoding_norm_http_buf = 0;
+    uint32_t warn_offset_depth_pkt_stream = 0;
+    uint32_t warn_offset_depth_alproto = 0;
 
     if (s->init_flags & SIG_FLAG_INIT_BIDIREC) {
         rule_bidirectional = 1;
@@ -275,6 +279,11 @@ void EngineAnalysisRules(Signature *s, char *line)
                     rule_pcre_http += 1;
                     raw_http_buf += 1;
                     http_stat_code_buf += 1;
+                }
+                else if (list_id == DETECT_SM_LIST_HUADMATCH) {
+                    rule_pcre_http += 1;
+                    norm_http_buf += 1;
+                    http_ua_buf += 1;
                 }
                 else {
                     rule_pcre += 1;
@@ -437,6 +446,14 @@ void EngineAnalysisRules(Signature *s, char *line)
             warn_pcre_method = 1;
         }
     }
+    if (rule_content_offset_depth > 0 && stream_buf && packet_buf) {
+        rule_warning += 1;
+        warn_offset_depth_pkt_stream = 1;
+    }
+    if (rule_content_offset_depth > 0 && !stream_buf && packet_buf && s->alproto != ALPROTO_UNKNOWN) {
+        rule_warning += 1;
+        warn_offset_depth_alproto = 1;
+    }
 
     if (!rule_warnings_only || (rule_warnings_only && rule_warning > 0)) {
         fprintf(rule_engine_analysis_FD, "== Sid: %u ==\n", s->id);
@@ -457,6 +474,7 @@ void EngineAnalysisRules(Signature *s, char *line)
         if (http_client_body_buf) fprintf(rule_engine_analysis_FD, "    Rule matches on http client body buffer.\n");
         if (http_stat_msg_buf) fprintf(rule_engine_analysis_FD, "    Rule matches on http stat msg buffer.\n");
         if (http_stat_code_buf) fprintf(rule_engine_analysis_FD, "    Rule matches on http stat code buffer.\n");
+        if (http_ua_buf) fprintf(rule_engine_analysis_FD, "    Rule matches on http user agent buffer.\n");
         if (s->alproto != ALPROTO_UNKNOWN) {
             fprintf(rule_engine_analysis_FD, "    App layer protocol is %s.\n", TmModuleAlprotoToString(s->alproto));
         }
@@ -514,7 +532,7 @@ void EngineAnalysisRules(Signature *s, char *line)
                                && (rule_pcre > 0 || rule_pcre_http > 0)*/) {
             fprintf(rule_engine_analysis_FD, "    Warning: Rule uses pcre with only a http_method content; possible performance issue.\n");
         }
-        if (rule_content_offset_depth > 0) {
+        if (warn_offset_depth_pkt_stream) {
             fprintf(rule_engine_analysis_FD, "    Warning: Rule has depth"
                     "/offset with raw content keywords.  Please note the "
                     "offset/depth will be checked against both packet "
@@ -522,7 +540,7 @@ void EngineAnalysisRules(Signature *s, char *line)
                     "depth checked against just the payload, you can update "
                     "the signature as \"alert tcp-pkt...\"\n");
         }
-        if (rule_content_offset_depth > 0 && s->alproto != ALPROTO_UNKNOWN) {
+        if (warn_offset_depth_alproto) {
             fprintf(rule_engine_analysis_FD, "    Warning: Rule has "
                     "offset/depth set along with a match on a specific "
                     "app layer protocol - %d.  This can lead to FNs if we "

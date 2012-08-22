@@ -189,11 +189,14 @@ magic-file: @e_magic_file@
 # this mode, you need to set mode to 'repeat'
 # If you want packet to be sent to another queue after an ACCEPT decision
 # set mode to 'route' and set next-queue value.
+# On linux >= 3.6, you can set the fail-open option to yes to have the kernel
+# accept the packet if suricata is not able to keep pace.
 nfq:
 #  mode: accept
 #  repeat-mark: 1
 #  repeat-mask: 1
 #  route-queue: 2
+#  fail-open: yes
 
 # af-packet support
 # Set threads to > 1 to use PACKET_FANOUT support
@@ -427,7 +430,8 @@ pattern-matcher:
 # Defrag settings:
 
 defrag:
-  max-frags: 65535
+  trackers: 65535 # number of defragmented flows to follow
+  max-frags: 65535 # number of fragments to keep (higher than trackers)
   prealloc: yes
   timeout: 60
 
@@ -443,7 +447,7 @@ defrag:
 # prune before unsetting the emergency state. The emergency state is activated
 # when the memcap limit is reached, allowing to create new flows, but
 # prunning them with the emergency timeouts (they are defined below).
-# If the memcap is reached, the engine will try to prune prune-flows
+# If the memcap is reached, the engine will try to prune flows
 # with the default timeouts. If it doens't find a flow to prune, it will set
 # the emergency bit and it will try again with more agressive timeouts.
 # If that doesn't work, then it will try to kill the last time seen flows
@@ -456,7 +460,6 @@ flow:
   hash-size: 65536
   prealloc: 10000
   emergency-recovery: 30
-  prune-flows: 5
 
 # Specific timeouts for flows. Here you can specify the timeouts that the
 # active flows will wait to transit from the current state to another, on each
@@ -597,9 +600,6 @@ pfring:
     # Number of receive threads (>1 will enable experimental flow pinned
     # runmode)
     threads: 1
-
-    # Default interface we will listen on.
-    interface: eth0
 
     # Default clusterid.  PF_RING will load balance packets based on flow.
     # All threads/processes that will participate need to have the same
@@ -843,16 +843,24 @@ pcre:
 # Configure libhtp.
 #
 #
-# default-config:       Used when no server-config matches
-#   personality:        List of personalities used by default
-#   request-body-limit: Limit reassembly of request body for inspection
-#                       by http_client_body & pcre /P option.
+# default-config:           Used when no server-config matches
+#   personality:            List of personalities used by default
+#   request-body-limit:     Limit reassembly of request body for inspection
+#                           by http_client_body & pcre /P option.
+#   response-body-limit:    Limit reassembly of response body for inspection
+#                           by file_data, http_server_body & pcre /Q option.
+#   double-decode-path:     Double decode path section of the URI
+#   double-decode-query:    Double decode query section of the URI
 #
-# server-config:        List of server configurations to use if address matches
-#   address:            List of ip addresses or networks for this block
-#   personalitiy:       List of personalities used by this block
-#   request-body-limit: Limit reassembly of request body for inspection
-#                       by http_client_body & pcre /P option.
+# server-config:            List of server configurations to use if address matches
+#   address:                List of ip addresses or networks for this block
+#   personalitiy:           List of personalities used by this block
+#   request-body-limit:     Limit reassembly of request body for inspection
+#                           by http_client_body & pcre /P option.
+#   response-body-limit:    Limit reassembly of response body for inspection
+#                           by file_data, http_server_body & pcre /Q option.
+#   double-decode-path:     Double decode path section of the URI
+#   double-decode-query:    Double decode query section of the URI
 #
 # Currently Available Personalities:
 #   Minimal
@@ -875,6 +883,8 @@ libhtp:
      # it's in bytes.
      request-body-limit: 3072
      response-body-limit: 3072
+     double-decode-path: no
+     double-decode-query: no
 
    server-config:
 
@@ -885,6 +895,8 @@ libhtp:
          # it's in bytes.
          request-body-limit: 4096
          response-body-limit: 4096
+         double-decode-path: no
+         double-decode-query: no
 
      - iis7:
          address:
@@ -895,6 +907,8 @@ libhtp:
          # it's in bytes.
          request-body-limit: 4096
          response-body-limit: 4096
+         double-decode-path: no
+         double-decode-query: no
 
 # Profiling settings. Only effective if Suricata has been built with the
 # the --enable-profiling configure flag.

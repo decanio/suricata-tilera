@@ -732,6 +732,10 @@ int main(int argc, char **argv)
     /* initialize the logging subsys */
     SCLogInitLogModule(NULL);
 
+    if (SCSetThreadName("Suricata-Main") < 0) {
+        SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
+    }
+
     RunModeRegisterRunModes();
 
     /* By default use IDS mode, but if nfq or ipfw
@@ -1404,6 +1408,13 @@ int main(int argc, char **argv)
      * back on a sane default. */
     if (ConfGetInt("max-pending-packets", &max_pending_packets) != 1)
         max_pending_packets = DEFAULT_MAX_PENDING_PACKETS;
+    if (max_pending_packets >= 65535) {
+        SCLogError(SC_ERR_INVALID_YAML_CONF_ENTRY,
+                "Maximum max-pending-packets setting is 65534. "
+                "Please check %s for errors", conf_filename);
+        exit(EXIT_FAILURE);
+    }
+
     SCLogDebug("Max pending packets set to %"PRIiMAX, max_pending_packets);
 
     /* Pull the default packet size from the config, if not found fall

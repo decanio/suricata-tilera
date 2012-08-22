@@ -6,8 +6,6 @@ noinst_HEADERS = action-globals.h \
         util-validate.h
 bin_PROGRAMS = suricata
 
-AM_CPPFLAGS = -DCONFIG_DIR=\"$(e_sysconfdir)\"
-
 suricata_SOURCES = suricata.c suricata.h \
 runmodes.c runmodes.h \
 runmode-pcap.c runmode-pcap.h \
@@ -39,6 +37,7 @@ decode-ethernet.c decode-ethernet.h \
 decode-vlan.c decode-vlan.h \
 decode-sll.c decode-sll.h \
 decode-gre.c decode-gre.h \
+decode-teredo.c decode-teredo.h \
 decode-ppp.c decode-ppp.h \
 decode-pppoe.c decode-pppoe.h \
 decode-ipv4.c decode-ipv4.h \

@@ -243,8 +243,13 @@ char *DetectLoadCompleteSigPath(char *sig_file)
             if (path == NULL)
                 return NULL;
             strlcpy(path, defaultpath, path_len);
-            if (path[strlen(path) - 1] != '/')
+#if defined OS_WIN32 || defined __CYGWIN__
+	    if (path[strlen(path) - 1] != '\\')
+                strlcat(path, "\\\\", path_len);
+#else
+	    if (path[strlen(path) - 1] != '/')
                 strlcat(path, "/", path_len);
+#endif
             strlcat(path, sig_file, path_len);
        } else {
             path = SCStrdup(sig_file);
@@ -392,6 +397,8 @@ void EngineAnalysisFastPattern(Signature *s)
     } /* for ( ; list_id < DETECT_SM_LIST_MAX; list_id++) */
 
     int max_len = 0;
+    int max_len_negated = 0;
+    int max_len_non_negated = 0;
     /* get the longest pattern in the sig */
     if (!fast_pattern) {
         SigMatch *sm = NULL;
@@ -404,10 +411,24 @@ void EngineAnalysisFastPattern(Signature *s)
                     continue;
 
                 DetectContentData *cd = (DetectContentData *)sm->ctx;
-                if (max_len < cd->content_len)
-                    max_len = cd->content_len;
+                if (cd->flags & DETECT_CONTENT_NEGATED) {
+                    if (max_len_negated < cd->content_len)
+                        max_len_negated = cd->content_len;
+                } else {
+                    if (max_len_non_negated < cd->content_len)
+                        max_len_non_negated = cd->content_len;
+                }
             }
         }
+    }
+
+    int skip_negated_content = 0;
+    if (max_len_non_negated == 0) {
+        max_len = max_len_negated;
+        skip_negated_content = 0;
+    } else {
+        max_len = max_len_non_negated;
+        skip_negated_content = 1;
     }
 
     SigMatch *sm = NULL;
@@ -432,6 +453,8 @@ void EngineAnalysisFastPattern(Signature *s)
                 SCLogDebug("fast pattern %"PRIu32"", cd->id);
             } else {
                 DetectContentData *cd = (DetectContentData *)sm->ctx;
+                if ((cd->flags & DETECT_CONTENT_NEGATED) && skip_negated_content)
+                    continue;
                 if (cd->content_len < max_len)
                     continue;
 
@@ -573,7 +596,7 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
     char *sfile = NULL;
 
     /* needed by engine_analysis */
-    char log_path[256];
+    char log_path[PATH_MAX];
 
     if (engine_analysis) {
         if ((ConfGetBool("engine-analysis.rules-fast-pattern",
@@ -587,11 +610,11 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
             char *log_dir;
             if (ConfGet("default-log-dir", &log_dir) != 1)
                 log_dir = DEFAULT_LOG_DIR;
-            snprintf(log_path, 256, "%s/%s", log_dir, "rules_fast_pattern.txt");
+            snprintf(log_path, sizeof(log_path), "%s/%s", log_dir, "rules_fast_pattern.txt");
 
             fp_engine_analysis_FD = fopen(log_path, "w");
             if (fp_engine_analysis_FD == NULL) {
-                SCLogError(SC_ERR_FOPEN, "ERROR: failed to open %s: %s", log_path,
+                SCLogError(SC_ERR_FOPEN, "failed to open %s: %s", log_path,
                            strerror(errno));
                 return -1;
             }
@@ -612,7 +635,7 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
         else {
             SCLogInfo("Engine-Analysis for fast_pattern disabled in conf file.");
         }
-        rule_engine_analysis_set = SetupRuleAnalyzer(log_path);
+        rule_engine_analysis_set = SetupRuleAnalyzer();
     }
 
     /* ok, let's load signature files from the general config */
@@ -712,7 +735,7 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
             }
         }
         if (rule_engine_analysis_set) {
-            CleanupRuleAnalyzer(log_path);
+            CleanupRuleAnalyzer();
         }
     }
 
@@ -1363,7 +1386,9 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
     uint8_t sms_runflags = 0;   /* function flags */
     uint8_t alert_flags = 0;
     uint16_t alproto = ALPROTO_UNKNOWN;
-    int match = 0;
+#ifdef PROFILING
+    int smatch = 0; /* signature match: 1, no match: 0 */
+#endif
     int fmatch = 0;
     uint32_t idx;
     uint8_t flags = 0;          /* flow/state flags */
@@ -1594,6 +1619,9 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
     /* inspect the sigs against the packet */
     for (idx = 0; idx < det_ctx->match_array_cnt; idx++) {
         RULE_PROFILING_START;
+#ifdef PROFILING
+        smatch = 0;
+#endif
 
         s = det_ctx->match_array[idx];
         SCLogDebug("inspecting signature id %"PRIu32"", s->id);
@@ -1741,8 +1769,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
             SCLogDebug("running match functions, sm %p", sm);
             for ( ; sm != NULL; sm = sm->next) {
-                match = sigmatch_table[sm->type].Match(th_v, det_ctx, p, s, sm);
-                if (match <= 0) {
+                if (sigmatch_table[sm->type].Match(th_v, det_ctx, p, s, sm) <= 0) {
                     goto next;
                 }
             }
@@ -1794,6 +1821,9 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
         /* match! */
         fmatch = 1;
+#ifdef PROFILING
+        smatch = 1;
+#endif
 
         SigMatchSignaturesRunPostMatch(th_v, de_ctx, det_ctx, p, s);
 
@@ -1803,7 +1833,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 next:
         DetectReplaceFree(det_ctx->replist);
         det_ctx->replist = NULL;
-        RULE_PROFILING_END(s, match);
+        RULE_PROFILING_END(s, smatch);
 
         det_ctx->flags = 0;
         continue;
