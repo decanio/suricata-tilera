@@ -281,7 +281,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
     int nlive = LiveGetDeviceCount();
     if (nlive > 0) {
         SCLogInfo("Using %d live device(s).", nlive);
-        mpipe_dev = LiveGetDevice(0);
+        /*mpipe_dev = LiveGetDevice(0);*/
     } else {
         /*
          * Attempt to get interface from config file
@@ -295,8 +295,6 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
             }
         }
     }
-
-    SCLogDebug("mpipe_dev %s", mpipe_dev);
 
     /*
      * Careful.  All of the pickup_queues must be created
@@ -392,8 +390,10 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
         //TmThreadSetCPUAffinity(tv_decode1, MapTile(tile++));
         TmThreadSetCPUAffinity(tv_decode1,
                                1+((pipe_max+1)/2)+(pipe*TILES_PER_PIPELINE));
-SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
-                               1+((pipe_max+1)/2)+(pipe*TILES_PER_PIPELINE));
+
+        SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d",
+                  thread_name, pipe_max, pipe,
+                  1+((pipe_max+1)/2)+(pipe*TILES_PER_PIPELINE));
 
         if (TmThreadSpawn(tv_decode1) != TM_ECODE_OK) {
             printf("ERROR: TmThreadSpawn failed\n");

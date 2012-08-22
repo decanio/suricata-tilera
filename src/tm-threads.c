@@ -96,7 +96,7 @@ __thread uint64_t rwr_lock_cnt;
 /* prototypes */
 static int SetCPUAffinity(uint16_t cpu);
 #ifdef __tile__
-void *TmThreadsThreadWrap(void *td);
+static void *TmThreadsThreadWrap(void *td);
 #endif
 
 /* root of the threadvars list */
@@ -161,9 +161,12 @@ static ThreadVars *TmCloneThreadVars(ThreadVars *td)
         printf("ERror: TmTCloneThreadVars could not clone ThreadVars\n");
         exit(EXIT_FAILURE);
     }
+    TmThreadsSetFlag((ThreadVars *)td, THV_INIT_DONE);
     memcpy(tv, td, sizeof(ThreadVars));
     TmThreadExchange(td, tv, td->type);
+/*
     SCFree(td);
+*/
 #else
     tv = td;
 #endif
@@ -171,7 +174,7 @@ static ThreadVars *TmCloneThreadVars(ThreadVars *td)
 }
 
 #ifdef __tile__
-void *TmThreadsThreadWrap(void *td)
+static void *TmThreadsThreadWrap(void *td)
 {
     int result;
     extern int mica_memcpy_enabled;
@@ -1888,7 +1891,13 @@ TmEcode TmThreadSpawn(ThreadVars *tv)
         return TM_ECODE_FAILED;
     }
 
+#ifndef __tile__
+    /* Disabling this on tile for the time being.
+     * this doesn't play well with tilera threadvar swaping cache optimization
+     * or the tilera startup barrier.  Will try to find a way to put this back.
+     */
     TmThreadWaitForFlag(tv, THV_INIT_DONE);
+#endif
 
     TmThreadAppend(tv, tv->type);
 
