@@ -117,7 +117,8 @@ typedef struct MpipeThreadVars_
     Packet *in_p;
 
     /** stats/counters */
-    uint16_t mpipe_depth;
+    uint16_t max_mpipe_depth0;
+    uint16_t max_mpipe_depth1;
     uint16_t counter_no_buffers_0;
     uint16_t counter_no_buffers_1;
     uint16_t counter_no_buffers_2;
@@ -426,7 +427,7 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
                 for (i = 0; i < m; i++) {
                     __insn_prefetch(&idesc[i]);
                 }
-                SCPerfCounterSetUI64(ptv->mpipe_depth, tv->sc_perf_pca,
+                SCPerfCounterSetUI64(ptv->max_mpipe_depth0, tv->sc_perf_pca,
                                      (uint64_t)n);
                 for (i = 0; i < m; i++, idesc++) {
                     if (likely(!idesc->be)) {
@@ -500,7 +501,10 @@ static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                 for (j = 0; j < m; j++) {
                     __insn_prefetch(&idesc[j]);
                 }
-                SCPerfCounterSetUI64(ptv->mpipe_depth, tv->sc_perf_pca,
+
+                SCPerfCounterSetUI64((i == 0) ? ptv->max_mpipe_depth0 :
+                                                ptv->max_mpipe_depth1,
+                                     tv->sc_perf_pca,
                                      (uint64_t)n);
 
                 for (j = 0; j < m; j++, idesc++) {
@@ -578,7 +582,9 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                 for (j = 0; j < m; j++) {
                     __insn_prefetch(&idesc[j]);
                 }
-                SCPerfCounterSetUI64(ptv->mpipe_depth, tv->sc_perf_pca,
+                SCPerfCounterSetUI64((i == 0) ? ptv->max_mpipe_depth0 :
+                                                ptv->max_mpipe_depth1,
+                                     tv->sc_perf_pca,
                                      (uint64_t)n);
                 /* HACK: cant seem to open more than 4 channels */
                 if (pool < MAX_PCI_CHANNELS) {
@@ -673,28 +679,11 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
 }
 
 TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
-#if 0
-    struct timeval timeval;
-#endif
     MpipeThreadVars *ptv = (MpipeThreadVars *)data;
     TmSlot *s = (TmSlot *)slot;
-#if 0
-    gxio_mpipe_iqueue_t* iqueue;
-    gxio_mpipe_idesc_t *idesc;
-    ptv->slot = s->slot_next;
-    Packet *p;
-    int cpu = tmc_cpus_get_my_cpu();
-    int rank = cpu-1;
-#endif
     TmEcode rc;
 
     SCEnter();
-
-#if 0
-    SCLogInfo("cpu: %d rank: %d", cpu, rank);
-
-    tilera_fast_gettimeofday(&timeval);
-#endif
 
     if (capture_enabled)
         rc = ReceiveMpipeCapturePollPair(tv, ptv, s);
@@ -702,60 +691,6 @@ TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
         rc = ReceiveMpipePollPair(tv, ptv, s);
    
     SCReturnInt(rc);
-#if 0 
-    for (;;) {
-        int i;
-
-        if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
-            SCReturnInt(TM_ECODE_FAILED);
-        }
-
-        for (i = 0; i < 2; i++) {
-            int pool = (rank * 2) + i;
-
-            iqueue = iqueues[pool];
-
-            //SCLogInfo("Polling pool %d rank %d queue %d", pool, rank, i);
-            int n = gxio_mpipe_iqueue_try_peek(iqueue, &idesc);
-            if (likely(n > 0)) {
-                int j; int m;
-
-                //SCLogInfo("Got %d packets for pool %d", n, pool);
-                m = min(n, 4);
-
-                /* Prefetch the idescs (64 bytes each). */
-                for (j = 0; j < m; j++) {
-                    __insn_prefetch(&idesc[j]);
-                }
-                SCPerfCounterSetUI64(ptv->mpipe_depth, tv->sc_perf_pca,
-                                     (uint64_t)n);
-                for (j = 0; j < m; j++, idesc++) {
-                    if (likely(!idesc->be)) {
-                        p = MpipeProcessPacket(ptv,  idesc, &timeval);
-                        p->pool = pool;
-                        TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
-#ifdef LATE_MPIPE_CREDIT
-                        gxio_mpipe_iqueue_advance(iqueue, 1);
-#ifdef LATE_MPIPE_BUCKET_CREDIT
-                        gxio_mpipe_credit(iqueue->context, iqueue->ring, -1, 1);
-#endif
-#else
-                        gxio_mpipe_iqueue_consume(iqueue, idesc);
-#endif
-                    } else {
-                        gxio_mpipe_iqueue_consume(iqueue, idesc);
-                        SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
-                    }
-                }
-            } else {
-                tilera_fast_gettimeofday(&timeval);
-            }
-            SCPerfSyncCountersIfSignalled(tv, 0);
-        }
-    }
-
-    SCReturnInt(TM_ECODE_OK);
-#endif
 }
 
 TmEcode MpipeRegisterPipeStage(void *td) {
@@ -766,9 +701,14 @@ TmEcode MpipeRegisterPipeStage(void *td) {
 
 static void MpipeRegisterPerfCounters(MpipeThreadVars *ptv, ThreadVars *tv) {
     /* register counters */
-    ptv->mpipe_depth = SCPerfTVRegisterCounter("mpipe.mpipe_depth", tv,
-                                               SC_PERF_TYPE_UINT64,
-                                               "NULL");
+    ptv->max_mpipe_depth0 = SCPerfTVRegisterMaxCounter("mpipe.max_mpipe_depth0",
+                                                       tv,
+                                                       SC_PERF_TYPE_UINT64,
+                                                       "NULL");
+    ptv->max_mpipe_depth1 = SCPerfTVRegisterMaxCounter("mpipe.max_mpipe_depth1",
+                                                       tv,
+                                                       SC_PERF_TYPE_UINT64,
+                                                       "NULL");
     ptv->counter_no_buffers_0 = SCPerfTVRegisterCounter("mpipe.no_buf0", tv,
                                                         SC_PERF_TYPE_UINT64,
                                                         "NULL");
@@ -797,6 +737,42 @@ static void MpipeRegisterPerfCounters(MpipeThreadVars *ptv, ThreadVars *tv) {
    tv->sc_perf_pca = SCPerfGetAllCountersArray(tv, &tv->sc_perf_pctx);
    SCPerfAddToClubbedTMTable(tv->name, &tv->sc_perf_pctx);
 }
+static const gxio_mpipe_buffer_size_enum_t gxio_buffer_sizes[] = {
+            GXIO_MPIPE_BUFFER_SIZE_128,
+            GXIO_MPIPE_BUFFER_SIZE_256,
+            GXIO_MPIPE_BUFFER_SIZE_512,
+            GXIO_MPIPE_BUFFER_SIZE_1024,
+            GXIO_MPIPE_BUFFER_SIZE_1664,
+            GXIO_MPIPE_BUFFER_SIZE_4096,
+            GXIO_MPIPE_BUFFER_SIZE_10368,
+            GXIO_MPIPE_BUFFER_SIZE_16384
+        };
+
+static const unsigned int buffer_sizes[] = {
+            128,
+            256,
+            512,
+            1024,
+            1664,
+            4096,
+            10368,
+            16384
+        };
+
+static struct {
+       int mul;
+       int div;
+} buffer_scale[] = {
+      { 1, 8 }, /* 128 */
+      { 1, 8 }, /* 256 */
+      { 1, 8 }, /* 512 */
+      { 1, 8 }, /* 1024 */
+      { 3, 8 }, /* 1664 */
+      { 0, 8 }, /* 4096 */
+      { 1, 8 }, /* 10386 */
+      { 0, 8 }  /* 16384 */
+};
+
 
 TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     SCEnter()
@@ -815,40 +791,6 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     unsigned int total_buffers = 0;
     unsigned int num_workers = TileNumPipelines /*DFLT_TILERA_MPIPE_PIPELINES*/;
     unsigned int stack_count = 0;
-    const gxio_mpipe_buffer_size_enum_t gxio_buffer_sizes[] = {
-            GXIO_MPIPE_BUFFER_SIZE_128,
-            GXIO_MPIPE_BUFFER_SIZE_256,
-            GXIO_MPIPE_BUFFER_SIZE_512,
-            GXIO_MPIPE_BUFFER_SIZE_1024,
-            GXIO_MPIPE_BUFFER_SIZE_1664,
-            GXIO_MPIPE_BUFFER_SIZE_4096,
-            GXIO_MPIPE_BUFFER_SIZE_10368,
-            GXIO_MPIPE_BUFFER_SIZE_16384
-        };
-    const unsigned int buffer_sizes[] = {
-            128,
-            256,
-            512,
-            1024,
-            1664,
-            4096,
-            10368,
-            16384
-        };
-    static const struct {
-       int mul;
-       int div;
-    } buffer_scale[] = {
-      { 1, 8 }, /* 128 */
-      { 1, 8 }, /* 256 */
-      { 1, 8 }, /* 512 */
-      { 1, 8 }, /* 1024 */
-      { 3, 8 }, /* 1664 */
-      { 0, 8 }, /* 4096 */
-      { 1, 8 }, /* 10386 */
-      { 0, 8 }  /* 16384 */
-    };
-
     if (initdata == NULL) {
         SCLogError(SC_ERR_INVALID_ARGUMENT, "initdata == NULL");
         SCReturnInt(TM_ECODE_FAILED);
@@ -875,6 +817,52 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
     if (rank == 0) {
 
+        if (ConfGetNode("mpipe.stack") != NULL) {
+       	    char *ratio;
+            unsigned i;
+            for (i = 0; i < (sizeof(buffer_scale)/sizeof(buffer_scale[0])); i++)
+    	        buffer_scale[i].mul = buffer_scale[i].div = 0;
+	    if (ConfGet("mpipe.stack.size128", &ratio)) {
+		sscanf(ratio, "%d/%d", &buffer_scale[0].mul,
+                                       &buffer_scale[0].div);
+	    }
+	    if (ConfGet("mpipe.stack.size256", &ratio)) {
+		sscanf(ratio, "%d/%d", &buffer_scale[1].mul,
+                                       &buffer_scale[1].div);
+	    }
+	    if (ConfGet("mpipe.stack.size512", &ratio)) {
+		sscanf(ratio, "%d/%d", &buffer_scale[2].mul,
+                                       &buffer_scale[2].div);
+	    }
+	    if (ConfGet("mpipe.stack.size1024", &ratio)) {
+		sscanf(ratio, "%d/%d", &buffer_scale[3].mul,
+                                       &buffer_scale[3].div);
+	    }
+	    if (ConfGet("mpipe.stack.size1664", &ratio)) {
+		sscanf(ratio, "%d/%d", &buffer_scale[4].mul,
+                                       &buffer_scale[4].div);
+	    }
+	    if (ConfGet("mpipe.stack.size4096", &ratio)) {
+		sscanf(ratio, "%d/%d", &buffer_scale[5].mul,
+                                       &buffer_scale[5].div);
+	    }
+	    if (ConfGet("mpipe.stack.size10386", &ratio)) {
+		sscanf(ratio, "%d/%d", &buffer_scale[6].mul,
+                                       &buffer_scale[6].div);
+	    }
+	    if (ConfGet("mpipe.stack.size16384", &ratio)) {
+		sscanf(ratio, "%d/%d", &buffer_scale[7].mul,
+                                       &buffer_scale[7].div);
+	    }
+	    /*
+            for (i = 0; i < (sizeof(buffer_scale)/sizeof(buffer_scale[0])); i++)
+		printf("%u %d/%d\n", i, buffer_scale[i].mul,
+                                        buffer_scale[i].div);
+            */
+            /* TBD.  Do some checking to make sure the ratios don't 
+             * add up to more than 1.
+             */
+	}
         if (strcmp(link_name, "multi") == 0) {
             int nlive = LiveGetDeviceCount();
             //printf("nlive: %d\n", nlive);
