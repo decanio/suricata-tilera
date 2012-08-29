@@ -6,7 +6,9 @@
 	<META NAME="GENERATOR" CONTENT="LibreOffice 3.5  (Linux)">
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
 	<META NAME="CREATED" CONTENT="20120102;16542200">
-	<META NAME="CHANGED" CONTENT="20120810;9573900">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
+	<META NAME="CHANGED" CONTENT="20120829;13112400">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
@@ -34,7 +36,11 @@
 <P STYLE="margin-bottom: 0in"><BR>
 </P>
 <DIV ID="wiki-content" DIR="LTR">
+	<P><BR><BR>
+	</P>
 	<DIV ID="wiki-body" DIR="LTR">
+		<P><BR><BR>
+		</P>
 		<DIV ID="template" DIR="LTR">
 			<H1 CLASS="western">Suricata for Tilera</H1>
 			<P><BR><BR>
@@ -203,6 +209,8 @@
 			will probably want to extract the rules and sample suricata
 			configuration as follows:</SPAN></SPAN></SPAN></STRONG></P>
 			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX</CODE>
+<CODE CLASS="western">mkdir rules</CODE>
+<CODE CLASS="western">cd rules</CODE>
 <CODE CLASS="western"><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal"><SPAN STYLE="font-weight: normal">tar xvfz suricata-rules.tgz</SPAN></SPAN></SPAN></CODE></PRE><P>
 			<STRONG><SPAN STYLE="font-weight: normal">If you are using either
 			a TILEncore-Gx pcie card or using a TILEmpower-Gx or TILExtreme-Gx
@@ -235,7 +243,7 @@
 <CODE CLASS="western">mpipe:</CODE>
 
 <CODE CLASS="western">  </CODE><CODE CLASS="western"># Load balancing mode &quot;static&quot; or &quot;dynamic&quot;.</CODE>
-<CODE CLASS="western">  </CODE><CODE CLASS="western">load-balance: static</CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western">load-balance: dynamic</CODE>
 
 <CODE CLASS="western">  </CODE><CODE CLASS="western"># Enable packet capture to pcie</CODE>
 <CODE CLASS="western">  </CODE><CODE CLASS="western">capture:</CODE>
@@ -244,7 +252,18 @@
 <CODE CLASS="western">  </CODE><CODE CLASS="western"># List of interfaces we will listen on.</CODE>
 <CODE CLASS="western">  </CODE><CODE CLASS="western">inputs:</CODE>
 <CODE CLASS="western">    </CODE><CODE CLASS="western">- interface: gbe3</CODE>
-<CODE CLASS="western">    </CODE><CODE CLASS="western">- interface: gbe4</CODE></PRE><P>
+<CODE CLASS="western">    </CODE><CODE CLASS="western">- interface: gbe4</CODE>
+
+  # packet size scale factors
+  stack:
+    size128: 1/8
+    size256: 1/8
+    size512: 1/8
+    size1024: 1/8
+    size1664: 3/8
+    size4096: 0/8
+    size10386: 1/8
+    size16384: 0/8</PRE><P>
 			Suricata can be configured to utilize available tiles on different
 			Tilera processors by indicating the number of parallel processing
 			pipelines to be spawned and the number of detect threads to be
@@ -363,6 +382,19 @@
 			your target system using scp or other means. Then extract the
 			contents of the tar file in the / directory of your TILEmpower-GX
 			or TILExtreme-GX system.</SPAN></STRONG></P>
+			<H2 CLASS="western"><EM><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal"><B>Installing
+			the Suricata Rules and Configuration on the System</B></SPAN></SPAN></EM></H2>
+			<P><STRONG><SPAN STYLE="font-weight: normal">An example set of
+			rules and suricata.yaml configuration files can be obtained from
+			Tilera in the tar file </SPAN></STRONG><STRONG><I><SPAN STYLE="font-weight: normal">suricata-rules.tgz.</SPAN></I></STRONG></P>
+			<P><STRONG><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal"><SPAN STYLE="font-weight: normal">Copy
+			the suricata-rules.tgz tar file to your system and extract the
+			rules and sample suricata configuration as follows:</SPAN></SPAN></SPAN></STRONG></P>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd /opt</CODE>
+<CODE CLASS="western"><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal"><SPAN STYLE="font-weight: normal">tar xvfz suricata-rules.tgz</SPAN></SPAN></SPAN></CODE></PRE><P>
+			<STRONG><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal"><SPAN STYLE="font-weight: normal">Experienced
+			suricata users are free to use their own rules or obtain them from
+			other sources.</SPAN></SPAN></SPAN></STRONG></P>
 			<H2 CLASS="western"><STRONG>Preconfigured Tilera based Suricata
 			Systems</STRONG></H2>
 			<P>If you would like a system with suricata for Tilera already
