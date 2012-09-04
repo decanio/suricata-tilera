@@ -636,6 +636,19 @@ void AppLayerRegisterLocalStorageFunc(uint16_t proto,
     return;
 }
 
+void AppLayerRegisterTruncateFunc(uint16_t proto, void (*Truncate)(void *, uint8_t))
+{
+    al_proto_table[proto].Truncate = Truncate;
+
+    return;
+}
+
+void AppLayerStreamTruncated(uint16_t proto, void *state, uint8_t flags) {
+    if (al_proto_table[proto].Truncate != NULL) {
+        al_proto_table[proto].Truncate(state, flags);
+    }
+}
+
 void *AppLayerGetProtocolParserLocalStorage(ThreadVars *tv, uint16_t proto)
 {
     if (al_proto_table[proto].LocalStorageAlloc != NULL) {
@@ -861,6 +874,9 @@ int AppLayerParse(void *local_data, Flow *f, uint8_t proto,
     /* Do this check before calling AppLayerParse */
     if (flags & STREAM_GAP) {
         SCLogDebug("stream gap detected (missing packets), this is not yet supported.");
+
+        if (f->alstate != NULL)
+            AppLayerStreamTruncated(proto, f->alstate, flags);
         goto error;
     }
 
@@ -968,6 +984,11 @@ int AppLayerParse(void *local_data, Flow *f, uint8_t proto,
     if (parser_state->flags & APP_LAYER_PARSER_EOF) {
         SCLogDebug("eof, flag Transaction id's");
         parser_state_store->id_flags |= APP_LAYER_TRANSACTION_EOF;
+    }
+
+    /* stream truncated, inform app layer */
+    if (flags & STREAM_DEPTH) {
+        AppLayerStreamTruncated(proto, app_layer_state, flags);
     }
 
     SCReturnInt(0);

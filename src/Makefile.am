@@ -173,6 +173,7 @@ detect-fileext.c detect-fileext.h \
 detect-filestore.c detect-filestore.h \
 detect-filemagic.c detect-filemagic.h \
 detect-filemd5.c detect-filemd5.h \
+detect-filesize.c detect-filesize.h \
 detect-http-stat-code.c detect-http-stat-code.h \
 detect-ssl-version.c detect-ssl-version.h \
 detect-ssl-state.c detect-ssl-state.h \
@@ -252,6 +253,7 @@ util-runmodes.c util-runmodes.h \
 util-file.c util-file.h \
 util-path.c util-path.h \
 util-buffer.c util-buffer.h \
+util-crypt.c util-crypt.h \
 tm-modules.c tm-modules.h \
 tm-queues.c tm-queues.h \
 tm-queuehandlers.c tm-queuehandlers.h \
@@ -271,6 +273,7 @@ alert-syslog.c alert-syslog.h \
 alert-pcapinfo.c alert-pcapinfo.h \
 log-droplog.c log-droplog.h \
 log-httplog.c log-httplog.h \
+log-tlslog.c log-tlslog.h \
 log-pcap.c log-pcap.h \
 log-file.c log-file.h \
 log-filestore.c log-filestore.h \

@@ -1284,7 +1284,7 @@ void SigGroupHeadPrintContentCnt(DetectEngineCtx *de_ctx, SigGroupHead *sgh)
  * \param sgh    Pointer to the SigGroupHead.
  *
  * \retval  0 On success, i.e. on either the detection engine context being NULL
- *            or on succesfully allocating memory and updating it with relevant
+ *            or on successfully allocating memory and updating it with relevant
  *            data.
  * \retval -1 On failure.
  */
@@ -1364,7 +1364,7 @@ int SigGroupHeadClearContent(SigGroupHead *sh)
  * \param sgh    Pointer to the SigGroupHead.
  *
  * \retval  0 On success, i.e. on either the detection engine context being NULL
- *            or on succesfully allocating memory and updating it with relevant
+ *            or on successfully allocating memory and updating it with relevant
  *            data.
  * \retval -1 On failure.
  */
@@ -1444,7 +1444,7 @@ int SigGroupHeadClearUricontent(SigGroupHead *sh)
  * \param sgh    Pointer to the SigGroupHead.
  *
  * \retval  0 On success, i.e. on either the detection engine context being NULL
- *            or on succesfully allocating memory and updating it with relevant
+ *            or on successfully allocating memory and updating it with relevant
  *            data.
  * \retval -1 On failure.
  */
@@ -1592,6 +1592,33 @@ void SigGroupHeadSetFilemagicFlag(DetectEngineCtx *de_ctx, SigGroupHead *sgh) {
 
         if (SignatureIsFilemagicInspecting(s)) {
             sgh->flags |= SIG_GROUP_HEAD_HAVEFILEMAGIC;
+            break;
+        }
+    }
+
+    return;
+}
+
+/**
+ *  \brief Set the need size flag in the sgh.
+ *
+ *  \param de_ctx detection engine ctx for the signatures
+ *  \param sgh sig group head to set the flag in
+ */
+void SigGroupHeadSetFilesizeFlag(DetectEngineCtx *de_ctx, SigGroupHead *sgh) {
+    Signature *s = NULL;
+    uint32_t sig = 0;
+
+    if (sgh == NULL)
+        return;
+
+    for (sig = 0; sig < sgh->sig_cnt; sig++) {
+        s = sgh->match_array[sig];
+        if (s == NULL)
+            continue;
+
+        if (SignatureIsFilesizeInspecting(s)) {
+            sgh->flags |= SIG_GROUP_HEAD_HAVEFILESIZE;
             break;
         }
     }

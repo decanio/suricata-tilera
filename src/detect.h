@@ -38,6 +38,7 @@
 #include "util-debug.h"
 #include "util-error.h"
 #include "util-radix-tree.h"
+#include "util-file.h"
 
 #include "detect-mark.h"
 
@@ -261,6 +262,8 @@ typedef struct DetectPort_ {
 #define SIG_FLAG_TOSERVER               (1<<19)
 #define SIG_FLAG_TOCLIENT               (1<<20)
 
+#define SIG_FLAG_TLSSTORE               (1<<21)
+
 /* signature init flags */
 #define SIG_FLAG_INIT_DEONLY         1  /**< decode event only signature */
 #define SIG_FLAG_INIT_PACKET         (1<<1)  /**< signature has matches against a packet (as opposed to app layer) */
@@ -292,6 +295,7 @@ typedef struct DetectPort_ {
 #define FILE_SIG_NEED_MAGIC         0x08    /**< need the start of the file */
 #define FILE_SIG_NEED_FILECONTENT   0x10
 #define FILE_SIG_NEED_MD5           0x20
+#define FILE_SIG_NEED_SIZE          0x40
 
 /* Detection Engine flags */
 #define DE_QUIET           0x01     /**< DE is quiet (esp for unittests) */
@@ -669,6 +673,9 @@ typedef struct DetectEngineCtx_ {
     /** Store rule file and line so that parsers can use them in errors. */
     char *rule_file;
     int rule_line;
+
+    /** Is detect engine using a delayed init */
+    int delayed_detect;
 } DetectEngineCtx;
 
 /* Engine groups profiles (low, medium, high, custom) */
@@ -794,13 +801,22 @@ typedef struct DetectionEngineThreadCtx_ {
 #endif
 } DetectEngineThreadCtx;
 
-/** \brief element in sigmatch type table. */
+/** \brief element in sigmatch type table.
+ *  \note FileMatch pointer below takes a locked flow, AppLayerMatch an unlocked flow
+ */
 typedef struct SigTableElmt_ {
     /** Packet match function pointer */
     int (*Match)(ThreadVars *, DetectEngineThreadCtx *, Packet *, Signature *, SigMatch *);
 
     /** AppLayer match function  pointer */
     int (*AppLayerMatch)(ThreadVars *, DetectEngineThreadCtx *, Flow *, uint8_t flags, void *alstate, Signature *, SigMatch *);
+
+    /** File match function  pointer */
+    int (*FileMatch)(ThreadVars *,  /**< thread local vars */
+        DetectEngineThreadCtx *,
+        Flow *,                     /**< *LOCKED* flow */
+        uint8_t flags, File *, Signature *, SigMatch *);
+
     /** app layer proto from app-layer-protos.h this match applies to */
     uint16_t alproto;
 
@@ -834,6 +850,7 @@ typedef struct SigTableElmt_ {
 #define SIG_GROUP_HEAD_MPM_HSCD         (1 << 17)
 #define SIG_GROUP_HEAD_MPM_HUAD         (1 << 18)
 #define SIG_GROUP_HEAD_HAVEFILEMD5      (1 << 19)
+#define SIG_GROUP_HEAD_HAVEFILESIZE     (1 << 20)
 
 typedef struct SigGroupHeadInitData_ {
     /* list of content containers
@@ -999,6 +1016,8 @@ enum {
     DETECT_AL_TLS_VERSION,
     DETECT_AL_TLS_SUBJECT,
     DETECT_AL_TLS_ISSUERDN,
+    DETECT_AL_TLS_FINGERPRINT,
+    DETECT_AL_TLS_STORE,
 
     DETECT_AL_HTTP_COOKIE,
     DETECT_AL_HTTP_METHOD,
@@ -1034,6 +1053,7 @@ enum {
     DETECT_FILESTORE,
     DETECT_FILEMAGIC,
     DETECT_FILEMD5,
+    DETECT_FILESIZE,
 
     /* make sure this stays last */
     DETECT_TBLSIZE,
@@ -1071,6 +1091,7 @@ Signature *DetectGetTagSignature(void);
 int SignatureIsFilestoring(Signature *);
 int SignatureIsFilemagicInspecting(Signature *);
 int SignatureIsFileMd5Inspecting(Signature *);
+int SignatureIsFilesizeInspecting(Signature *);
 
 #endif /* __DETECT_H__ */
 

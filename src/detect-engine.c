@@ -88,6 +88,9 @@ static void *DetectEngineLiveRuleSwap(void *arg)
     /* block usr2.  usr2 to be handled by the main thread only */
     UtilSignalBlock(SIGUSR2);
 
+    /* release TmThreadSpawn */
+    TmThreadsSetFlag(tv_local, THV_INIT_DONE);
+
     ConfDeInit();
     ConfInit();
 
@@ -126,30 +129,10 @@ static void *DetectEngineLiveRuleSwap(void *arg)
         exit(EXIT_FAILURE);
     }
 
-    uint8_t local_need_htp_request_body = need_htp_request_body;
-    uint8_t local_need_htp_request_multipart_hdr = need_htp_request_multipart_hdr;
-    uint8_t local_need_htp_request_file = need_htp_request_file;
-    uint8_t local_need_htp_response_body = need_htp_response_body;
-
     if (SigLoadSignatures(de_ctx, NULL, FALSE) < 0) {
         SCLogError(SC_ERR_NO_RULES_LOADED, "Loading signatures failed.");
         if (de_ctx->failure_fatal)
             exit(EXIT_FAILURE);
-    }
-
-    if (local_need_htp_request_body != need_htp_request_body ||
-        local_need_htp_request_multipart_hdr != need_htp_request_multipart_hdr ||
-        local_need_htp_request_file != need_htp_request_file ||
-        local_need_htp_response_body != need_htp_response_body) {
-        SCLogInfo("===== New ruleset requires enabling htp features that "
-                  "can't be enabled at runtime.  You will have to restart "
-                  "engine to load the new ruleset =====");
-        DetectEngineCtxFree(de_ctx);
-        UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2);
-
-        TmThreadsSetFlag(tv_local, THV_CLOSED);
-
-        pthread_exit(NULL);
     }
 
     SCThresholdConfInitContext(de_ctx, NULL);

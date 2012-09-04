@@ -97,6 +97,7 @@
 
 #include "log-droplog.h"
 #include "log-httplog.h"
+#include "log-tlslog.h"
 #include "log-pcap.h"
 #include "log-file.h"
 #include "log-filestore.h"
@@ -715,6 +716,7 @@ int main(int argc, char **argv)
 #endif /* OS_WIN32 */
     int build_info = 0;
     int rule_reload = 0;
+    int delayed_detect = 0;
 
     char *log_dir;
 #ifdef OS_WIN32
@@ -1523,14 +1525,20 @@ int main(int argc, char **argv)
     }
 
 
+    /* nfq */
     TmModuleReceiveNFQRegister();
     TmModuleVerdictNFQRegister();
     TmModuleDecodeNFQRegister();
+    /* ipfw */
     TmModuleReceiveIPFWRegister();
     TmModuleVerdictIPFWRegister();
     TmModuleDecodeIPFWRegister();
+    /* pcap live */
     TmModuleReceivePcapRegister();
     TmModuleDecodePcapRegister();
+    /* pcap file */
+    TmModuleReceivePcapFileRegister();
+    TmModuleDecodePcapFileRegister();
 #ifdef __tilegx__
     TmModuleReceiveMpipeRegister();
     TmModuleDecodeMpipeRegister();
@@ -1538,42 +1546,64 @@ int main(int argc, char **argv)
     TmModuleReceiveNetioRegister();
     TmModuleDecodeNetioRegister();
 #endif
+    /* af-packet */
     TmModuleReceiveAFPRegister();
     TmModuleDecodeAFPRegister();
+    /* pfring */
     TmModuleReceivePfringRegister();
     TmModuleDecodePfringRegister();
-    TmModuleReceivePcapFileRegister();
-    TmModuleDecodePcapFileRegister();
+    /* dag file */
+    TmModuleReceiveErfFileRegister();
+    TmModuleDecodeErfFileRegister();
+    /* dag live */
+    TmModuleReceiveErfDagRegister();
+    TmModuleDecodeErfDagRegister();
+    /* napatech */
+    TmModuleNapatechFeedRegister();
+    TmModuleNapatechDecodeRegister();
+
+    /* stream engine */
+    TmModuleStreamTcpRegister();
+    /* detection */
     TmModuleDetectRegister();
-    TmModuleAlertFastLogRegister();
-    TmModuleAlertDebugLogRegister();
-    TmModuleAlertPreludeRegister();
+    /* respond-reject */
     TmModuleRespondRejectRegister();
+
+    /* fast log */
+    TmModuleAlertFastLogRegister();
     TmModuleAlertFastLogIPv4Register();
     TmModuleAlertFastLogIPv6Register();
+    /* debug log */
+    TmModuleAlertDebugLogRegister();
+    /* prelue log */
+    TmModuleAlertPreludeRegister();
+    /* syslog log */
+    TmModuleAlertSyslogRegister();
     TmModuleAlertSyslogIPv4Register();
     TmModuleAlertSyslogIPv6Register();
+    /* unified2 log */
     TmModuleUnified2AlertRegister();
-    TmModuleAlertSyslogRegister();
+    /* pcap info log */
     TmModuleAlertPcapInfoRegister();
+    /* drop log */
     TmModuleLogDropLogRegister();
-    TmModuleStreamTcpRegister();
+    /* http log */
     TmModuleLogHttpLogRegister();
     TmModuleLogHttpLogIPv4Register();
     TmModuleLogHttpLogIPv6Register();
+    TmModuleLogTlsLogRegister();
+    TmModuleLogTlsLogIPv4Register();
+    TmModuleLogTlsLogIPv6Register();
+    /* pcap log */
     TmModulePcapLogRegister();
+    /* file log */
     TmModuleLogFileLogRegister();
     TmModuleLogFilestoreRegister();
+    /* cuda */
 #ifdef __SC_CUDA_SUPPORT__
     TmModuleCudaMpmB2gRegister();
     TmModuleCudaPacketBatcherRegister();
 #endif
-    TmModuleReceiveErfFileRegister();
-    TmModuleDecodeErfFileRegister();
-    TmModuleReceiveErfDagRegister();
-    TmModuleDecodeErfDagRegister();
-    TmModuleNapatechFeedRegister();
-    TmModuleNapatechDecodeRegister();
     TmModuleDebugList();
 
     AppLayerHtpNeedFileInspection();
@@ -1601,7 +1631,6 @@ int main(int argc, char **argv)
 
         AppLayerHtpEnableRequestBodyCallback();
         AppLayerHtpNeedFileInspection();
-        AppLayerHtpRegisterExtraCallbacks();
 
         UtInitialize();
         UTHRegisterTests();
@@ -1804,18 +1833,42 @@ int main(int argc, char **argv)
     if (MagicInit() != 0)
         exit(EXIT_FAILURE);
 
-    if (SigLoadSignatures(de_ctx, sig_file, sig_file_exclusive) < 0) {
-        if (sig_file == NULL) {
-            SCLogError(SC_ERR_OPENING_FILE, "Signature file has not been provided");
-        } else {
-            SCLogError(SC_ERR_NO_RULES_LOADED, "Loading signatures failed.");
+    /* In offline mode delayed init of detect is a bad idea */
+    if ((run_mode == RUNMODE_PCAP_FILE) ||
+        (run_mode == RUNMODE_ERF_FILE) ||
+        engine_analysis) {
+        delayed_detect = 0;
+    } else {
+        ConfNode *denode = NULL;
+        ConfNode *decnf = ConfGetNode("detect-engine");
+        if (decnf != NULL) {
+            TAILQ_FOREACH(denode, &decnf->head, next) {
+                if (strcmp(denode->val, "delayed-detect") == 0) {
+                    (void)ConfGetChildValueBool(denode, "delayed-detect", &delayed_detect);
+                }
+            }
         }
-        if (de_ctx->failure_fatal)
-            exit(EXIT_FAILURE);
+    }
+    de_ctx->delayed_detect = delayed_detect;
+
+    SCLogInfo("Delayed detect %s", delayed_detect ? "enabled" : "disabled");
+    if (delayed_detect) {
+        SCLogInfo("Packets will start being processed before signatures are active.");
     }
 
-    if (engine_analysis) {
-        exit(EXIT_SUCCESS);
+    if (!delayed_detect) {
+        if (SigLoadSignatures(de_ctx, sig_file, sig_file_exclusive) < 0) {
+            if (sig_file == NULL) {
+                SCLogError(SC_ERR_OPENING_FILE, "Signature file has not been provided");
+            } else {
+                SCLogError(SC_ERR_NO_RULES_LOADED, "Loading signatures failed.");
+            }
+            if (de_ctx->failure_fatal)
+                exit(EXIT_FAILURE);
+        }
+        if (engine_analysis) {
+            exit(EXIT_SUCCESS);
+        }
     }
 
     /* registering singal handlers we use.  We register usr2 here, so that one
@@ -1831,7 +1884,6 @@ int main(int argc, char **argv)
     SCCudaPBSetUpQueuesAndBuffers();
 #endif /* __SC_CUDA_SUPPORT__ */
 
-    AppLayerHtpRegisterExtraCallbacks();
     SCThresholdConfInitContext(de_ctx,NULL);
     SCAsn1LoadConfig();
 
@@ -1958,6 +2010,21 @@ printf("DEBUG: setting affinity for main\n");
     /* Un-pause all the paused threads */
     TmThreadContinueThreads();
 
+    if (delayed_detect) {
+        if (SigLoadSignatures(de_ctx, sig_file, sig_file_exclusive) < 0) {
+            if (sig_file == NULL) {
+                SCLogError(SC_ERR_OPENING_FILE, "Signature file has not been provided");
+            } else {
+                SCLogError(SC_ERR_NO_RULES_LOADED, "Loading signatures failed.");
+            }
+            if (de_ctx->failure_fatal)
+                exit(EXIT_FAILURE);
+        }
+        TmThreadActivateDummySlot();
+        SCLogInfo("Signature(s) loaded, Detect thread(s) activated.");
+    }
+
+
 #ifdef DBG_MEM_ALLOC
     SCLogInfo("Memory used at startup: %"PRIdMAX, (intmax_t)global_mem);
 #ifdef DBG_MEM_ALLOC_SKIP_STARTUP
@@ -1968,67 +2035,7 @@ printf("DEBUG: setting affinity for main\n");
     int engine_retval = EXIT_SUCCESS;
     while(1) {
         if (suricata_ctl_flags != 0) {
-            SCLogDebug("signal received");
-
-            if (suricata_ctl_flags & SURICATA_STOP)  {
-                struct timeval ts_start;
-                struct timeval ts_cur;
-
-                memset(&ts_start, 0x00, sizeof(ts_start));
-                gettimeofday(&ts_start, NULL);
-
-                SCLogInfo("stopping engine, waiting for outstanding packets");
-
-                /* Stop the engine so it quits after processing the pcap file
-                 * but first make sure all packets are processed by all other
-                 * threads. */
-                char done = 0;
-                do {
-                    if (suricata_ctl_flags & SURICATA_KILL)
-                        break;
-
-                    /* if all packets are returned to the packetpool
-                     * we are done */
-#ifdef __tile__
-                    /* TBD: this is temporary, it isn't quite correct */
-                    for (int pool = 0; pool <  TileNumPipelines; pool++) {
-                        if (PacketPoolSize(pool) == max_pending_packets)
-                            done = 1;
-                    }
-#else
-                    if (PacketPoolSize() == max_pending_packets)
-                        done = 1;
-#endif
-
-                    if (done == 0) {
-                        memset(&ts_cur, 0x00, sizeof(ts_cur));
-                        gettimeofday(&ts_cur, NULL);
-
-                        if (ts_cur.tv_sec - ts_start.tv_sec >= 120) {
-#ifdef __tile__
-                            SCLogError(SC_ERR_SHUTDOWN, "shutdown taking too "
-                                    "long, likely a bug! (%"PRIuMAX
-                                    " != %"PRIuMAX").", (uintmax_t)PacketPoolSize(0),
-                                    (uintmax_t)max_pending_packets);
-#else
-                            SCLogError(SC_ERR_SHUTDOWN, "shutdown taking too "
-                                    "long, likely a bug! (%"PRIuMAX
-                                    " != %"PRIuMAX").", (uintmax_t)PacketPoolSize(),
-                                    (uintmax_t)max_pending_packets);
-#endif
-#ifdef DEBUG
-                            BUG_ON(1);
-#endif
-                            engine_retval = EXIT_FAILURE;
-                            break;
-                        }
-
-                        usleep(100);
-                    }
-                } while (done == 0);
-
-                SCLogInfo("all packets processed by threads, stopping engine");
-            }
+            SCLogInfo("Signal Received.  Stopping engine.");
 
             break;
         }
@@ -2041,7 +2048,6 @@ printf("DEBUG: setting affinity for main\n");
     /* Update the engine stage/status flag */
     (void) SC_ATOMIC_CAS(&engine_stage, SURICATA_RUNTIME, SURICATA_DEINIT);
 
-
 #ifdef __SC_CUDA_SUPPORT__
     SCCudaPBKillBatchingPackets();
 #endif
@@ -2050,7 +2056,7 @@ printf("DEBUG: setting affinity for main\n");
     FlowKillFlowManagerThread();
 
     /* Disable packet acquire thread first */
-    TmThreadDisableReceiveThreads();
+    TmThreadDisableThreadsWithTMS(TM_FLAG_RECEIVE_TM | TM_FLAG_DECODE_TM);
 
     FlowForceReassembly();
 
@@ -2063,7 +2069,8 @@ printf("DEBUG: setting affinity for main\n");
 
     if (rule_reload == 1) {
         /* Disable detect threads first.  This is required by live rule swap */
-        TmThreadDisableUptoDetectThreads();
+        TmThreadDisableThreadsWithTMS(TM_FLAG_RECEIVE_TM | TM_FLAG_DECODE_TM |
+                                      TM_FLAG_STREAM_TM | TM_FLAG_DETECT_TM);
 
         /* wait if live rule swap is in progress */
         if (UtilSignalIsHandler(SIGUSR2, SignalHandlerSigusr2Idle)) {

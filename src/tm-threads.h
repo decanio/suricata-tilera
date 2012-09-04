@@ -32,13 +32,15 @@
 #include <tmc/sync.h>
 #endif
 
+typedef TmEcode (*TmSlotFunc)(ThreadVars *, Packet *, void *, PacketQueue *,
+                        PacketQueue *);
+
 typedef struct TmSlot_ {
     /* the TV holding this slot */
     ThreadVars *tv;
 
     /* function pointers */
-    TmEcode (*SlotFunc)(ThreadVars *, Packet *, void *, PacketQueue *,
-                        PacketQueue *);
+    SC_ATOMIC_DECLARE(TmSlotFunc, SlotFunc);
 
     TmEcode (*PktAcqLoop)(ThreadVars *, void *, void *);
 
@@ -79,6 +81,7 @@ extern tmc_sync_barrier_t startup_barrier;
 #endif
 
 void TmSlotSetFuncAppend(ThreadVars *, TmModule *, void *);
+void TmSlotSetFuncAppendDelayed(ThreadVars *, TmModule *, void *, int delayed);
 TmSlot *TmSlotGetSlotForTM(int);
 
 ThreadVars *TmThreadCreate(char *, char *, char *, char *, char *, char *,
@@ -111,6 +114,9 @@ void TmThreadCheckThreadState(void);
 TmEcode TmThreadWaitOnThreadInit(void);
 ThreadVars *TmThreadsGetCallingThread(void);
 
+void TmThreadActivateDummySlot(void);
+void TmThreadDeActivateDummySlot(void);
+
 int TmThreadsCheckFlag(ThreadVars *, uint8_t);
 void TmThreadsSetFlag(ThreadVars *, uint8_t);
 void TmThreadsUnsetFlag(ThreadVars *, uint8_t);
@@ -119,8 +125,7 @@ void TmThreadWaitForFlag(ThreadVars *, uint8_t);
 TmEcode TmThreadsSlotVarRun (ThreadVars *tv, Packet *p, TmSlot *slot);
 
 ThreadVars *TmThreadsGetTVContainingSlot(TmSlot *);
-void TmThreadDisableReceiveThreads(void);
-void TmThreadDisableUptoDetectThreads(void);
+void TmThreadDisableThreadsWithTMS(uint8_t tm_flags);
 TmSlot *TmThreadGetFirstTmSlotForPartialPattern(const char *);
 
 /**
