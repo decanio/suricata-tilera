@@ -2147,6 +2147,10 @@ printf("DEBUG: setting affinity for main\n");
     TmqhCleanup();
     TmModuleRunDeInit();
 
+#ifdef HAVE_AF_PACKET
+    AFPPeersListClean();
+#endif
+
 #ifdef PROFILING
     if (profiling_rules_enabled)
         SCProfilingDump();

@@ -42,6 +42,7 @@ typedef enum {
 #include "source-nfq.h"
 #include "source-ipfw.h"
 #include "source-pcap.h"
+#include "source-af-packet.h"
 
 #include "action-globals.h"
 
@@ -389,6 +390,9 @@ typedef struct Packet_
 #ifdef IPFW
         IPFWPacketVars ipfw_v;
 #endif /* IPFW */
+#ifdef AF_PACKET
+        AFPPacketVars afp_v;
+#endif
 
         /** libpcap vars: shared by Pcap Live mode and Pcap File mode */
         PcapPacketVars pcap_v;
@@ -424,6 +428,9 @@ typedef struct Packet_
     /* used to hold flowbits only if debuglog is enabled */
     int debuglog_flowbits_names_len;
     const char **debuglog_flowbits_names;
+
+    /** The release function for packet data */
+    TmEcode (*ReleaseData)(ThreadVars *, struct Packet_ *);
 
     /* pkt vars */
     PktVar *pktvar;
@@ -691,6 +698,8 @@ typedef struct DecodeThreadVars_
     uint16_t counter_vlan;
     uint16_t counter_pppoe;
     uint16_t counter_teredo;
+    uint16_t counter_ipv4inipv6;
+    uint16_t counter_ipv6inipv6;
     uint16_t counter_avg_pkt_size;
     uint16_t counter_max_pkt_size;
 
