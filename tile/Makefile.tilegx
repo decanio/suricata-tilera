@@ -186,7 +186,7 @@ TILE_MONITOR_WILDCAT_ARGS = \
 #  --hvd MEMPROF_TILE=5,5 \
 
 # This is sized for an 8GB Cannon card
-#  --vmlinux $(BASE_DIR)/work/linux/vmlinux \
+#  --vmlinux $(HOME_DIR)/work/linux/vmlinux \
 
 CANNON_SPEED = --hvd CPU_SPEED=1200
 
@@ -210,7 +210,7 @@ TILE_MONITOR_CANNON_CAPTURE_ARGS = \
   $(CANNON_SPEED) \
   --hvd MEMPROF_TILE=5,5 \
   --huge-pages 400 \
-  --vmlinux $(BASE_DIR)/work/linux/vmlinux \
+  --vmlinux $(HOME_DIR)/work/linux/vmlinux \
   --quit; \
   $(TILERA_ROOT)/bin/parallelize \
   -++- $(TILE_MONITOR) --resume $(PCI_ARGS) \
