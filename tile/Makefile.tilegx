@@ -223,8 +223,8 @@ TILE_MONITOR_CANNON_CAPTURE_ARGS = \
     --run -+- suricata -c $(RULES_CONFIG) --mpipe -+- \
   -++- /home/tdecanio/hack/gxpci_host_pq/run6.sh
 
-# This is sized for an 16GB Wildcat card
-TILE_MONITOR_WILDCAT_STATIC_ARGS = \
+# This boots a Wildcat and leaves it available for manipulation by hand
+TILE_MONITOR_WILDCAT_BOOT_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   --hvx "hugepagesz=1g hugepages=2" \
   --hvd MEMPROF_TILE=5,5 \
@@ -235,7 +235,11 @@ TILE_MONITOR_WILDCAT_STATIC_ARGS = \
   --mount-tile /usr \
   --mount $(RULES_DIR) /opt \
   --mount $(LOG_DIR) /var/log/suricata \
-  --upload ./src/suricata suricata \
+  --upload ./src/suricata suricata
+
+# This is sized for an 16GB Wildcat card
+TILE_MONITOR_WILDCAT_STATIC_ARGS = \
+  $(TILE_MONITOR_WILDCAT_BOOT_STATIC_ARGS) \
   --run -+- suricata -c $(RULES_CONFIG) --mpipe -+-
 
 TILE_MONITOR_WILDCAT_FEEDBACK_ARGS = \
@@ -380,6 +384,13 @@ reimage_net:
 # The following make targets are intended for Suricata "developers" to execute
 # suricata on Tilera platforms and perform additional analysis
 #
+
+# boot and upload suricata via a network interface
+# useful for testing as if this was installed on SSD
+boot_net: $(SIM_DEPS)
+	$(TILE_MONITOR) \
+    $(NET_ARGS) \
+	$(TILE_MONITOR_WILDCAT_BOOT_STATIC_ARGS)
 
 # boot and run suricata on a "TILEncore-Gx" card via pcie interface
 # with pcie forwarding enabled (note requires gxpci_host_pq and a
