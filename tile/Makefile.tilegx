@@ -186,7 +186,7 @@ TILE_MONITOR_WILDCAT_ARGS = \
 #  --hvd MEMPROF_TILE=5,5 \
 
 # This is sized for an 8GB Cannon card
-#  --vmlinux $(BASE_DIR)/work/linux/vmlinux \
+#  --vmlinux $(HOME_DIR)/work/linux/vmlinux \
 
 CANNON_SPEED = --hvd CPU_SPEED=1200
 
@@ -345,21 +345,21 @@ SIM_DEPS := $(PCAP_FILE)
 #
 
 # boot and run suricata via a network interface
-run_net: $(SIM_DEPS) $(IMAGE_FILE)
+run_net: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(NET_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_STATIC_ARGS)
 
 # boot and run suricata on a "TILEncore-Gx" card via pcie interface
-run_pci: $(SIM_DEPS) $(IMAGE_FILE)
+run_pci: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(PCI_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_CANNON_STATIC_ARGS)
 
 # boot and run suricata via USB interface
-run_usb: $(SIM_DEPS) $(IMAGE_FILE)
+run_usb: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
 	--debug-on-crash \
@@ -384,14 +384,14 @@ reimage_net:
 # boot and run suricata on a "TILEncore-Gx" card via pcie interface
 # with pcie forwarding enabled (note requires gxpci_host_pq and a
 # modified MDE.  NOT FOR GENERAL CONSUMPTION.
-run_pci_capture: $(SIM_DEPS) $(IMAGE_FILE)
+run_pci_capture: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(PCI_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_CANNON_CAPTURE_ARGS)
 
 # run a dynamically linked suricata 
-run_wc_dyn: $(SIM_DEPS) $(IMAGE_FILE)
+run_wc_dyn: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
 	--debug-on-crash \
@@ -399,56 +399,56 @@ run_wc_dyn: $(SIM_DEPS) $(IMAGE_FILE)
 
 
 # run a dynamically linked suricata 
-run_net_dyn: $(SIM_DEPS) $(IMAGE_FILE)
+run_net_dyn: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(NET_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_ARGS)
 
 # produce compiler feedback on dynamic linked suricata
-fb_wc: $(SIM_DEPS) $(IMAGE_FILE)
+fb_wc: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_FEEDBACK_ARGS)
 
 # produce compiler feedback on static linked suricata
-fb_wc_static: $(SIM_DEPS) $(IMAGE_FILE)
+fb_wc_static: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_FEEDBACK_STATIC_ARGS)
 
 # produce compiler feedback on static linked suricata
-fb_net_static: $(SIM_DEPS) $(IMAGE_FILE)
+fb_net_static: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(NET_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_FEEDBACK_STATIC_ARGS)
 
 # profile suricata
-prof_wc: $(SIM_DEPS) $(IMAGE_FILE)
+prof_wc: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_PROFILE_ARGS)
 
 # profile suricata staticaly linked suricata
-prof_wc_static: $(SIM_DEPS) $(IMAGE_FILE)
+prof_wc_static: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(WILDCAT_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_PROFILE_STATIC_ARGS)
 
 # profile suricata dynamically linked suricata via network
-prof_net: $(SIM_DEPS) $(IMAGE_FILE)
+prof_net: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(NET_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_PROFILE_ARGS)
 
 # profile suricata statically linked suricata via network
-prof_net_static: $(SIM_DEPS) $(IMAGE_FILE)
+prof_net_static: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(NET_ARGS) \
 	--debug-on-crash \
@@ -488,4 +488,4 @@ prof_net_static: $(SIM_DEPS) $(IMAGE_FILE)
 #	    $(SIM_ARGS) $(TILE_MONITOR_WILDCAT_FEEDBACK_ARGS)
 
 
-.PHONY: run_sim
+#.PHONY: run_sim
