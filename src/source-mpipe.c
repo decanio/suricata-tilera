@@ -41,13 +41,17 @@
 #include "tmqh-packetpool.h"
 
 #ifdef __tilegx__
-
+#include <mde-version.h>
 #include <tmc/alloc.h>
 #include <arch/sim.h>
 #include <arch/cycle.h>
 #include <gxio/mpipe.h>
 #include <gxio/trio.h>
+#if MDE_VERSION_CODE >= MDE_VERSION(4,1,0)
+#include <gxpci/gxpci.h>
+#else
 #include <gxpci.h>
+#endif
 #include <tmc/cpus.h>
 #include <tmc/spin.h>
 #include <tmc/sync.h>
@@ -552,7 +556,7 @@ static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
 #define MAX_PCI_CHANNELS 6
 
 static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
-                                           TmSlot *s, int nqueue)
+                                           TmSlot *s, int nqueues)
 {
     gxpci_comp_t comp[MAX_CMDS_BATCH];
     gxpci_cmd_t cmd[MAX_CMDS_BATCH];
@@ -565,20 +569,29 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
     int cpu = tmc_cpus_get_my_cpu();
     int rank = cpu-1;
     int result;
+    int max[2];
 
     SCLogInfo("cpu: %d rank: %d", cpu, rank);
 
     tilera_fast_gettimeofday(&timeval);
 
+    max[0] = 0;
+    max[1] = 0;
+
     for (;;) {
         int i;
+        int t;
 
         if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
             SCReturnInt(TM_ECODE_FAILED);
         }
 
-        for (i = 0; i < 2; i++) {
-            int pool = (rank * 2) + i;
+        for (i = 0, t = 0; i < nqueues; i++) {
+            int pool;
+            if (nqueues == 2)
+                pool = (rank * 2) + i;
+            else
+                pool = rank + i;
 
             iqueue = iqueues[pool];
 
@@ -586,6 +599,7 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
             int n = gxio_mpipe_iqueue_try_peek(iqueue, &idesc);
             if (likely(n > 0)) {
                 int j; int m;
+                t += n;
 
                 //SCLogInfo("Got %d packets for pool %d %p", n, pool,
                 //          gxio_mpipe_idesc_get_va(idesc));
@@ -596,10 +610,13 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                 for (j = 0; j < m; j++) {
                     __insn_prefetch(&idesc[j]);
                 }
-                SCPerfCounterSetUI64((i == 0) ? ptv->max_mpipe_depth0 :
-                                                ptv->max_mpipe_depth1,
-                                     tv->sc_perf_pca,
-                                     (uint64_t)n);
+		if (unlikely(n > max[i])) {
+                    SCPerfCounterSetUI64((i == 0) ? ptv->max_mpipe_depth0 :
+                                                    ptv->max_mpipe_depth1,
+                                         tv->sc_perf_pca,
+                                         (uint64_t)n);
+                    max[i] = n;
+                }
                 /* HACK: cant seem to open more than 4 channels */
                 if (pool < MAX_PCI_CHANNELS) {
                     gxpci_ctxt = gxpci_context[pool];
@@ -663,8 +680,6 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                         }
                     }
 		}
-            } else {
-                tilera_fast_gettimeofday(&timeval);
             }
             /* HACK: cant seem to open more than 4 channels */
             if (pool < MAX_PCI_CHANNELS) {
@@ -686,7 +701,10 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                     }
 	        }
             }
-            SCPerfSyncCountersIfSignalled(tv, 0);
+        }
+        SCPerfSyncCountersIfSignalled(tv, 0);
+        if (t == 0) {
+                tilera_fast_gettimeofday(&timeval);
         }
     }
     SCReturnInt(TM_ECODE_OK);
