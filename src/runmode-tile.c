@@ -474,7 +474,7 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
         }
         //TmThreadSetCPUAffinity(tv_outputs, MapTile(tile++));
         //TmThreadSetCPUAffinity(tv_outputs, MapTile((pipe_max * TILES_PER_PIPELINE) + (pipe / 2) + 1));
-        TmThreadSetCPUAffinity(tv_decode1,
+        TmThreadSetCPUAffinity(tv_outputs,
                                1+((pipe_max+1)/2)+(pipe_max*TILES_PER_PIPELINE)+(pipe/PIPELINES_PER_OUTPUT));
 
         tm_module = TmModuleGetByName("RespondReject");

@@ -189,12 +189,14 @@ TILE_MONITOR_WILDCAT_ARGS = \
 
 # This is sized for an 8GB Cannon card
 #  --vmlinux $(HOME_DIR)/work/linux/vmlinux \
+#
+# --generate-monitor-xml monitor.xml \
 
 CANNON_SPEED = --hvd CPU_SPEED=1200
 
 TILE_MONITOR_CANNON_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
-  --hvx "hugepagesz=64m hugepages=1" \
+  --hvx "hugepagesz=512m hugepages=1" \
   $(CANNON_SPEED) \
   --hvd MEMPROF_TILE=5,5 \
   --huge-pages 400 \
