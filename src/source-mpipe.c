@@ -44,6 +44,7 @@
 #include <mde-version.h>
 #include <tmc/alloc.h>
 #include <arch/sim.h>
+#include <arch/atomic.h>
 #include <arch/cycle.h>
 #include <gxio/mpipe.h>
 #include <gxio/trio.h>
@@ -131,6 +132,7 @@ typedef struct MpipeThreadVars_
     uint16_t counter_no_buffers_5;
     uint16_t counter_no_buffers_6;
     uint16_t counter_no_buffers_7;
+    uint16_t counter_capture_overrun;
 
 } MpipeThreadVars;
 
@@ -163,6 +165,7 @@ static gxio_trio_context_t* trio_context = &trio_context_body;
 
 static gxpci_context_t gxpci_context_body[PIPELINES];
 static gxpci_context_t* gxpci_context[PIPELINES];
+static int inflight[PIPELINES];
 
 /* The TRIO index. */
 static int trio_index = 0;
@@ -237,6 +240,10 @@ void MpipeFreePacket(Packet *p) {
     gxio_mpipe_push_buffer(context,
                            p->idesc.stack_idx,
                            (void *)(intptr_t)p->idesc.va);
+
+    if (capture_enabled) {
+        arch_atomic_decrement(&inflight[p->pool]);
+    }
 
 //#define __TILEGX_FEEDBACK_RUN__
 #ifdef __TILEGX_FEEDBACK_RUN__
@@ -570,6 +577,7 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
     int rank = cpu-1;
     int result;
     int max[2];
+    int max_inflight = max_pending_packets / TileNumPipelines; 
 
     SCLogInfo("cpu: %d rank: %d", cpu, rank);
 
@@ -577,6 +585,7 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
 
     max[0] = 0;
     max[1] = 0;
+
 
     for (;;) {
         int i;
@@ -694,10 +703,16 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                     //SCLogInfo("gxpci channel %d received %d completions",
                     //          pool, result);
                     for (j = 0; j < result; j++) {
-                        u_char *pkt = comp[j].buffer + sizeof(gxio_mpipe_idesc_t);
-                        Packet *p = (Packet *)(pkt - sizeof(Packet) - headroom/*2*/);
+			if (arch_atomic_increment(&inflight[pool]) < max_inflight) {
+                            u_char *pkt = comp[j].buffer + sizeof(gxio_mpipe_idesc_t);
+                            Packet *p = (Packet *)(pkt - sizeof(Packet) - headroom/*2*/);
 
-                        TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+                            TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+                        } else {
+                            MpipeFreePacket(p);
+                            SCPerfCounterIncr(ptv->counter_capture_overrun,
+                                              tv->sc_perf_pca);
+                        }
                     }
 	        }
             }
@@ -788,6 +803,10 @@ static void MpipeRegisterPerfCounters(MpipeThreadVars *ptv, ThreadVars *tv) {
     ptv->counter_no_buffers_7 = SCPerfTVRegisterCounter("mpipe.no_buf7", tv,
                                                         SC_PERF_TYPE_UINT64,
                                                         "NULL");
+    ptv->counter_capture_overrun = 
+                        SCPerfTVRegisterCounter("mpipe.capture_overrun", tv,
+                                                SC_PERF_TYPE_UINT64,
+                                                "NULL");
 
    tv->sc_perf_pca = SCPerfGetAllCountersArray(tv, &tv->sc_perf_pctx);
    SCPerfAddToClubbedTMTable(tv->name, &tv->sc_perf_pctx);
@@ -871,6 +890,10 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     VERIFY(result, "tmc_cpus_set_my_cpu()");
 
     if (rank == 0) {
+        unsigned int i = 0;
+        for (i = 0; i < PIPELINES; i++) {
+            inflight[i] = 0;
+        }
 
         if (ConfGetNode("mpipe.stack") != NULL) {
        	    char *ratio;
@@ -1117,7 +1140,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         first_stack = (uint16_t)stack;
 	/*SCLogInfo("DEBUG: initial stack at %d", stack);*/
 
-        unsigned int i = 0;
+        i = 0;
         for (unsigned int stackidx = stack;
              stackidx < stack + stack_count;
              stackidx++, i++) {
