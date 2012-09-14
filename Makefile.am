@@ -3,7 +3,7 @@
 AUTOMAKE_OPTIONS = foreign 1.4
 ACLOCAL_AMFLAGS = -I m4
 EXTRA_DIST = ChangeLog COPYING LICENSE suricata.yaml.in \
-             classification.config \
+             classification.config threshold.config \
              reference.config
 if BUILD_LIBHTP
  HTP_DIR = libhtp
@@ -20,6 +20,7 @@ install-conf:
 	@test -e "$(e_sysconfdir)/suricata.yaml" || install -m 600 "$(top_srcdir)/suricata.yaml" "$(e_sysconfdir)"
 	@test -e "$(e_sysconfdir)/classification.config" || install -m 600 "$(top_srcdir)/classification.config" "$(e_sysconfdir)"
 	@test -e "$(e_sysconfdir)/reference.config" || install -m 600 "$(top_srcdir)/reference.config" "$(e_sysconfdir)"
+	@test -e "$(e_sysconfdir)/threshold.config" || install -m 600 "$(top_srcdir)/threshold.config" "$(e_sysconfdir)"
 	install -d "$(e_logfilesdir)"
 
 install-rules:

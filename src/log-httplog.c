@@ -180,7 +180,7 @@ static void LogHttpLogCustom(LogHttpLogThread *aft, htp_tx_t *tx, const struct t
                 break;
             case LOG_HTTP_CF_TIMESTAMP:
             /* TIMESTAMP */
-                if (httplog_ctx->cf_nodes[i]->data == '\0') {
+                if (httplog_ctx->cf_nodes[i]->data[0] == '\0') {
                     strftime(buf, 62, TIMESTAMP_DEFAULT_FORMAT, timestamp);
                 } else {
                     strftime(buf, 62, httplog_ctx->cf_nodes[i]->data, timestamp);
@@ -273,7 +273,10 @@ static void LogHttpLogCustom(LogHttpLogThread *aft, htp_tx_t *tx, const struct t
                                     aft->buffer->size, (uint8_t *)bstr_ptr(tx->response_status),
                                     bstr_len(tx->response_status));
                     /* Redirect? */
-                    if ((tx->response_status_number > 300) && ((tx->response_status_number) < 303)){
+                    if (tx->response_headers != NULL &&
+                            tx->response_status_number > 300 &&
+                            tx->response_status_number < 303)
+                    {
                         htp_header_t *h_location = table_getc(tx->response_headers, "location");
                         if (h_location != NULL) {
                             MemBufferWriteString(aft->buffer, "(");

@@ -41,13 +41,18 @@
 #include "tmqh-packetpool.h"
 
 #ifdef __tilegx__
-
+#include <mde-version.h>
 #include <tmc/alloc.h>
 #include <arch/sim.h>
+#include <arch/atomic.h>
 #include <arch/cycle.h>
 #include <gxio/mpipe.h>
 #include <gxio/trio.h>
+#if MDE_VERSION_CODE >= MDE_VERSION(4,1,0)
+#include <gxpci/gxpci.h>
+#else
 #include <gxpci.h>
+#endif
 #include <tmc/cpus.h>
 #include <tmc/spin.h>
 #include <tmc/sync.h>
@@ -127,6 +132,7 @@ typedef struct MpipeThreadVars_
     uint16_t counter_no_buffers_5;
     uint16_t counter_no_buffers_6;
     uint16_t counter_no_buffers_7;
+    uint16_t counter_capture_overrun;
 
 } MpipeThreadVars;
 
@@ -159,6 +165,7 @@ static gxio_trio_context_t* trio_context = &trio_context_body;
 
 static gxpci_context_t gxpci_context_body[PIPELINES];
 static gxpci_context_t* gxpci_context[PIPELINES];
+static int inflight[PIPELINES];
 
 /* The TRIO index. */
 static int trio_index = 0;
@@ -233,6 +240,10 @@ void MpipeFreePacket(Packet *p) {
     gxio_mpipe_push_buffer(context,
                            p->idesc.stack_idx,
                            (void *)(intptr_t)p->idesc.va);
+
+    if (capture_enabled) {
+        arch_atomic_decrement(&inflight[p->pool]);
+    }
 
 //#define __TILEGX_FEEDBACK_RUN__
 #ifdef __TILEGX_FEEDBACK_RUN__
@@ -463,29 +474,40 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
 }
 
 static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
-                                    TmSlot *s)
+                                    TmSlot *s, int nqueues)
 {
     struct timeval timeval;
     gxio_mpipe_iqueue_t* iqueue;
     gxio_mpipe_idesc_t *idesc;
     ptv->slot = s->slot_next;
     Packet *p;
+    char run = 1;
     int cpu = tmc_cpus_get_my_cpu();
     int rank = cpu-1;
+    int max[2];
 
     SCLogInfo("cpu: %d rank: %d", cpu, rank);
 
     tilera_fast_gettimeofday(&timeval);
 
-    for (;;) {
+    max[0] = 0;
+    max[1] = 0;
+
+    while (run) {
         int i;
+        int t;
 
         if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
             SCReturnInt(TM_ECODE_FAILED);
         }
 
-        for (i = 0; i < 2; i++) {
-            int pool = (rank * 2) + i;
+        for (i = 0, t = 0; i < nqueues; i++) {
+            int pool;
+            if (nqueues == 2)
+                pool = (rank * 2) + i;
+            else
+                pool = rank + i;
+             
 
             iqueue = iqueues[pool];
 
@@ -493,6 +515,7 @@ static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
             int n = gxio_mpipe_iqueue_try_peek(iqueue, &idesc);
             if (likely(n > 0)) {
                 int j; int m;
+                t += n;
 
                 //SCLogInfo("Got %d packets for pool %d", n, pool);
                 m = min(n, 4);
@@ -502,10 +525,13 @@ static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                     __insn_prefetch(&idesc[j]);
                 }
 
-                SCPerfCounterSetUI64((i == 0) ? ptv->max_mpipe_depth0 :
-                                                ptv->max_mpipe_depth1,
-                                     tv->sc_perf_pca,
-                                     (uint64_t)n);
+                if (unlikely(n > max[i])) {
+                    SCPerfCounterSetUI64((i == 0) ? ptv->max_mpipe_depth0 :
+                                                    ptv->max_mpipe_depth1,
+                                         tv->sc_perf_pca,
+                                         (uint64_t)n);
+                    max[i] = n;
+                }
 
                 for (j = 0; j < m; j++, idesc++) {
                     if (likely(!idesc->be)) {
@@ -525,12 +551,18 @@ static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                         SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
                     }
                 }
-            } else {
-                tilera_fast_gettimeofday(&timeval);
             }
-            SCPerfSyncCountersIfSignalled(tv, 0);
+        }
+        SCPerfSyncCountersIfSignalled(tv, 0);
+        if (t == 0) {
+            tilera_fast_gettimeofday(&timeval);
+        }
+        if (TmThreadsCheckFlag(tv, THV_KILL)) {
+            run = 0;
         }
     }
+    TmThreadsSetFlag(tv, THV_CLOSED);
+    SCLogInfo("cpu: %d rank: %d fell out of loop", cpu, rank);
     SCReturnInt(TM_ECODE_OK);
 }
 
@@ -538,7 +570,7 @@ static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
 #define MAX_PCI_CHANNELS 6
 
 static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
-                                           TmSlot *s)
+                                           TmSlot *s, int nqueues)
 {
     gxpci_comp_t comp[MAX_CMDS_BATCH];
     gxpci_cmd_t cmd[MAX_CMDS_BATCH];
@@ -551,20 +583,30 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
     int cpu = tmc_cpus_get_my_cpu();
     int rank = cpu-1;
     int result;
+    int max[2];
+    int max_inflight = max_pending_packets / TileNumPipelines;
 
     SCLogInfo("cpu: %d rank: %d", cpu, rank);
 
     tilera_fast_gettimeofday(&timeval);
 
+    max[0] = 0;
+    max[1] = 0;
+
     for (;;) {
         int i;
+        int t;
 
         if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
             SCReturnInt(TM_ECODE_FAILED);
         }
 
-        for (i = 0; i < 2; i++) {
-            int pool = (rank * 2) + i;
+        for (i = 0, t = 0; i < nqueues; i++) {
+            int pool;
+            if (nqueues == 2)
+                pool = (rank * 2) + i;
+            else
+                pool = rank + i;
 
             iqueue = iqueues[pool];
 
@@ -572,6 +614,7 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
             int n = gxio_mpipe_iqueue_try_peek(iqueue, &idesc);
             if (likely(n > 0)) {
                 int j; int m;
+                t += n;
 
                 //SCLogInfo("Got %d packets for pool %d %p", n, pool,
                 //          gxio_mpipe_idesc_get_va(idesc));
@@ -582,10 +625,13 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                 for (j = 0; j < m; j++) {
                     __insn_prefetch(&idesc[j]);
                 }
-                SCPerfCounterSetUI64((i == 0) ? ptv->max_mpipe_depth0 :
-                                                ptv->max_mpipe_depth1,
-                                     tv->sc_perf_pca,
-                                     (uint64_t)n);
+                if (unlikely(n > max[i])) { 
+                    SCPerfCounterSetUI64((i == 0) ? ptv->max_mpipe_depth0 :
+                                                    ptv->max_mpipe_depth1,
+                                         tv->sc_perf_pca,
+                                         (uint64_t)n);
+                    max[i] = n;
+                }
                 /* HACK: cant seem to open more than 4 channels */
                 if (pool < MAX_PCI_CHANNELS) {
                     gxpci_ctxt = gxpci_context[pool];
@@ -602,7 +648,7 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                                           + sizeof(gxio_mpipe_idesc_t);
 
                             /* prepend idesc in headroom */
-			    memcpy(pkt - sizeof(gxio_mpipe_idesc_t),
+                            memcpy(pkt - sizeof(gxio_mpipe_idesc_t),
                                    idesc,
                                    sizeof(gxio_mpipe_idesc_t));
 
@@ -611,7 +657,7 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                             //SCLogInfo("Sending %d length packet to queue %d",
                             //          idesc->l2_size, pool);
                             result = gxpci_pq_t2h_cmd(gxpci_ctxt, &cmd[j]);
-    			    VERIFY(result, "gxpci_pq_t2h_cmd()");
+                            VERIFY(result, "gxpci_pq_t2h_cmd()");
 
                             p = MpipePrepPacket(ptv, idesc, &timeval);
                             p->pool = pool;
@@ -648,9 +694,7 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                             SCPerfCounterIncr(xlate_stack(ptv, idesc->stack_idx), tv->sc_perf_pca);
                         }
                     }
-		}
-            } else {
-                tilera_fast_gettimeofday(&timeval);
+		        }
             }
             /* HACK: cant seem to open more than 4 channels */
             if (pool < MAX_PCI_CHANNELS) {
@@ -665,14 +709,23 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                     //SCLogInfo("gxpci channel %d received %d completions",
                     //          pool, result);
                     for (j = 0; j < result; j++) {
-                        u_char *pkt = comp[j].buffer + sizeof(gxio_mpipe_idesc_t);
-                        Packet *p = (Packet *)(pkt - sizeof(Packet) - headroom/*2*/);
+                        if (arch_atomic_increment(&inflight[pool]) < max_inflight) {
+                            u_char *pkt = comp[j].buffer + sizeof(gxio_mpipe_idesc_t);
+                            Packet *p = (Packet *)(pkt - sizeof(Packet) - headroom/*2*/);
 
-                        TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+                            TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
+                        } else {
+                            MpipeFreePacket(p);
+                            SCPerfCounterIncr(ptv->counter_capture_overrun,
+                                              tv->sc_perf_pca);
+                        }
                     }
-	        }
+                }
             }
-            SCPerfSyncCountersIfSignalled(tv, 0);
+        }
+        SCPerfSyncCountersIfSignalled(tv, 0);
+        if (t == 0) {
+            tilera_fast_gettimeofday(&timeval);
         }
     }
     SCReturnInt(TM_ECODE_OK);
@@ -681,14 +734,25 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
 TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
     MpipeThreadVars *ptv = (MpipeThreadVars *)data;
     TmSlot *s = (TmSlot *)slot;
+    intmax_t value = 0;
+    int nqueue = 2;
     TmEcode rc;
 
     SCEnter();
 
+    if ((ConfGetInt("mpipe.poll", &value)) == 1) {
+        /* only 1 and 2 are permitted */
+        if ((value >= 1) && (value <= 2)) {
+            nqueue = (int) value;
+        } else {
+           SCLogError(SC_ERR_FATAL, "Illegal mpipe.poll value.");
+        }
+    }
+
     if (capture_enabled)
-        rc = ReceiveMpipeCapturePollPair(tv, ptv, s);
+        rc = ReceiveMpipeCapturePollPair(tv, ptv, s, nqueue);
     else
-        rc = ReceiveMpipePollPair(tv, ptv, s);
+        rc = ReceiveMpipePollPair(tv, ptv, s, nqueue);
    
     SCReturnInt(rc);
 }
@@ -701,6 +765,17 @@ TmEcode MpipeRegisterPipeStage(void *td) {
 
 static void MpipeRegisterPerfCounters(MpipeThreadVars *ptv, ThreadVars *tv) {
     /* register counters */
+#if 1
+    /* faster to calculate max inside source-mpipe */
+    ptv->max_mpipe_depth0 = SCPerfTVRegisterCounter("mpipe.max_mpipe_depth0",
+                                                    tv,
+                                                    SC_PERF_TYPE_UINT64,
+                                                    "NULL");
+    ptv->max_mpipe_depth1 = SCPerfTVRegisterCounter("mpipe.max_mpipe_depth1",
+                                                    tv,
+                                                    SC_PERF_TYPE_UINT64,
+                                                    "NULL");
+#else
     ptv->max_mpipe_depth0 = SCPerfTVRegisterMaxCounter("mpipe.max_mpipe_depth0",
                                                        tv,
                                                        SC_PERF_TYPE_UINT64,
@@ -709,6 +784,7 @@ static void MpipeRegisterPerfCounters(MpipeThreadVars *ptv, ThreadVars *tv) {
                                                        tv,
                                                        SC_PERF_TYPE_UINT64,
                                                        "NULL");
+#endif
     ptv->counter_no_buffers_0 = SCPerfTVRegisterCounter("mpipe.no_buf0", tv,
                                                         SC_PERF_TYPE_UINT64,
                                                         "NULL");
@@ -733,6 +809,10 @@ static void MpipeRegisterPerfCounters(MpipeThreadVars *ptv, ThreadVars *tv) {
     ptv->counter_no_buffers_7 = SCPerfTVRegisterCounter("mpipe.no_buf7", tv,
                                                         SC_PERF_TYPE_UINT64,
                                                         "NULL");
+    ptv->counter_capture_overrun =
+                        SCPerfTVRegisterCounter("mpipe.capture_overrun", tv,
+                                                SC_PERF_TYPE_UINT64,
+                                                "NULL");
 
    tv->sc_perf_pca = SCPerfGetAllCountersArray(tv, &tv->sc_perf_pctx);
    SCPerfAddToClubbedTMTable(tv->name, &tv->sc_perf_pctx);
@@ -816,6 +896,10 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     VERIFY(result, "tmc_cpus_set_my_cpu()");
 
     if (rank == 0) {
+        unsigned int i = 0;
+        for (i = 0; i < PIPELINES; i++) {
+            inflight[i] = 0;
+        }
 
         if (ConfGetNode("mpipe.stack") != NULL) {
        	    char *ratio;
@@ -915,7 +999,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             result = gxio_trio_init(trio_context, trio_index);
             VERIFY(result, "gxio_trio_init()");
 
-            for (queue_index = 0; queue_index < PIPELINES; queue_index++) {
+            for (queue_index = 0; queue_index < TileNumPipelines; queue_index++) {
 
                 gxpci_context[queue_index] = &gxpci_context_body[queue_index];
 
@@ -923,7 +1007,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
                                     trio_index, loc_mac);
                 VERIFY(result, "gxpci_init()");
 
-		/* HACK: cant seem to open more than 4 channels */
+                /* HACK: cant seem to open more than 4 channels */
                 if (queue_index >= MAX_PCI_CHANNELS)
                     continue;
                 /*
@@ -974,7 +1058,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         size_t notif_ring_size = notif_ring_entries * sizeof(gxio_mpipe_idesc_t);
         for (unsigned int i = 0; i < num_workers; i++) {
             tmc_alloc_t alloc = TMC_ALLOC_INIT;
-            tmc_alloc_set_home(&alloc, (i * TILES_PER_MPIPE_PIPELINE ) + 1);
+            tmc_alloc_set_home(&alloc, 1+(i/2));
             if (notif_ring_size > (size_t)getpagesize())
                 tmc_alloc_set_huge(&alloc);
             unsigned int needed = notif_ring_size + sizeof(gxio_mpipe_iqueue_t);
@@ -1062,7 +1146,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         first_stack = (uint16_t)stack;
 	/*SCLogInfo("DEBUG: initial stack at %d", stack);*/
 
-        unsigned int i = 0;
+        i = 0;
         for (unsigned int stackidx = stack;
              stackidx < stack + stack_count;
              stackidx++, i++) {
@@ -1101,7 +1185,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
             if (capture_enabled && (stackidx == stack)) {
                 int i;
-		for (i = 0; i < PIPELINES; i++) {
+		for (i = 0; i < TileNumPipelines; i++) {
     	            SCLogInfo("Registering gxpci iomem for context %d", i);
 
 		    /* HACK: cant seem to open more than 4 channels */

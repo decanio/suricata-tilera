@@ -221,11 +221,11 @@ void *TmThreadsSlot1NoIn(void *td)
         SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
     }
 
-    /* Drop the capabilities for this thread */
-    SCDropCaps(tv);
-
     if (tv->thread_setup_flags != 0)
         TmThreadSetupOptions(tv);
+
+    /* Drop the capabilities for this thread */
+    SCDropCaps(tv);
 
     if (s->SlotThreadInit != NULL) {
         void *slot_data = NULL;
@@ -324,11 +324,11 @@ void *TmThreadsSlot1NoOut(void *td)
         SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
     }
 
-    /* Drop the capabilities for this thread */
-    SCDropCaps(tv);
-
     if (tv->thread_setup_flags != 0)
         TmThreadSetupOptions(tv);
+
+    /* Drop the capabilities for this thread */
+    SCDropCaps(tv);
 
     if (s->SlotThreadInit != NULL) {
         void *slot_data = NULL;
@@ -407,11 +407,11 @@ void *TmThreadsSlot1NoInOut(void *td)
         SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
     }
 
-    /* Drop the capabilities for this thread */
-    SCDropCaps(tv);
-
     if (tv->thread_setup_flags != 0)
         TmThreadSetupOptions(tv);
+
+    /* Drop the capabilities for this thread */
+    SCDropCaps(tv);
 
     SCLogDebug("%s starting", tv->name);
 
@@ -487,11 +487,11 @@ void *TmThreadsSlot1(void *td)
         SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
     }
 
-    /* Drop the capabilities for this thread */
-    SCDropCaps(tv);
-
     if (tv->thread_setup_flags != 0)
         TmThreadSetupOptions(tv);
+
+    /* Drop the capabilities for this thread */
+    SCDropCaps(tv);
 
     SCLogDebug("%s starting", tv->name);
 
@@ -697,11 +697,11 @@ void *TmThreadsSlotPktAcqLoop(void *td) {
         SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
     }
 
-    /* Drop the capabilities for this thread */
-    SCDropCaps(tv);
-
     if (tv->thread_setup_flags != 0)
         TmThreadSetupOptions(tv);
+
+    /* Drop the capabilities for this thread */
+    SCDropCaps(tv);
 
     /* check if we are setup properly */
     if (s == NULL || s->PktAcqLoop == NULL || tv->tmqh_in == NULL || tv->tmqh_out == NULL) {
@@ -790,11 +790,11 @@ void *TmThreadsSlotVar(void *td)
         SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
     }
 
-    /* Drop the capabilities for this thread */
-    SCDropCaps(tv);
-
     if (tv->thread_setup_flags != 0)
         TmThreadSetupOptions(tv);
+
+    /* Drop the capabilities for this thread */
+    SCDropCaps(tv);
 
     /* check if we are setup properly */
     if (s == NULL || tv->tmqh_in == NULL || tv->tmqh_out == NULL) {
@@ -1126,7 +1126,7 @@ void TmThreadActivateDummySlot()
 #ifdef __tile__
         /* HACK: having tile-gcc compiler issues here */
 #else
-        SC_ATOMIC_CAS(&s->SlotFunc, TmDummyFunc, dslot->SlotFunc);
+        (void)SC_ATOMIC_CAS(&s->SlotFunc, TmDummyFunc, dslot->SlotFunc);
 #endif
     }
 }
@@ -1139,7 +1139,7 @@ void TmThreadDeActivateDummySlot()
     TmDummySlot *dslot;
 
     TAILQ_FOREACH(dslot, &dummy_slots, next) {
-        SC_ATOMIC_CAS(&dslot->slot->SlotFunc, dslot->SlotFunc, TmDummyFunc);
+        (void)SC_ATOMIC_CAS(&dslot->slot->SlotFunc, dslot->SlotFunc, TmDummyFunc);
         dslot->slot->SlotThreadInit = NULL;
     }
 }
@@ -1373,6 +1373,9 @@ TmEcode TmThreadSetupOptions(ThreadVars *tv)
         } else {
             SetCPUAffinitySet(&taf->cpu_set);
             tv->thread_priority = taf->prio;
+            SCLogInfo("Setting prio %d for \"%s\" thread "
+                      ", thread id %lu", tv->thread_priority,
+                      tv->name, SCGetThreadIdLong());
         }
         TmThreadSetPrio(tv);
     }
@@ -1712,7 +1715,11 @@ void TmThreadKillThread(ThreadVars *tv)
         if (!(strlen(tv->inq->name) == strlen("packetpool") &&
               strcasecmp(tv->inq->name, "packetpool") == 0)) {
             PacketQueue *q = &trans_q[tv->inq->id];
+#ifdef __tile__
+            while (q->len > 0) {
+#else
             while (q->len != 0) {
+#endif
                 usleep(1000);
             }
         }
@@ -1736,6 +1743,8 @@ void TmThreadKillThread(ThreadVars *tv)
         if (tv->InShutdownHandler != NULL) {
             tv->InShutdownHandler(tv);
         }
+#ifndef __tile__
+        /* removed for tile, at least temporarily */ 
         if (tv->inq != NULL) {
             for (i = 0; i < (tv->inq->reader_cnt + tv->inq->writer_cnt); i++) {
                 if (tv->inq->q_type == 0)
@@ -1761,6 +1770,7 @@ void TmThreadKillThread(ThreadVars *tv)
             }
             SCLogDebug("signalled tv->inq->id %" PRIu32 "", tv->inq->id);
         }
+#endif /* __tile__ */
 
         if (tv->cond != NULL ) {
             pthread_cond_broadcast(tv->cond);
@@ -1846,10 +1856,21 @@ void TmThreadDisableThreadsWithTMS(uint8_t tm_flags)
             if (tv->inq != NULL) {
                 int i;
                 for (i = 0; i < (tv->inq->reader_cnt + tv->inq->writer_cnt); i++) {
-                    if (tv->inq->q_type == 0)
+                    if (tv->inq->q_type == 0) {
+#ifdef __tile__
+                        /* hack to wake up tilera tmqh-simple */
+                        trans_q[tv->inq->id].len = -1;
+#else
                         SCCondSignal(&trans_q[tv->inq->id].cond_q);
-                    else
+#endif
+                    } else {
+#ifdef __tile__
+                        /* hack to wake up tilera tmqh-simple */
+                        data_queues[tv->inq->id].len = -1;
+#else
                         SCCondSignal(&data_queues[tv->inq->id].cond_q);
+#endif
+                    }
                 }
                 SCLogDebug("signalled tv->inq->id %" PRIu32 "", tv->inq->id);
             }

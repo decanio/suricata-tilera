@@ -107,6 +107,7 @@ void TmqhInputSimpleShutdownHandler(ThreadVars *tv) {
     for (i = 0; i < (tv->inq->reader_cnt + tv->inq->writer_cnt); i++)
 #ifdef __tile__
         trans_q[tv->inq->id].cond_q = 1;
+        trans_q[tv->inq->id].len = -1;
 #else
         SCCondSignal(&trans_q[tv->inq->id].cond_q);
 #endif

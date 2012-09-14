@@ -233,7 +233,7 @@
 
 #else /* __tilegx__ */
 
-#warning Using tilegx atomics
+//#warning Using tilegx atomics
 #include <arch/atomic.h>
 
 /**

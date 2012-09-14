@@ -2058,7 +2058,10 @@ printf("DEBUG: setting affinity for main\n");
     /* Disable packet acquire thread first */
     TmThreadDisableThreadsWithTMS(TM_FLAG_RECEIVE_TM | TM_FLAG_DECODE_TM);
 
+#ifndef __tile__
+    /* dont bother on tile for now */
     FlowForceReassembly();
+#endif
 
     struct timeval end_time;
     memset(&end_time, 0, sizeof(end_time));
@@ -2132,7 +2135,10 @@ printf("DEBUG: setting affinity for main\n");
 
     AppLayerHtpPrintStats();
 
+#ifndef __tile__
+    /* having trouble with mspaces on tile */
     DetectEngineCtxFree(global_de_ctx);
+#endif
     AlpProtoDestroy();
 
     TagDestroyCtx();

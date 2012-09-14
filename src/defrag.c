@@ -106,6 +106,7 @@ typedef struct DefragContext_ {
     SCMutex frag_pool_lock;
 
     time_t timeout; /**< Default timeout. */
+    time_t last_timeouted; /**< time of last cleaning */
 } DefragContext;
 
 /**
@@ -417,7 +418,7 @@ DefragContextNew(void)
 
     /* Initialize the pool of trackers. */
     intmax_t tracker_pool_size;
-    if (!ConfGetInt("defrag.trackers", &tracker_pool_size)) {
+    if (!ConfGetInt("defrag.trackers", &tracker_pool_size) || tracker_pool_size == 0) {
         tracker_pool_size = DEFAULT_DEFRAG_HASH_SIZE;
     }
     dc->tracker_pool = PoolInit(tracker_pool_size, tracker_pool_size,
@@ -436,7 +437,7 @@ DefragContextNew(void)
 
     /* Initialize the pool of frags. */
     intmax_t frag_pool_size;
-    if (!ConfGetInt("defrag.max-frags", &frag_pool_size)) {
+    if (!ConfGetInt("defrag.max-frags", &frag_pool_size) || frag_pool_size == 0) {
         frag_pool_size = DEFAULT_DEFRAG_POOL_SIZE;
     }
     intmax_t frag_pool_prealloc = frag_pool_size / 2;
@@ -472,6 +473,8 @@ DefragContextNew(void)
         }
         dc->timeout = timeout;
     }
+
+    dc->last_timeouted = 0;
 
     SCLogDebug("Defrag Initialized:");
     SCLogDebug("\tTimeout: %"PRIuMAX, (uintmax_t)dc->timeout);
@@ -1026,20 +1029,30 @@ DefragTimeoutTracker(ThreadVars *tv, DecodeThreadVars *dtv, DefragContext *dc,
 {
     HashListTableBucket *next = HashListTableGetListHead(dc->frag_table);
     DefragTracker *tracker;
+    struct timeval ts;
+
+    TimeGet(&ts);
+    /* If last cleaning was made in the current second, we leave */
+    if (dc->last_timeouted >= ts.tv_sec) {
+        return;
+    } else {
+        dc->last_timeouted = ts.tv_sec;
+    }
     while (next != NULL) {
         tracker = HashListTableGetListData(next);
 
         if (tracker->timeout < (unsigned int)p->ts.tv_sec) {
+            int af_family = tracker->af;
             /* Tracker has timeout out. */
             HashListTableRemove(dc->frag_table, tracker, HASHLIST_NO_SIZE);
             DefragTrackerReset(tracker);
             PoolReturn(dc->tracker_pool, tracker);
             if (tv != NULL && dtv != NULL) {
-                if (tracker->af == AF_INET) {
+                if (af_family == AF_INET) {
                     SCPerfCounterIncr(dtv->counter_defrag_ipv4_timeouts,
                         tv->sc_perf_pca);
                 }
-                else if (tracker->af == AF_INET6) {
+                else if (af_family == AF_INET6) {
                     SCPerfCounterIncr(dtv->counter_defrag_ipv6_timeouts,
                         tv->sc_perf_pca);
                 }
@@ -1156,6 +1169,7 @@ DefragGetTracker(ThreadVars *tv, DecodeThreadVars *dtv, DefragContext *dc,
             SCMutexLock(&dc->tracker_pool_lock);
             PoolReturn(dc->tracker_pool, tracker);
             SCMutexUnlock(&dc->tracker_pool_lock);
+            tracker = NULL;
             goto done;
         }
     }

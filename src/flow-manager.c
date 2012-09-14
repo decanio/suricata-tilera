@@ -426,6 +426,9 @@ void *FlowManagerThread(void *td)
             SC_PERF_TYPE_UINT64,
             "NULL");
 
+    if (th_v->thread_setup_flags != 0)
+        TmThreadSetupOptions(th_v);
+
     memset(&ts, 0, sizeof(ts));
 
     FlowForceReassemblySetup();
@@ -569,6 +572,8 @@ void FlowManagerThreadSpawn()
 
     tv_flowmgr = TmThreadCreateMgmtThread("FlowManagerThread",
                                           FlowManagerThread, 0);
+
+    TmThreadSetCPU(tv_flowmgr, MANAGEMENT_CPU_SET);
 
     if (tv_flowmgr == NULL) {
         printf("ERROR: TmThreadsCreate failed\n");

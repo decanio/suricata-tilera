@@ -88,6 +88,9 @@ static void *DetectEngineLiveRuleSwap(void *arg)
     /* block usr2.  usr2 to be handled by the main thread only */
     UtilSignalBlock(SIGUSR2);
 
+    if (tv_local->thread_setup_flags != 0)
+        TmThreadSetupOptions(tv_local);
+
     /* release TmThreadSpawn */
     TmThreadsSetFlag(tv_local, THV_INIT_DONE);
 
@@ -291,6 +294,9 @@ void DetectEngineSpawnLiveRuleSwapMgmtThread(void)
         SCLogError(SC_ERR_THREAD_CREATE, "Live rule swap thread spawn failed");
         exit(EXIT_FAILURE);
     }
+
+    TmThreadSetCPU(tv, MANAGEMENT_CPU_SET);
+
     if (TmThreadSpawn(tv) != 0) {
         SCLogError(SC_ERR_THREAD_SPAWN, "TmThreadSpawn failed for "
                    "DetectEngineLiveRuleSwap");

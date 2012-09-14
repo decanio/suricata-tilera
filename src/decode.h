@@ -633,7 +633,11 @@ uint32_t default_packet_size;
 typedef struct PacketQueue_ {
     Packet *top;
     Packet *bot;
+#ifdef __tile__
+    int32_t len;    /* -1 signals termination */
+#else
     uint32_t len;
+#endif
 #ifdef DBG_PERF
     uint32_t dbg_maxlen;
 #endif /* DBG_PERF */
