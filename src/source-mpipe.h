@@ -25,17 +25,11 @@
 #define __SOURCE_MPIPE_H__
 
 #ifdef __tilegx__
-#if 1
-#define MPIPE_FREE_PACKET(p) MpipeFreePacket((p))
-#else
-#define MPIPE_FREE_PACKET(p) \
-    { \
-    if ((p)->flags & PKT_MPIPE) { \
-        MpipeFreePacket((p)); \
-        (p)->flags &= ~PKT_MPIPE; \
-    } \
-    }
+#include <gxio/mpipe.h>
 #endif
+
+#ifdef __tilegx__
+#define MPIPE_FREE_PACKET(p) MpipeFreePacket((p))
 #else
 #define MPIPE_FREE_PACKET(p)
 #endif
@@ -46,12 +40,20 @@ TmEcode MpipeRegisterPipeStage(void *td);
 int MpipeLiveRegisterDevice(char *);
 int MpipeLiveGetDeviceCount(void);
 char *MpipeLiveGetDevice(int);
-void MpipeFreePacket(Packet *p);
+void MpipeFreePacket(void *arg);
 TmEcode ReceiveMpipeGo(void);
 
-/* per packet Netio vars */
+/* per packet Mpipe vars */
 typedef struct MpipePacketVars_
 {
+    /* TileGX mpipe stuff */
+    struct {
+        uint_reg_t bucket_id : 13;
+        uint_reg_t nr : 1;
+        uint_reg_t cs : 1;
+        uint_reg_t va : 42;
+        uint_reg_t stack_idx : 5;
+    } idesc;
 } MpipePacketVars;
 
 #endif /* __SOURCE_MPIPE_H__ */

@@ -409,7 +409,7 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
                 while (gxio_mica_is_busy(&t->mica_cb)) ;
                 MPIPE_FREE_PACKET((Packet *)t->inflight_p);
             } 
-            gxio_mica_memcpy_start(&t->mica_cb, p, empty_p, offsetof(Packet, idesc));
+            gxio_mica_memcpy_start(&t->mica_cb, p, empty_p, offsetof(Packet, mpipe_v.idesc));
             t->inflight_p = (void *)p;
         } else {
 #endif

@@ -225,21 +225,22 @@ void TmModuleDecodeMpipeRegister (void) {
     tmm_modules[TMM_DECODEMPIPE].flags = TM_FLAG_DECODE_TM;
 }
 
-void MpipeFreePacket(Packet *p) {
+void MpipeFreePacket(void *arg) {
+    Packet *p = (Packet *)arg;
 
 #ifdef LATE_MPIPE_CREDIT
     gxio_mpipe_iqueue_t* iqueue = iqueues[p->pool];
 #ifdef LATE_MPIPE_BUCKET_CREDIT
-    gxio_mpipe_credit(iqueue->context, -1, p->idesc.bucket_id, 1);
+    gxio_mpipe_credit(iqueue->context, -1, p->mpipe_v.idesc.bucket_id, 1);
 #else
     //gxio_mpipe_iqueue_release(iqueue, &p->idesc);
-    int bucket = p->idesc.nr ? -1 : p->idesc.bucket_id;
+    int bucket = p->mpipe_v.idesc.nr ? -1 : p->mpipe_v.idesc.bucket_id;
     gxio_mpipe_credit(iqueue->context, iqueue->ring, bucket, 1);
 #endif
 #endif
     gxio_mpipe_push_buffer(context,
-                           p->idesc.stack_idx,
-                           (void *)(intptr_t)p->idesc.va);
+                           p->mpipe_v.idesc.stack_idx,
+                           (void *)(intptr_t)p->mpipe_v.idesc.va);
 
     if (capture_enabled) {
         arch_atomic_decrement(&inflight[p->pool]);
@@ -303,11 +304,11 @@ static inline Packet *MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_
     p->pkt = pkt;
 
     /* copy only the fields we use later */
-    p->idesc.bucket_id = idesc->bucket_id;
-    p->idesc.nr = idesc->nr;
-    p->idesc.cs = idesc->cs;
-    p->idesc.va = idesc->va;
-    p->idesc.stack_idx = idesc->stack_idx;
+    p->mpipe_v.idesc.bucket_id = idesc->bucket_id;
+    p->mpipe_v.idesc.nr = idesc->nr;
+    p->mpipe_v.idesc.cs = idesc->cs;
+    p->mpipe_v.idesc.va = idesc->va;
+    p->mpipe_v.idesc.stack_idx = idesc->stack_idx;
 
     return p;
 }
@@ -337,11 +338,11 @@ static inline Packet *MpipePrepPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *
     p->pkt = pkt;
 
     /* copy only the fields we use later */
-    p->idesc.bucket_id = idesc->bucket_id;
-    p->idesc.nr = idesc->nr;
-    p->idesc.cs = idesc->cs;
-    p->idesc.va = idesc->va;
-    p->idesc.stack_idx = idesc->stack_idx;
+    p->mpipe_v.idesc.bucket_id = idesc->bucket_id;
+    p->mpipe_v.idesc.nr = idesc->nr;
+    p->mpipe_v.idesc.cs = idesc->cs;
+    p->mpipe_v.idesc.va = idesc->va;
+    p->mpipe_v.idesc.stack_idx = idesc->stack_idx;
 
     return p;
 }

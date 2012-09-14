@@ -3701,7 +3701,7 @@ static inline int StreamTcpValidateChecksum(Packet *p)
 
 #ifdef __tile__
     //return (p->idesc.cs && p->idesc.csum_seed_val == 0);
-    return (p->idesc.cs) ? 1 : 0;
+    return (p->mpipe_v.idesc.cs) ? 1 : 0;
 #else
     int ret = 1;
 

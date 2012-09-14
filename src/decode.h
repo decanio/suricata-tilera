@@ -43,6 +43,7 @@ typedef enum {
 #include "source-ipfw.h"
 #include "source-pcap.h"
 #include "source-af-packet.h"
+#include "source-mpipe.h"
 
 #include "action-globals.h"
 
@@ -398,14 +399,7 @@ typedef struct Packet_
         PcapPacketVars pcap_v;
 
 #ifdef __tilegx__
-        /* TileGX mpipe stuff */
-        struct {
-            uint_reg_t bucket_id : 13;
-            uint_reg_t nr : 1;
-            uint_reg_t cs : 1;
-            uint_reg_t va : 42;
-            uint_reg_t stack_idx : 5;
-        } idesc;
+        MpipePacketVars mpipe_v;
 #elif defined(__tile__)
         /* Tile64 netio stuff */
     	netio_pkt_t netio_packet;
@@ -603,14 +597,7 @@ typedef struct Packet_
         PcapPacketVars pcap_v;
 
 #ifdef __tilegx__
-        /* TileGX mpipe stuff */
-        struct {
-            uint_reg_t bucket_id : 13;
-            uint_reg_t nr : 1;
-            uint_reg_t cs : 1;
-            uint_reg_t va : 42;
-            uint_reg_t stack_idx : 5;
-        } idesc;
+        MpipePacketVars mpipe_v;
 #elif defined(__tile__)
         /* Tile64 netio stuff */
     	netio_pkt_t netio_packet;
