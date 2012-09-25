@@ -1082,8 +1082,8 @@ void SCACInitThreadCtx(ThreadVars *tv, MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread
     /* Note the following ThreadMalloc worked until the addition of
      * app-layer-smtp.c
      */
-    //mpm_thread_ctx->ctx = SCThreadMalloc(tv, sizeof(SCACThreadCtx));
-    mpm_thread_ctx->ctx = SCMalloc(sizeof(SCACThreadCtx));
+    mpm_thread_ctx->ctx = SCThreadMalloc(tv, sizeof(SCACThreadCtx));
+    //mpm_thread_ctx->ctx = SCMalloc(sizeof(SCACThreadCtx));
     if (mpm_thread_ctx->ctx == NULL) {
         exit(EXIT_FAILURE);
     }

@@ -111,6 +111,8 @@ typedef struct MpipeThreadVars_
     /* data link type for the thread */
     int datalink;
 
+    ChecksumValidationMode checksum_mode;
+
     /* counters */
     uint32_t pkts;
     uint64_t bytes;
@@ -281,11 +283,8 @@ void MpipeFreePacket(Packet *p) {
  */
 static inline Packet *MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *idesc, struct timeval *tv) {
     int caplen = idesc->l2_size;
-    //u_char *pkt = (void *)(intptr_t)idesc->va;
     u_char *pkt = gxio_mpipe_idesc_get_va(idesc);
     Packet *p = (Packet *)(pkt - sizeof(Packet) - headroom/*2*/);
-//printf("MpipeProcessPkt pkt %p p %p\n", pkt, p);
-    //PACKET_INITIALIZE(p);
 
     ptv->bytes += caplen;
     ptv->pkts++;
@@ -308,6 +307,9 @@ static inline Packet *MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_
     p->idesc.cs = idesc->cs;
     p->idesc.va = idesc->va;
     p->idesc.stack_idx = idesc->stack_idx;
+
+    if (ptv->checksum_mode == CHECKSUM_VALIDATION_DISABLE)
+        p->flags |= PKT_IGNORE_CHECKSUM;
 
     return p;
 }
@@ -342,6 +344,9 @@ static inline Packet *MpipePrepPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *
     p->idesc.cs = idesc->cs;
     p->idesc.va = idesc->va;
     p->idesc.stack_idx = idesc->stack_idx;
+
+    if (ptv->checksum_mode == CHECKSUM_VALIDATION_DISABLE)
+        p->flags |= PKT_IGNORE_CHECKSUM;
 
     return p;
 }
@@ -730,16 +735,28 @@ TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
     TmSlot *s = (TmSlot *)slot;
     intmax_t value = 0;
     int nqueue = 2;
+    char *ctype;
     TmEcode rc;
 
     SCEnter();
 
-    if ((ConfGetInt("mpipe.poll", &value)) == 1) {
+    if (ConfGetInt("mpipe.poll", &value) == 1) {
         /* only 1 and 2 are permitted */
         if ((value >= 1) && (value <= 2)) {
             nqueue = (int) value;
         } else {
-            SCLogError(SC_ERR_FATAL, "Illegal mpipe.poll value.");
+            SCLogError(SC_ERR_INVALID_ARGUMENT, "Illegal mpipe.poll value.");
+        }
+    }
+
+     ptv->checksum_mode = CHECKSUM_VALIDATION_DISABLE;
+    if (ConfGet("mpipe.checksum-checks", &ctype) == 1) {
+        if (strcmp(ctype, "yes") == 0) {
+            ptv->checksum_mode = CHECKSUM_VALIDATION_ENABLE;
+        } else if (strcmp(ctype, "no") == 0)  {
+            ptv->checksum_mode = CHECKSUM_VALIDATION_DISABLE;
+        } else {
+            SCLogError(SC_ERR_INVALID_ARGUMENT, "Invalid value for checksum-check for mpipe");
         }
     }
 

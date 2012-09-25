@@ -3694,16 +3694,15 @@ error:
  */
 static inline int StreamTcpValidateChecksum(Packet *p)
 {
-
-#ifdef __tile__
-    //return (p->idesc.cs && p->idesc.csum_seed_val == 0);
-    return (p->idesc.cs) ? 1 : 0;
-#else
     int ret = 1;
 
     if (p->flags & PKT_IGNORE_CHECKSUM)
         return ret;
 
+#ifdef __tile__
+    //return (p->idesc.cs && p->idesc.csum_seed_val == 0);
+    ret = (p->idesc.cs) ? 1 : 0;
+#else
     if (p->tcpvars.comp_csum == -1) {
         if (PKT_IS_IPV4(p)) {
             p->tcpvars.comp_csum = TCPCalculateChecksum(p->ip4h->s_ip_addrs,
@@ -3725,8 +3724,8 @@ static inline int StreamTcpValidateChecksum(Packet *p)
             (void) SC_ATOMIC_ADD(p->livedev->invalid_checksums, 1);
         }
     }
-    return ret;
 #endif
+    return ret;
 }
 
 TmEcode StreamTcp (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq)

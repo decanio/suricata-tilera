@@ -50,7 +50,9 @@ PCI_ARGS=--dev gxpci0
 #
 build:
 	echo Running configure
-	LIBS="-lgxpci -lgxio -ltmc" ./configure --host=tile --prefix=$(INSTALL_DIR) \
+	LIBS="-lgxpci -lgxio -ltmc" ./configure --host=tile \
+            --prefix=$(INSTALL_DIR) \
+            --sysconfdir=/opt/ \
             --disable-gccmarch-native \
 	    --without-libpcap \
 	    --disable-af-packet \
@@ -197,6 +199,7 @@ CANNON_SPEED = --hvd CPU_SPEED=1200
 TILE_MONITOR_CANNON_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   --hvx "hugepagesz=512m hugepages=1" \
+ --vmlinux $(HOME_DIR)/work/npulse/linux/vmlinux \
   $(CANNON_SPEED) \
   --hvd MEMPROF_TILE=5,5 \
   --huge-pages 400 \
@@ -206,6 +209,7 @@ TILE_MONITOR_CANNON_STATIC_ARGS = \
   --mount $(RULES_DIR) /opt \
   --mount $(LOG_DIR) /var/log/suricata \
   --upload ./src/suricata suricata \
+  --tunnel 10022 22 \
   --run -+- suricata -c $(RULES_CONFIG) --mpipe -+-
 
 TILE_MONITOR_CANNON_CAPTURE_ARGS = \
@@ -359,7 +363,6 @@ run_net: $(SIM_DEPS)
 run_pci: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(PCI_ARGS) \
-	--debug-on-crash \
 	$(TILE_MONITOR_CANNON_STATIC_ARGS)
 
 # boot and run suricata via USB interface
