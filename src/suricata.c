@@ -1775,11 +1775,15 @@ int main(int argc, char **argv)
 
 #ifdef __tile__
     RunModeTileGetPipelineConfig();
+    unsigned int rx_tiles;
+    if (TileNumPipelinesPerRx == 1) {
+        rx_tiles = TileNumPipelines;
+    } else {
+        rx_tiles = (TileNumPipelines+1) / 2;
+    }
     tmc_sync_barrier_init(&startup_barrier,
                           (TileNumPipelines * TILES_PER_PIPELINE) + 4 +
-                          ((TileNumPipelines+1) / 2) + /* Receive tiles */
-                          //((TileNumPipelines+2) / 3)); /* Output tiles */
-                          //((TileNumPipelines+1) / 2)); /* Output tiles */
+                          rx_tiles + /* Receive tiles */
                           TileNumPipelines); /* Output tiles */
 #endif /* __tile__ */
 

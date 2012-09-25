@@ -378,7 +378,14 @@ typedef struct Packet_
     struct Packet_ *prev;
 #endif
 
+#ifdef __tilegx__
+    union {
+        struct timespec ts_nsec; /* time from mpipe */
+        struct timeval ts;
+    };
+#else
     struct timeval ts;
+#endif
 
 #ifndef __tilegx__
     union {

@@ -62,6 +62,7 @@ cycle_pause(unsigned int delay)
 #define MAX_TILERA_PIPELINES 16
 
 extern unsigned int TileNumPipelines;
+extern unsigned int TileNumPipelinesPerRx;
 extern unsigned int TileDetectThreadPerPipeline;
 extern unsigned int TilesPerPipeline;
 

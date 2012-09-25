@@ -58,6 +58,7 @@
 typedef enum { simple, tmc } queue_t;
 
 unsigned int TileNumPipelines;    /* number of configured parallel pipelines */
+unsigned int TileNumPipelinesPerRx; /* pipelines per receive thread */
 unsigned int TileDetectThreadPerPipeline; /* detect threads per pipeline */
 unsigned int TilesPerPipelines; /* total tiles per pipeline */
 static queue_t queue_type = simple;
@@ -196,6 +197,7 @@ int TileMpipeUnmapTile(int cpu)
 void RunModeTileGetPipelineConfig(void) {
     intmax_t pipelines;
     intmax_t detect_per_pipe;
+    intmax_t value = 0;
     char *s;
 
     if (ConfGetInt("tile.pipelines", &pipelines) == 1) {
@@ -208,6 +210,14 @@ void RunModeTileGetPipelineConfig(void) {
         TileDetectThreadPerPipeline = detect_per_pipe;
     } else {
         TileDetectThreadPerPipeline = DFLT_DETECT_THREADS_PER_PIPELINE;
+    }
+    if ((ConfGetInt("mpipe.poll", &value)) == 1) {
+        /* only 1 and 2 are permitted */
+        if ((value >= 1) && (value <= 2)) {
+            TileNumPipelinesPerRx = (unsigned int) value;
+        } else {
+            SCLogError(SC_ERR_FATAL, "Illegal mpipe.poll value.");
+        }
     }
     if (ConfGet("tile.queue", &s) == 1) {
         if (strcmp(s, "simple") == 0) {
@@ -249,6 +259,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
     uint16_t thread;
     uint32_t tile = 1;
     int pipe;
+    unsigned int poll_n = TileNumPipelinesPerRx;
     char *detectmode = NULL;
     int pool_detect_threads = 0;
     extern TmEcode ReceiveMpipeInit(void); // move this
@@ -335,7 +346,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
              TmThreadCreatePacketHandler(thread_name,
                                          "packetpool", "packetpool",
                                          //pickup_queue[pipe],"simple", 
-                                         pickup_queue[pipe],"demux2", 
+                                         pickup_queue[pipe],(poll_n == 2)?"demux2":"simple", 
                                          "pktacqloop");
         if (tv_receivempipe == NULL) {
             printf("ERROR: TmThreadsCreate failed\n");
@@ -348,9 +359,13 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
         }
         TmSlotSetFuncAppend(tv_receivempipe, tm_module, (void *)mpipe_devc);
 
-        if ((pipe % 2) == 0) {
+        if ((pipe % poll_n) == 0) {
             /* set affinity for mpipe */
-            TmThreadSetCPUAffinity(tv_receivempipe, 1+(pipe/2));
+            TmThreadSetCPUAffinity(tv_receivempipe, 1+(pipe/poll_n));
+
+            SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d",
+                      thread_name, pipe_max, pipe,
+                      1+(pipe/poll_n));
 
             if (TmThreadSpawn(tv_receivempipe) != TM_ECODE_OK) {
                 printf("ERROR: TmThreadSpawn failed\n");
@@ -366,7 +381,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
         ThreadVars *tv_decode1 =
 	        TmThreadCreatePacketHandler(thread_name,
                                             //pickup_queue[pipe],"simple",
-                                            pickup_queue[pipe],"demux2",
+                                            pickup_queue[pipe],(poll_n==2)?"demux2":"simple",
                                             stream_queue[(pool_detect_threads) ? 0 : pipe], (queue_type == simple) ? "simple" : "tmc_mrsw",
                                             "varslot");
         if (tv_decode1 == NULL) {
@@ -389,11 +404,11 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
 
         //TmThreadSetCPUAffinity(tv_decode1, MapTile(tile++));
         TmThreadSetCPUAffinity(tv_decode1,
-                               1+((pipe_max+1)/2)+(pipe*TILES_PER_PIPELINE));
+                               1+((pipe_max+1)/poll_n)+(pipe*TILES_PER_PIPELINE));
 
         SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d",
                   thread_name, pipe_max, pipe,
-                  1+((pipe_max+1)/2)+(pipe*TILES_PER_PIPELINE));
+                  1+((pipe_max+1)/poll_n)+(pipe*TILES_PER_PIPELINE));
 
         if (TmThreadSpawn(tv_decode1) != TM_ECODE_OK) {
             printf("ERROR: TmThreadSpawn failed\n");
@@ -436,9 +451,9 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
 
             //TmThreadSetCPUAffinity(tv_detect_ncpu, MapTile(tile++));
             TmThreadSetCPUAffinity(tv_detect_ncpu,
-                               1+((pipe_max+1)/2)+(pipe*TILES_PER_PIPELINE)+thread+1);
+                               1+((pipe_max+1)/poll_n)+(pipe*TILES_PER_PIPELINE)+thread+1);
 SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
-                               1+((pipe_max+1)/2)+(pipe*TILES_PER_PIPELINE)+thread+1);
+                               1+((pipe_max+1)/poll_n)+(pipe*TILES_PER_PIPELINE)+thread+1);
 
             char *thread_group_name = SCStrdup("Detect");
             if (thread_group_name == NULL) {
@@ -475,7 +490,7 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
         //TmThreadSetCPUAffinity(tv_outputs, MapTile(tile++));
         //TmThreadSetCPUAffinity(tv_outputs, MapTile((pipe_max * TILES_PER_PIPELINE) + (pipe / 2) + 1));
         TmThreadSetCPUAffinity(tv_outputs,
-                               1+((pipe_max+1)/2)+(pipe_max*TILES_PER_PIPELINE)+(pipe/PIPELINES_PER_OUTPUT));
+                               1+((pipe_max+1)/poll_n)+(pipe_max*TILES_PER_PIPELINE)+(pipe/PIPELINES_PER_OUTPUT));
 
         tm_module = TmModuleGetByName("RespondReject");
         if (tm_module == NULL) {
