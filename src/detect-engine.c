@@ -65,6 +65,10 @@
 
 #include "tm-threads.h"
 
+#ifdef PROFILING
+#include "util-profiling.h"
+#endif
+
 #define DETECT_ENGINE_DEFAULT_INSPECTION_RECURSION_LIMIT 3000
 
 static uint32_t detect_engine_ctx_id = 1;
@@ -206,7 +210,7 @@ static void *DetectEngineLiveRuleSwap(void *arg)
 
             SCLogDebug("swapping new det_ctx - %p with older one - %p", det_ctx,
                        SC_ATOMIC_GET(slots->slot_data));
-            SC_ATOMIC_SET(slots->slot_data, det_ctx);
+            (void)SC_ATOMIC_SET(slots->slot_data, det_ctx);
 
             slots = slots->slot_next;
         }
@@ -345,7 +349,7 @@ DetectEngineCtx *DetectEngineCtxInit(void) {
     char *insp_recursion_limit = NULL;
 
     de_ctx = SCMalloc(sizeof(DetectEngineCtx));
-    if (de_ctx == NULL)
+    if (unlikely(de_ctx == NULL))
         goto error;
 
     memset(de_ctx,0,sizeof(DetectEngineCtx));
@@ -428,6 +432,12 @@ void DetectEngineCtxFree(DetectEngineCtx *de_ctx) {
     if (de_ctx == NULL)
         return;
 
+#ifdef PROFILING
+    if (de_ctx->profile_ctx != NULL) {
+        SCProfilingRuleDestroyCtx(de_ctx->profile_ctx);
+        de_ctx->profile_ctx = NULL;
+    }
+#endif
 
     /* Normally the hashes are freed elsewhere, but
      * to be sure look at them again here.
@@ -492,7 +502,7 @@ static uint8_t DetectEngineCtxLoadConf(DetectEngineCtx *de_ctx) {
 
     if (de_ctx_custom != NULL) {
         TAILQ_FOREACH(opt, &de_ctx_custom->head, next) {
-            if (strncmp(opt->val, "profile", 3) == 0) {
+            if (strcmp(opt->val, "profile") == 0) {
                 de_ctx_profile = opt->head.tqh_first->val;
             } else if (strcmp(opt->val, "sgh-mpm-context") == 0) {
                 sgh_mpm_context = opt->head.tqh_first->val;
@@ -501,13 +511,13 @@ static uint8_t DetectEngineCtxLoadConf(DetectEngineCtx *de_ctx) {
     }
 
     if (de_ctx_profile != NULL) {
-        if (strncmp(de_ctx_profile, "low", 3) == 0) {
+        if (strcmp(de_ctx_profile, "low") == 0) {
             profile = ENGINE_PROFILE_LOW;
-        } else if (strncmp(de_ctx_profile, "medium", 6) == 0) {
+        } else if (strcmp(de_ctx_profile, "medium") == 0) {
             profile = ENGINE_PROFILE_MEDIUM;
-        } else if (strncmp(de_ctx_profile, "high", 4) == 0) {
+        } else if (strcmp(de_ctx_profile, "high") == 0) {
             profile = ENGINE_PROFILE_HIGH;
-        } else if (strncmp(de_ctx_profile, "custom", 4) == 0) {
+        } else if (strcmp(de_ctx_profile, "custom") == 0) {
             profile = ENGINE_PROFILE_CUSTOM;
         }
 
@@ -716,7 +726,9 @@ static void DetectEngineThreadCtxDeinitKeywords(DetectEngineCtx *de_ctx, DetectE
     if (de_ctx->keyword_id > 0) {
         DetectEngineThreadKeywordCtxItem *item = de_ctx->keyword_list;
         while (item) {
-            item->FreeFunc(det_ctx->keyword_ctxs_array[item->id]);
+            if (det_ctx->keyword_ctxs_array[item->id] != NULL)
+                item->FreeFunc(det_ctx->keyword_ctxs_array[item->id]);
+
             item = item->next;
         }
         det_ctx->keyword_ctxs_size = 0;
@@ -731,7 +743,7 @@ TmEcode DetectEngineThreadCtxInit(ThreadVars *tv, void *initdata, void **data) {
         return TM_ECODE_FAILED;
 
     DetectEngineThreadCtx *det_ctx = SCThreadMalloc(tv, sizeof(DetectEngineThreadCtx));
-    if (det_ctx == NULL)
+    if (unlikely(det_ctx == NULL))
         return TM_ECODE_FAILED;
     memset(det_ctx, 0, sizeof(DetectEngineThreadCtx));
 
@@ -796,6 +808,9 @@ TmEcode DetectEngineThreadCtxInit(ThreadVars *tv, void *initdata, void **data) {
     }
 
     DetectEngineThreadCtxInitKeywords(de_ctx, det_ctx);
+#ifdef PROFILING
+    SCProfilingRuleThreadSetup(de_ctx->profile_ctx, det_ctx);
+#endif
 
     SC_ATOMIC_INIT(det_ctx->so_far_used_by_detect);
 
@@ -818,7 +833,7 @@ static TmEcode DetectEngineThreadCtxInitForLiveRuleSwap(ThreadVars *tv, void *in
         return TM_ECODE_FAILED;
 
     DetectEngineThreadCtx *det_ctx = SCMalloc(sizeof(DetectEngineThreadCtx));
-    if (det_ctx == NULL)
+    if (unlikely(det_ctx == NULL))
         return TM_ECODE_FAILED;
     memset(det_ctx, 0, sizeof(DetectEngineThreadCtx));
 
@@ -878,6 +893,9 @@ static TmEcode DetectEngineThreadCtxInitForLiveRuleSwap(ThreadVars *tv, void *in
     }
 
     DetectEngineThreadCtxInitKeywords(de_ctx, det_ctx);
+#ifdef PROFILING
+    SCProfilingRuleThreadSetup(de_ctx->profile_ctx, det_ctx);
+#endif
 
     SC_ATOMIC_INIT(det_ctx->so_far_used_by_detect);
 
@@ -893,6 +911,10 @@ TmEcode DetectEngineThreadCtxDeinit(ThreadVars *tv, void *data) {
         SCLogWarning(SC_ERR_INVALID_ARGUMENTS, "argument \"data\" NULL");
         return TM_ECODE_OK;
     }
+
+#ifdef PROFILING
+    SCProfilingRuleThreadCleanup(det_ctx);
+#endif
 
     DetectEngineIPOnlyThreadDeinit(&det_ctx->io_ctx);
 
@@ -964,7 +986,7 @@ int DetectRegisterThreadCtxFuncs(DetectEngineCtx *de_ctx, const char *name, void
     BUG_ON(de_ctx == NULL || InitFunc == NULL || FreeFunc == NULL || data == NULL);
 
     DetectEngineThreadKeywordCtxItem *item = SCMalloc(sizeof(DetectEngineThreadKeywordCtxItem));
-    if (item == NULL)
+    if (unlikely(item == NULL))
         return -1;
     memset(item, 0x00, sizeof(DetectEngineThreadKeywordCtxItem));
 

@@ -189,6 +189,7 @@
 #include "runmodes.h"
 
 extern uint8_t engine_mode;
+extern int rule_reload;
 
 extern int engine_analysis;
 static int fp_engine_analysis_set = 0;
@@ -200,7 +201,7 @@ void DetectExitPrintStats(ThreadVars *tv, void *data);
 
 void DbgPrintSigs(DetectEngineCtx *, SigGroupHead *);
 void DbgPrintSigs2(DetectEngineCtx *, SigGroupHead *);
-static void PacketCreateMask(Packet *p, SignatureMask *mask, uint16_t alproto, void *alstate, StreamMsg *smsg);
+static void PacketCreateMask(Packet *, SignatureMask *, uint16_t, void *, StreamMsg *, int);
 
 /* tm module api functions */
 TmEcode Detect(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
@@ -243,7 +244,7 @@ char *DetectLoadCompleteSigPath(char *sig_file)
             size_t path_len = sizeof(char) * (strlen(defaultpath) +
                           strlen(sig_file) + 2);
             path = SCMalloc(path_len);
-            if (path == NULL)
+            if (unlikely(path == NULL))
                 return NULL;
             strlcpy(path, defaultpath, path_len);
 #if defined OS_WIN32 || defined __CYGWIN__
@@ -256,9 +257,13 @@ char *DetectLoadCompleteSigPath(char *sig_file)
             strlcat(path, sig_file, path_len);
        } else {
             path = SCStrdup(sig_file);
+            if (unlikely(path == NULL))
+                return NULL;
         }
     } else {
         path = SCStrdup(sig_file);
+        if (unlikely(path == NULL))
+            return NULL;
     }
     return path;
 }
@@ -328,7 +333,7 @@ static inline void EngineAnalysisWriteFastPattern(Signature *s, SigMatch *mpm_sm
 
     uint16_t patlen = fp_cd->content_len;
     uint8_t *pat = SCMalloc(fp_cd->content_len + 1);
-    if (pat == NULL) {
+    if (unlikely(pat == NULL)) {
         SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory");
         exit(EXIT_FAILURE);
     }
@@ -342,7 +347,7 @@ static inline void EngineAnalysisWriteFastPattern(Signature *s, SigMatch *mpm_sm
         SCFree(pat);
         patlen = fp_cd->fp_chop_len;
         pat = SCMalloc(fp_cd->fp_chop_len + 1);
-        if (pat == NULL) {
+        if (unlikely(pat == NULL)) {
             exit(EXIT_FAILURE);
         }
         memcpy(pat, fp_cd->content + fp_cd->fp_chop_offset, fp_cd->fp_chop_len);
@@ -1401,6 +1406,8 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
     SigMatch *sm = NULL;
     uint16_t alversion = 0;
     int reset_de_state = 0;
+    AppLayerDecoderEvents *app_decoder_events = NULL;
+    int app_decoder_events_cnt = 0;
 
     SCEnter();
 
@@ -1486,6 +1493,10 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
             } else {
                 SCLogDebug("packet doesn't have established flag set (proto %d)", p->proto);
             }
+
+            app_decoder_events = AppLayerGetDecoderEventsForFlow(p->flow);
+            if (app_decoder_events != NULL)
+                app_decoder_events_cnt = app_decoder_events->cnt;
         }
         FLOWLOCK_UNLOCK(p->flow);
 
@@ -1611,7 +1622,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
     /* create our prefilter mask */
     SignatureMask mask = 0;
-    PacketCreateMask(p, &mask, alproto, alstate, smsg);
+    PacketCreateMask(p, &mask, alproto, alstate, smsg, app_decoder_events_cnt);
 
     PACKET_PROFILING_DETECT_START(p, PROF_DETECT_PREFILTER);
     /* build the match array */
@@ -1845,7 +1856,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 next:
         DetectReplaceFree(det_ctx->replist);
         det_ctx->replist = NULL;
-        RULE_PROFILING_END(s, smatch);
+        RULE_PROFILING_END(det_ctx, s, smatch);
 
         det_ctx->flags = 0;
         continue;
@@ -2015,7 +2026,7 @@ TmEcode Detect(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQue
     }
 
     if (SC_ATOMIC_GET(det_ctx->so_far_used_by_detect) == 0) {
-        SC_ATOMIC_SET(det_ctx->so_far_used_by_detect, 1);
+        (void)SC_ATOMIC_SET(det_ctx->so_far_used_by_detect, 1);
         SCLogDebug("Detect Engine using new det_ctx - %p and de_ctx - %p",
                   det_ctx, de_ctx);
     }
@@ -2332,13 +2343,20 @@ deonly:
  * SIG_MASK_REQUIRE_HTTP_STATE, SIG_MASK_REQUIRE_DCE_STATE
  */
 static void
-PacketCreateMask(Packet *p, SignatureMask *mask, uint16_t alproto, void *alstate, StreamMsg *smsg) {
+PacketCreateMask(Packet *p, SignatureMask *mask, uint16_t alproto, void *alstate, StreamMsg *smsg,
+        int app_decoder_events_cnt)
+{
     if (!(p->flags & PKT_NOPAYLOAD_INSPECTION) && (p->payload_len > 0 || smsg != NULL)) {
         SCLogDebug("packet has payload");
         (*mask) |= SIG_MASK_REQUIRE_PAYLOAD;
     } else {
         SCLogDebug("packet has no payload");
         (*mask) |= SIG_MASK_REQUIRE_NO_PAYLOAD;
+    }
+
+    if (p->events.cnt > 0 || app_decoder_events_cnt > 0) {
+        SCLogDebug("packet/flow has events set");
+        (*mask) |= SIG_MASK_REQUIRE_ENGINE_EVENT;
     }
 
     if (PKT_IS_TCP(p)) {
@@ -2452,6 +2470,9 @@ static int SignatureCreateMask(Signature *s) {
                 s->mask |= SIG_MASK_REQUIRE_HTTP_STATE;
                 SCLogDebug("sig requires dce http state");
                 break;
+            case DETECT_AL_APP_LAYER_EVENT:
+                s->mask |= SIG_MASK_REQUIRE_ENGINE_EVENT;
+                break;
         }
     }
 
@@ -2531,6 +2552,9 @@ static int SignatureCreateMask(Signature *s) {
                 }
                 break;
             }
+            case DETECT_ENGINE_EVENT:
+                s->mask |= SIG_MASK_REQUIRE_ENGINE_EVENT;
+                break;
         }
     }
 
@@ -2634,6 +2658,14 @@ int SigAddressPrepareStage1(DetectEngineCtx *de_ctx) {
         SCLogDebug("building signature grouping structure, stage 1: "
                    "adding signatures to signature source addresses...");
     }
+
+#ifdef HAVE_LUAJIT
+    /* run this before the mpm states are initialized */
+    if (DetectLuajitSetupStatesPool(de_ctx->detect_luajit_instances, rule_reload) != 0) {
+        if (de_ctx->failure_fatal)
+            return -1;
+    }
+#endif
 
     de_ctx->sig_array_len = DetectEngineGetMaxSigId(de_ctx);
     de_ctx->sig_array_size = (de_ctx->sig_array_len * sizeof(Signature *));
@@ -4679,14 +4711,16 @@ int SigGroupBuild (DetectEngineCtx *de_ctx) {
         //printf("huad- %d\n", mpm_ctx->pattern_cnt);
     }
 
+#ifdef __tile__
+    SCMpmFreeze();
+    SCLogInfo("MPM pattern memory frozen.");
+#endif
 //    SigAddressPrepareStage5(de_ctx);
 //    DetectAddressPrintMemory();
 //    DetectSigGroupPrintMemory();
 //    DetectPortPrintMemory();
-
-#ifdef __tile__
-    SCMpmFreeze();
-    SCLogInfo("MPM pattern memory frozen.");
+#ifdef PROFILING
+    SCProfilingRuleInitCounters(de_ctx);
 #endif
     return 0;
 }
@@ -5866,7 +5900,7 @@ static int SigTest15Real (int mpm_type) {
                     "CONNECT 213.92.8.7:31204 HTTP/1.1";
     uint16_t buflen = strlen((char *)buf);
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     ThreadVars th_v;
     DetectEngineThreadCtx *det_ctx;
@@ -6074,7 +6108,7 @@ static int SigTest18Real (int mpm_type) {
                     "220 (vsFTPd 2.0.5)\r\n";
     uint16_t buflen = strlen((char *)buf);
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     ThreadVars th_v;
     DetectEngineThreadCtx *det_ctx;
@@ -6138,7 +6172,7 @@ int SigTest19Real (int mpm_type) {
                     "220 (vsFTPd 2.0.5)\r\n";
     uint16_t buflen = strlen((char *)buf);
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     ThreadVars th_v;
     DetectEngineThreadCtx *det_ctx;
@@ -6209,7 +6243,7 @@ static int SigTest20Real (int mpm_type) {
                     "220 (vsFTPd 2.0.5)\r\n";
     uint16_t buflen = strlen((char *)buf);
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     ThreadVars th_v;
     DetectEngineThreadCtx *det_ctx;
@@ -6551,10 +6585,10 @@ int SigTest24IPV4Keyword(void)
         0xc0, 0xa8, 0x01, 0x06};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -6657,10 +6691,10 @@ int SigTest25NegativeIPV4Keyword(void)
         0xc0, 0xa8, 0x01, 0x06};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -6769,11 +6803,11 @@ int SigTest26TCPV4Keyword(void)
         0x01, 0x71, 0x74, 0xde, 0x01, 0x03, 0x03, 0x03};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
 
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -6885,10 +6919,10 @@ static int SigTest27NegativeTCPV4Keyword(void)
 
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -7013,10 +7047,10 @@ int SigTest28TCPV6Keyword(void)
         0x00, 0x01, 0x69, 0x28};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -7143,10 +7177,10 @@ int SigTest29NegativeTCPV6Keyword(void)
         0x00, 0x01, 0x69, 0x28};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -7268,10 +7302,10 @@ int SigTest30UDPV4Keyword(void)
         0x67, 0x6c, 0x65, 0xc0, 0x27};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -7393,10 +7427,10 @@ int SigTest31NegativeUDPV4Keyword(void)
         0x67, 0x6c, 0x65, 0xc0, 0x27};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -7512,10 +7546,10 @@ int SigTest32UDPV6Keyword(void)
         0x09, 0x01};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -7629,10 +7663,10 @@ int SigTest33NegativeUDPV6Keyword(void)
         0x09, 0x01};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -7748,10 +7782,10 @@ int SigTest34ICMPV4Keyword(void)
         0x34, 0x35, 0x36, 0x38};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -7870,10 +7904,10 @@ int SigTest35NegativeICMPV4Keyword(void)
         0x34, 0x35, 0x36, 0x38};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -8003,10 +8037,10 @@ int SigTest36ICMPV6Keyword(void)
         0x08, 0x01};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -8133,10 +8167,10 @@ int SigTest37NegativeICMPV6Keyword(void)
         0x08, 0x01};
 
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
+    if (unlikely(p2 == NULL)) {
         SCFree(p1);
         return 0;
     }
@@ -8227,7 +8261,7 @@ end:
 int SigTest38Real(int mpm_type)
 {
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     ThreadVars th_v;
     DetectEngineThreadCtx *det_ctx = NULL;
@@ -8370,7 +8404,7 @@ static int SigTest38Wm (void) {
 int SigTest39Real(int mpm_type)
 {
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     ThreadVars th_v;
     DetectEngineThreadCtx *det_ctx = NULL;
@@ -8559,7 +8593,7 @@ int SigTest36ContentAndIsdataatKeywords01Real (int mpm_type) {
 	,0x3e,0x3c,0x2f,0x48,0x54,0x4d,0x4c,0x3e,0x0d,0x0a };
 
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     DecodeThreadVars dtv;
 
@@ -8677,7 +8711,7 @@ int SigTest37ContentAndIsdataatKeywords02Real (int mpm_type) {
 	,0x3e,0x3c,0x2f,0x48,0x54,0x4d,0x4c,0x3e,0x0d,0x0a };
 
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     DecodeThreadVars dtv;
 
@@ -8798,7 +8832,7 @@ int SigTest40NoPacketInspection01(void) {
     uint16_t buflen = strlen((char *)buf);
     Packet *p = SCMalloc(SIZE_OF_PACKET);
     TCPHdr tcphdr;
-    if (p == NULL)
+    if (unlikely(p == NULL))
     return 0;
     ThreadVars th_v;
     DetectEngineThreadCtx *det_ctx;
@@ -8873,7 +8907,7 @@ int SigTest40NoPayloadInspection02(void) {
                     "220 (vsFTPd 2.0.5)\r\n";
     uint16_t buflen = strlen((char *)buf);
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
     return 0;
     ThreadVars th_v;
     DetectEngineThreadCtx *det_ctx;
@@ -8935,7 +8969,7 @@ static int SigTestMemory01 (void) {
                     "\r\n\r\n";
     uint16_t buflen = strlen((char *)buf);
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     ThreadVars th_v;
     DetectEngineThreadCtx *det_ctx;
@@ -9405,7 +9439,7 @@ static int SigTestSgh03 (void) {
     ThreadVars th_v;
     int result = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     DetectEngineThreadCtx *det_ctx;
 
@@ -9577,7 +9611,7 @@ static int SigTestSgh04 (void) {
     ThreadVars th_v;
     int result = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     DetectEngineThreadCtx *det_ctx;
 
@@ -9770,7 +9804,7 @@ static int SigTestSgh05 (void) {
     ThreadVars th_v;
     int result = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     DetectEngineThreadCtx *det_ctx;
 
@@ -10320,7 +10354,7 @@ static int SigTestWithinReal01 (int mpm_type) {
 
     /* packet 1 */
     p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
+    if (unlikely(p1 == NULL))
         return 0;
     memset(p1, 0, SIZE_OF_PACKET);
     p1->pkt = (uint8_t *)(p1 + 1);
@@ -10333,7 +10367,7 @@ static int SigTestWithinReal01 (int mpm_type) {
 
     /* packet 2 */
     p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL)
+    if (unlikely(p2 == NULL))
         return 0;
     memset(p2, 0, SIZE_OF_PACKET);
     p2->pkt = (uint8_t *)(p2 + 1);
@@ -10346,7 +10380,7 @@ static int SigTestWithinReal01 (int mpm_type) {
 
     /* packet 3 */
     p3 = SCMalloc(SIZE_OF_PACKET);
-    if (p3 == NULL)
+    if (unlikely(p3 == NULL))
         return 0;
     memset(p3, 0, SIZE_OF_PACKET);
     p3->pkt = (uint8_t *)(p3 + 1);
@@ -10359,7 +10393,7 @@ static int SigTestWithinReal01 (int mpm_type) {
 
     /* packet 4 */
     p4 = SCMalloc(SIZE_OF_PACKET);
-    if (p4 == NULL)
+    if (unlikely(p4 == NULL))
         return 0;
     memset(p4, 0, SIZE_OF_PACKET);
     p4->pkt = (uint8_t *)(p4 + 1);

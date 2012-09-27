@@ -152,7 +152,7 @@ static DeStateStore *DeStateStoreAlloc(void) {
     }
 #else
     DeStateStore *d = SCMalloc(sizeof(DeStateStore));
-    if (d == NULL) {
+    if (unlikely(d == NULL)) {
         SCReturnPtr(NULL, "DeStateStore");
     }
 #endif
@@ -215,7 +215,7 @@ static DetectEngineState *DetectEngineStateAlloc(void) {
     }
 #else
     DetectEngineState *d = SCMalloc(sizeof(DetectEngineState));
-    if (d == NULL) {
+    if (unlikely(d == NULL)) {
         SCReturnPtr(NULL, "DetectEngineState");
     }
 #endif
@@ -1224,7 +1224,7 @@ int DeStateDetectContinueDetection(ThreadVars *tv, DetectEngineCtx *de_ctx, Dete
             SCLogDebug("signature %"PRIu32" match state %s",
                     s->id, DeStateMatchResultToString(det_ctx->de_state_sig_array[item->sid]));
 
-            RULE_PROFILING_END(s, match);
+            RULE_PROFILING_END(det_ctx, s, match);
 
         }
     }

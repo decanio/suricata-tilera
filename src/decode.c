@@ -85,7 +85,7 @@ void DecodeTunnel(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p,
 Packet *PacketGetFromAlloc(void)
 {
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL) {
+    if (unlikely(p == NULL)) {
         return NULL;
     }
 
@@ -376,6 +376,9 @@ void DecodeRegisterPerfCounters(DecodeThreadVars *dtv, ThreadVars *tv)
             SC_PERF_TYPE_UINT64, "NULL");
     dtv->counter_defrag_ipv6_timeouts =
         SCPerfTVRegisterCounter("defrag.ipv6.timeouts", tv,
+            SC_PERF_TYPE_UINT64, "NULL");
+    dtv->counter_defrag_max_hit =
+        SCPerfTVRegisterCounter("defrag.max_frag_hits", tv,
             SC_PERF_TYPE_UINT64, "NULL");
 
     tv->sc_perf_pca = SCPerfGetAllCountersArray(tv, &tv->sc_perf_pctx);

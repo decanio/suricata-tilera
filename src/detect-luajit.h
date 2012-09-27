@@ -32,16 +32,24 @@
 
 typedef struct DetectLuajitThreadData {
     lua_State *luastate;
+    uint32_t flags;
+    int alproto;
 } DetectLuajitThreadData;
 
 typedef struct DetectLuajitData {
     int thread_ctx_id;
     int negated;
     char *filename;
+    uint32_t flags;
+    int alproto;
+    char *buffername; /* buffer name in case of a single buffer */
 } DetectLuajitData;
 #endif
 
 /* prototypes */
 void DetectLuajitRegister (void);
+int DetectLuajitMatchBuffer(DetectEngineThreadCtx *det_ctx, Signature *s, SigMatch *sm, uint8_t *buffer, uint32_t buffer_len, uint32_t offset);
+
+int DetectLuajitSetupStatesPool(int num, int reloads);
 
 #endif /* __DETECT_FILELUAJIT_H__ */

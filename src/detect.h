@@ -273,14 +273,14 @@ typedef struct DetectPort_ {
 #define SIG_FLAG_INIT_FILE_DATA      (1<<5)  /**< file_data set */
 
 /* signature mask flags */
-#define SIG_MASK_REQUIRE_PAYLOAD            1
+#define SIG_MASK_REQUIRE_PAYLOAD            (1<<0)
 #define SIG_MASK_REQUIRE_FLOW               (1<<1)
 #define SIG_MASK_REQUIRE_FLAGS_INITDEINIT   (1<<2)    /* SYN, FIN, RST */
 #define SIG_MASK_REQUIRE_FLAGS_UNUSUAL      (1<<3)    /* URG, ECN, CWR */
 #define SIG_MASK_REQUIRE_NO_PAYLOAD         (1<<4)
-//
 #define SIG_MASK_REQUIRE_HTTP_STATE         (1<<5)
 #define SIG_MASK_REQUIRE_DCE_STATE          (1<<6)
+#define SIG_MASK_REQUIRE_ENGINE_EVENT       (1<<7)
 
 /* for now a uint8_t is enough */
 #define SignatureMask uint8_t
@@ -689,6 +689,12 @@ typedef struct DetectEngineCtx_ {
     /** list of keywords that need thread local ctxs */
     DetectEngineThreadKeywordCtxItem *keyword_list;
     int keyword_id;
+
+    int detect_luajit_instances;
+
+#ifdef PROFILING
+    struct SCProfileDetectCtx_ *profile_ctx;
+#endif
 } DetectEngineCtx;
 
 /* Engine groups profiles (low, medium, high, custom) */
@@ -817,6 +823,11 @@ typedef struct DetectionEngineThreadCtx_ {
      *  thread safety issues */
     void **keyword_ctxs_array;
     int keyword_ctxs_size;
+
+#ifdef PROFILING
+    struct SCProfileData_ *rule_perf_data;
+    int rule_perf_data_size;
+#endif
 } DetectEngineThreadCtx;
 
 /** \brief element in sigmatch type table.

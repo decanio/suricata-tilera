@@ -564,7 +564,7 @@ void DecodeIPV6(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt, 
 
     /* Pass to defragger if a fragment. */
     if (IPV6_EXTHDR_ISSET_FH(p)) {
-        Packet *rp = Defrag(tv, dtv, NULL, p);
+        Packet *rp = Defrag(tv, dtv, p);
         if (rp != NULL) {
             DecodeIPV6(tv, dtv, rp, (uint8_t *)rp->ip6h, IPV6_GET_PLEN(rp) + IPV6_HEADER_LEN, pq);
             PacketEnqueue(pq, rp);
@@ -712,12 +712,12 @@ static int DecodeIPV6FragTest01 (void)   {
         0x20, 0x20, 0x20, 0x20,
     };
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
-        return 0;
+    if (unlikely(p1 == NULL))
+    return 0;
     Packet *p2 = SCMalloc(SIZE_OF_PACKET);
-    if (p2 == NULL) {
-        SCFree(p1);
-        return 0;
+    if (unlikely(p2 == NULL)) {
+    SCFree(p1);
+    return 0;
     }
     ThreadVars tv;
     DecodeThreadVars dtv;
@@ -725,6 +725,7 @@ static int DecodeIPV6FragTest01 (void)   {
     PacketQueue pq;
 
     FlowInitConfig(FLOW_QUIET);
+    DefragInit();
 
     memset(&pq, 0, sizeof(PacketQueue));
     memset(&tv, 0, sizeof(ThreadVars));
@@ -765,6 +766,7 @@ end:
     PACKET_CLEANUP(p2);
     SCFree(p1);
     SCFree(p2);
+    DefragDestroy();
     FlowShutdown();
     return result;
 }
@@ -787,8 +789,8 @@ static int DecodeIPV6RouteTest01 (void)   {
         0xfa, 0x87, 0x00, 0x00,
     };
     Packet *p1 = SCMalloc(SIZE_OF_PACKET);
-    if (p1 == NULL)
-        return 0;
+    if (unlikely(p1 == NULL))
+    return 0;
     ThreadVars tv;
     DecodeThreadVars dtv;
     int result = 0;

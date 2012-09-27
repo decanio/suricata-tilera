@@ -159,9 +159,8 @@ TmEcode NapatechFeedThreadInit(ThreadVars *tv, void *initdata, void **data)
     }
 
     NapatechThreadVars *ntv = SCMalloc(sizeof(NapatechThreadVars));
-    if (ntv == NULL) {
-        SCLogError(SC_ERR_MEM_ALLOC,
-                "Failed to allocate memory for NAPATECH thread vars.");
+    if (unlikely(ntv == NULL)) {
+        SCLogError(SC_ERR_MEM_ALLOC, "Failed to allocate memory for NAPATECH thread vars.");
         exit(EXIT_FAILURE);
     }
 
@@ -210,7 +209,7 @@ TmEcode NapatechFeedLoop(ThreadVars *tv, void *data, void *slot)
     ntv->slot = s->slot_next;
 
     while (1) {
-        if (suricata_ctl_flags & (SURICATA_STOP || SURICATA_KILL)) {
+        if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
             SCReturnInt(TM_ECODE_OK);
         }
 

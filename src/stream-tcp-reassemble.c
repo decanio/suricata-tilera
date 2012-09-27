@@ -163,7 +163,7 @@ void *TcpSegmentPoolAlloc()
     TcpSegment *seg = NULL;
 
     seg = SCMalloc(sizeof (TcpSegment));
-    if (seg == NULL)
+    if (unlikely(seg == NULL))
         return NULL;
     return seg;
 }
@@ -195,8 +195,8 @@ int TcpSegmentPoolInit(void *data, void *payload_len)
     return 1;
 }
 
-/** \brief free a tcp segment pool entry */
-void TcpSegmentPoolFree(void *ptr) {
+/** \brief clean up a tcp segment pool entry */
+void TcpSegmentPoolCleanup(void *ptr) {
     if (ptr == NULL)
         return;
 
@@ -286,7 +286,7 @@ int StreamTcpReassembleInit(char quiet)
                                      sizeof (TcpSegment),
                                      TcpSegmentPoolAlloc, TcpSegmentPoolInit,
                                      (void *) &segment_pool_pktsizes[u16],
-                                     TcpSegmentPoolFree);
+                                     TcpSegmentPoolCleanup, NULL);
         SCMutexUnlock(&segment_pool_mutex[u16]);
     }
 
@@ -357,7 +357,7 @@ TcpReassemblyThreadCtx *StreamTcpReassembleInitThreadCtx(ThreadVars *tv)
 {
     SCEnter();
     TcpReassemblyThreadCtx *ra_ctx = SCThreadMalloc(tv, sizeof(TcpReassemblyThreadCtx));
-    if (ra_ctx == NULL)
+    if (unlikely(ra_ctx == NULL))
         return NULL;
 
     memset(ra_ctx, 0x00, sizeof(TcpReassemblyThreadCtx));
@@ -2727,6 +2727,7 @@ static int StreamTcpReassembleAppLayer (ThreadVars *tv,
                 AppLayerHandleTCPData(&ra_ctx->dp_ctx, p->flow, ssn,
                         data, data_len, flags);
                 PACKET_PROFILING_APP_STORE(&ra_ctx->dp_ctx, p);
+                data_len = 0;
             }
 
             /* don't conclude it's a gap straight away. If ra_base_seq is lower
@@ -3606,7 +3607,7 @@ static int StreamTcpReassembleStreamTest(TcpStream *stream) {
 
     TcpSession ssn;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
     return 0;
     Flow f;
     uint8_t payload[4];
@@ -3966,7 +3967,7 @@ static int StreamTcpCheckQueue (uint8_t *stream_contents, StreamMsgQueue *q, uin
 static int StreamTcpTestStartsBeforeListSegment(TcpStream *stream) {
     TcpSession ssn;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow f;
     uint8_t payload[4];
@@ -4083,7 +4084,7 @@ static int StreamTcpTestStartsBeforeListSegment(TcpStream *stream) {
 static int StreamTcpTestStartsAtSameListSegment(TcpStream *stream) {
     TcpSession ssn;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow f;
     uint8_t payload[4];
@@ -4199,7 +4200,7 @@ static int StreamTcpTestStartsAtSameListSegment(TcpStream *stream) {
 static int StreamTcpTestStartsAfterListSegment(TcpStream *stream) {
     TcpSession ssn;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow f;
     uint8_t payload[4];
@@ -4918,7 +4919,7 @@ static int StreamTcpTestMissedPacket (TcpReassemblyThreadCtx *ra_ctx,
         uint16_t len, uint8_t th_flags, uint8_t flowflags, uint8_t state)
 {
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return -1;
     Flow f;
     TCPHdr tcph;
@@ -5516,7 +5517,7 @@ end:
 static int StreamTcpReassembleTest32(void) {
     TcpSession ssn;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow f;
     TCPHdr tcph;
@@ -5606,7 +5607,7 @@ end:
 static int StreamTcpReassembleTest33(void) {
     TcpSession ssn;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow f;
     TCPHdr tcph;
@@ -5687,7 +5688,7 @@ static int StreamTcpReassembleTest33(void) {
 static int StreamTcpReassembleTest34(void) {
     TcpSession ssn;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow f;
     TCPHdr tcph;
@@ -5769,7 +5770,7 @@ static int StreamTcpReassembleTest34(void) {
 static int StreamTcpReassembleTest35(void) {
     TcpSession ssn;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow f;
     TCPHdr tcph;
@@ -5838,7 +5839,7 @@ static int StreamTcpReassembleTest35(void) {
 static int StreamTcpReassembleTest36(void) {
     TcpSession ssn;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow f;
     TCPHdr tcph;
@@ -5914,7 +5915,7 @@ static int StreamTcpReassembleTest37(void) {
     ThreadVars tv;
 
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
 
     StreamTcpInitConfig(TRUE);
@@ -5999,7 +6000,7 @@ static int StreamTcpReassembleTest37(void) {
 static int StreamTcpReassembleTest38 (void) {
     int ret = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow f;
     TCPHdr tcph;
@@ -6157,7 +6158,7 @@ static int StreamTcpReassembleTest39 (void) {
 
     int ret = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow *f = NULL;
     TCPHdr tcph;
@@ -6366,7 +6367,7 @@ end:
 static int StreamTcpReassembleTest40 (void) {
     int ret = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow *f = NULL;
     TCPHdr tcph;
@@ -6608,7 +6609,7 @@ end:
 static int StreamTcpReassembleTest41 (void) {
     int ret = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow *f = NULL;
     TCPHdr tcph;
@@ -6797,7 +6798,7 @@ end:
 static int StreamTcpReassembleTest42 (void) {
     int ret = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow *f = NULL;
     TCPHdr tcph;
@@ -6951,7 +6952,7 @@ end:
 static int StreamTcpReassembleTest43 (void) {
     int ret = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow *f = NULL;
     TCPHdr tcph;
@@ -7189,7 +7190,7 @@ end:
 static int StreamTcpReassembleTest45 (void) {
     int ret = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow *f = NULL;
     TCPHdr tcph;
@@ -7307,7 +7308,7 @@ end:
 static int StreamTcpReassembleTest46 (void) {
     int ret = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow *f = NULL;
     TCPHdr tcph;
@@ -7429,7 +7430,7 @@ end:
 static int StreamTcpReassembleTest47 (void) {
     int ret = 0;
     Packet *p = SCMalloc(SIZE_OF_PACKET);
-    if (p == NULL)
+    if (unlikely(p == NULL))
         return 0;
     Flow *f = NULL;
     TCPHdr tcph;

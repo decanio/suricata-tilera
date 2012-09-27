@@ -169,9 +169,8 @@ ReceiveErfDagThreadInit(ThreadVars *tv, void *initdata, void **data)
     }
 
     ErfDagThreadVars *ewtn = SCMalloc(sizeof(ErfDagThreadVars));
-    if (ewtn == NULL) {
-        SCLogError(SC_ERR_MEM_ALLOC,
-                   "Failed to allocate memory for ERF DAG thread vars.");
+    if (unlikely(ewtn == NULL)) {
+        SCLogError(SC_ERR_MEM_ALLOC, "Failed to allocate memory for ERF DAG thread vars.");
         exit(EXIT_FAILURE);
     }
 
@@ -315,7 +314,7 @@ TmEcode ReceiveErfDagLoop(ThreadVars *tv, void *data, void *slot)
 
     while (1)
     {
-        if (suricata_ctl_flags & (SURICATA_STOP || SURICATA_KILL)) {
+        if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
             SCReturnInt(TM_ECODE_OK);
         }
 
@@ -483,7 +482,7 @@ static inline TmEcode ProcessErfDagRecord(ErfDagThreadVars *ewtn, char *prec)
         SCReturnInt(TM_ECODE_FAILED);
     }
 
-    SET_PKT_LEN(p, wlen - 4);   /* Trim the FCS... */
+    SET_PKT_LEN(p, wlen);
     p->datalink = LINKTYPE_ETHERNET;
 
     /* Take into account for link type Ethernet ETH frame starts

@@ -1292,7 +1292,7 @@ static void *SMBStateAlloc(void) {
     SCEnter();
 
     void *s = SCMalloc(sizeof(SMBState));
-    if (s == NULL) {
+    if (unlikely(s == NULL)) {
         SCReturnPtr(NULL, "void");
     }
 
@@ -2380,7 +2380,6 @@ end:
 
 void SMBParserRegisterTests(void) {
 #ifdef UNITTESTS
-    printf("SMBParserRegisterTests\n");
     UtRegisterTest("SMBParserTest01", SMBParserTest01, 1);
     UtRegisterTest("SMBParserTest02", SMBParserTest02, 1);
     UtRegisterTest("SMBParserTest03", SMBParserTest03, 1);

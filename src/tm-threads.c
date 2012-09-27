@@ -236,7 +236,7 @@ void *TmThreadsSlot1NoIn(void *td)
             TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
             pthread_exit((void *) -1);
         }
-        SC_ATOMIC_SET(s->slot_data, slot_data);
+        (void)SC_ATOMIC_SET(s->slot_data, slot_data);
     }
     memset(&s->slot_pre_pq, 0, sizeof(PacketQueue));
     memset(&s->slot_post_pq, 0, sizeof(PacketQueue));
@@ -339,7 +339,7 @@ void *TmThreadsSlot1NoOut(void *td)
             TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
             pthread_exit((void *) -1);
         }
-        SC_ATOMIC_SET(s->slot_data, slot_data);
+        (void)SC_ATOMIC_SET(s->slot_data, slot_data);
     }
     memset(&s->slot_pre_pq, 0, sizeof(PacketQueue));
     memset(&s->slot_post_pq, 0, sizeof(PacketQueue));
@@ -424,7 +424,7 @@ void *TmThreadsSlot1NoInOut(void *td)
             TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
             pthread_exit((void *) -1);
         }
-        SC_ATOMIC_SET(s->slot_data, slot_data);
+        (void)SC_ATOMIC_SET(s->slot_data, slot_data);
     }
     memset(&s->slot_pre_pq, 0, sizeof(PacketQueue));
     memset(&s->slot_post_pq, 0, sizeof(PacketQueue));
@@ -504,7 +504,7 @@ void *TmThreadsSlot1(void *td)
             TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
             pthread_exit((void *) -1);
         }
-        SC_ATOMIC_SET(s->slot_data, slot_data);
+        (void)SC_ATOMIC_SET(s->slot_data, slot_data);
     }
     memset(&s->slot_pre_pq, 0, sizeof(PacketQueue));
     SCMutexInit(&s->slot_pre_pq.mutex_q, NULL);
@@ -725,7 +725,7 @@ void *TmThreadsSlotPktAcqLoop(void *td) {
                 TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
                 pthread_exit((void *) -1);
             }
-            SC_ATOMIC_SET(slot->slot_data, slot_data);
+            (void)SC_ATOMIC_SET(slot->slot_data, slot_data);
         }
         memset(&slot->slot_pre_pq, 0, sizeof(PacketQueue));
         SCMutexInit(&slot->slot_pre_pq.mutex_q, NULL);
@@ -814,7 +814,7 @@ void *TmThreadsSlotVar(void *td)
                 TmThreadsSetFlag(tv, THV_CLOSED | THV_RUNNING_DONE);
                 pthread_exit((void *) -1);
             }
-            SC_ATOMIC_SET(s->slot_data, slot_data);
+            (void)SC_ATOMIC_SET(s->slot_data, slot_data);
         }
         memset(&s->slot_pre_pq, 0, sizeof(PacketQueue));
         SCMutexInit(&s->slot_pre_pq.mutex_q, NULL);
@@ -1005,7 +1005,7 @@ ThreadVars *TmThreadsGetTVContainingSlot(TmSlot *tm_slot)
 static inline TmSlot * _TmSlotSetFuncAppend(ThreadVars *tv, TmModule *tm, void *data)
 {
     TmSlot *slot = SCMalloc(sizeof(TmSlot));
-    if (slot == NULL)
+    if (unlikely(slot == NULL))
         return NULL;
     memset(slot, 0, sizeof(TmSlot));
     SC_ATOMIC_INIT(slot->slot_data);
@@ -1013,7 +1013,7 @@ static inline TmSlot * _TmSlotSetFuncAppend(ThreadVars *tv, TmModule *tm, void *
     slot->SlotThreadInit = tm->ThreadInit;
     slot->slot_initdata = data;
     SC_ATOMIC_INIT(slot->SlotFunc);
-    SC_ATOMIC_SET(slot->SlotFunc, tm->Func);
+    (void)SC_ATOMIC_SET(slot->SlotFunc, tm->Func);
     slot->PktAcqLoop = tm->PktAcqLoop;
     slot->SlotThreadExitPrintStats = tm->ThreadExitPrintStats;
     slot->SlotThreadDeinit = tm->ThreadDeinit;
@@ -1085,14 +1085,14 @@ void TmSlotSetFuncAppendDelayed(ThreadVars *tv, TmModule *tm, void *data,
     }
 
     dslot = SCMalloc(sizeof(TmDummySlot));
-    if (dslot == NULL) {
+    if (unlikely(dslot == NULL)) {
         return;
     }
 
     memset(dslot, 0, sizeof(*dslot));
 
     dslot->SlotFunc = SC_ATOMIC_GET(slot->SlotFunc);
-    SC_ATOMIC_SET(slot->SlotFunc, TmDummyFunc);
+    (void)SC_ATOMIC_SET(slot->SlotFunc, TmDummyFunc);
     dslot->SlotThreadInit = slot->SlotThreadInit;
     slot->SlotThreadInit = NULL;
     dslot->slot = slot;
@@ -1121,7 +1121,7 @@ void TmThreadActivateDummySlot()
                 EngineKill();
                 TmThreadsSetFlag(s->tv, THV_CLOSED | THV_RUNNING_DONE);
             }
-            SC_ATOMIC_SET(s->slot_data, slot_data);
+            (void)SC_ATOMIC_SET(s->slot_data, slot_data);
         }
 #ifdef __tile__
         /* HACK: having tile-gcc compiler issues here */
@@ -1411,7 +1411,7 @@ ThreadVars *TmThreadCreate(char *name, char *inq_name, char *inqh_name,
 
     /* XXX create separate function for this: allocate a thread container */
     tv = SCMalloc(sizeof(ThreadVars));
-    if (tv == NULL)
+    if (unlikely(tv == NULL))
         goto error;
     memset(tv, 0, sizeof(ThreadVars));
 
@@ -1977,7 +1977,7 @@ TmEcode TmThreadSpawn(ThreadVars *tv)
      * this doesn't play well with tilera threadvar swaping cache optimization
      * or the tilera startup barrier.  Will try to find a way to put this back.
      */
-    TmThreadWaitForFlag(tv, THV_INIT_DONE);
+    TmThreadWaitForFlag(tv, THV_INIT_DONE | THV_RUNNING_DONE);
 #endif
 
     TmThreadAppend(tv, tv->type);

@@ -213,6 +213,8 @@ SC_ATOMIC_DECLARE(unsigned int, engine_stage);
 /* Max packets processed simultaniously. */
 #define DEFAULT_MAX_PENDING_PACKETS 1024
 
+int rule_reload = 0;
+
 /** suricata engine control flags */
 uint8_t suricata_ctl_flags = 0;
 
@@ -385,7 +387,7 @@ static void SetBpfString(int optind, char *argv[]) {
         return;
 
     bpf_filter = SCMalloc(bpf_len);
-    if (bpf_filter == NULL)
+    if (unlikely(bpf_filter == NULL))
         return;
     memset(bpf_filter, 0x00, bpf_len);
 
@@ -436,9 +438,8 @@ static void SetBpfStringFromFile(char *filename) {
     }
 
     bpf_filter = SCMalloc(bpf_len * sizeof(char));
-    if (bpf_filter == NULL) {
-        SCLogError(SC_ERR_MEM_ALLOC,
-                "Failed to allocate buffer for bpf filter in file %s", filename);
+    if (unlikely(bpf_filter == NULL)) {
+        SCLogError(SC_ERR_MEM_ALLOC, "Failed to allocate buffer for bpf filter in file %s", filename);
         exit(EXIT_FAILURE);
     }
     memset(bpf_filter, 0x00, bpf_len);
@@ -715,7 +716,6 @@ int main(int argc, char **argv)
     uint32_t groupid = 0;
 #endif /* OS_WIN32 */
     int build_info = 0;
-    int rule_reload = 0;
     int delayed_detect = 0;
 
     char *log_dir;
@@ -1506,6 +1506,7 @@ int main(int argc, char **argv)
     //PatternMatchPrepare(mpm_ctx, MPM_B2G);
     SCPerfInitCounterApi();
 #ifdef PROFILING
+    SCProfilingRulesGlobalInit();
     SCProfilingInit();
 #endif /* PROFILING */
     SCReputationInitCtx();
@@ -1875,10 +1876,6 @@ int main(int argc, char **argv)
      * can't call it during the first sig load phase */
     if (sig_file == NULL && rule_reload == 1)
         UtilSignalHandlerSetup(SIGUSR2, SignalHandlerSigusr2);
-
-#ifdef PROFILING
-    SCProfilingInitRuleCounters(de_ctx);
-#endif /* PROFILING */
 
 #ifdef __SC_CUDA_SUPPORT__
     SCCudaPBSetUpQueuesAndBuffers();

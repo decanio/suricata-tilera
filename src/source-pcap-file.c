@@ -171,7 +171,7 @@ TmEcode ReceivePcapFileLoop(ThreadVars *tv, void *data, void *slot)
     ptv->cb_result = TM_ECODE_OK;
 
     while (1) {
-        if (suricata_ctl_flags & (SURICATA_STOP || SURICATA_KILL)) {
+        if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
             SCReturnInt(TM_ECODE_OK);
         }
 
@@ -228,7 +228,7 @@ TmEcode ReceivePcapFileThreadInit(ThreadVars *tv, void *initdata, void **data) {
     SCLogInfo("reading pcap file %s", (char *)initdata);
 
     PcapFileThreadVars *ptv = SCMalloc(sizeof(PcapFileThreadVars));
-    if (ptv == NULL)
+    if (unlikely(ptv == NULL))
         SCReturnInt(TM_ECODE_FAILED);
     memset(ptv, 0, sizeof(PcapFileThreadVars));
 

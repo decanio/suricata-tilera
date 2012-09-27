@@ -151,7 +151,7 @@ void StreamMsgQueuesInit(void) {
     SCMutexInit(&stream_pool_memuse_mutex, NULL);
 #endif
     SCMutexLock(&stream_msg_pool_mutex);
-    stream_msg_pool = PoolInit(0,250,sizeof(StreamMsg),NULL,StreamMsgInit,NULL,NULL);
+    stream_msg_pool = PoolInit(0,250,sizeof(StreamMsg),NULL,StreamMsgInit,NULL,NULL,NULL);
     if (stream_msg_pool == NULL)
         exit(EXIT_FAILURE); /* XXX */
     SCMutexUnlock(&stream_msg_pool_mutex);
@@ -174,7 +174,7 @@ void StreamMsgQueuesDeinit(char quiet) {
  *  \retval smq ptr to the queue or NULL */
 StreamMsgQueue *StreamMsgQueueGetNew(void) {
     StreamMsgQueue *smq = SCMalloc(sizeof(StreamMsgQueue));
-    if (smq == NULL)
+    if (unlikely(smq == NULL))
         return NULL;
 
     memset(smq, 0x00, sizeof(StreamMsgQueue));

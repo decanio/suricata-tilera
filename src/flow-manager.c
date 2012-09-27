@@ -62,6 +62,7 @@
 #include "app-layer-parser.h"
 
 #include "host-timeout.h"
+#include "defrag-timeout.h"
 
 #ifdef __tile__
 #include <tmc/cpus.h>
@@ -484,6 +485,7 @@ void *FlowManagerThread(void *td)
         FlowTimeoutHash(&ts, 0 /* check all */, &counters);
 
 
+        DefragTimeoutHash(&ts);
         //uint32_t hosts_pruned =
         HostTimeoutHash(&ts);
 /*

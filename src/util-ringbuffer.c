@@ -823,7 +823,7 @@ int RingBufferSrSwPut(RingBuffer16 *rb, void *ptr) {
 
 RingBuffer8 *RingBuffer8Init(void) {
     RingBuffer8 *rb = SCMalloc(sizeof(RingBuffer8));
-    if (rb == NULL) {
+    if (unlikely(rb == NULL)) {
         return NULL;
     }
 
@@ -1026,7 +1026,7 @@ retry:
 
 RingBuffer16 *RingBufferInit(void) {
     RingBuffer16 *rb = SCMalloc(sizeof(RingBuffer16));
-    if (rb == NULL) {
+    if (unlikely(rb == NULL)) {
         return NULL;
     }
 

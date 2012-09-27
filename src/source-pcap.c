@@ -271,7 +271,7 @@ TmEcode ReceivePcapLoop(ThreadVars *tv, void *data, void *slot)
     ptv->cb_result = TM_ECODE_OK;
 
     while (1) {
-        if (suricata_ctl_flags & (SURICATA_STOP || SURICATA_KILL)) {
+        if (suricata_ctl_flags & (SURICATA_STOP | SURICATA_KILL)) {
             SCReturnInt(TM_ECODE_OK);
         }
 
@@ -352,7 +352,7 @@ TmEcode ReceivePcapThreadInit(ThreadVars *tv, void *initdata, void **data) {
     }
 
     PcapThreadVars *ptv = SCMalloc(sizeof(PcapThreadVars));
-    if (ptv == NULL) {
+    if (unlikely(ptv == NULL)) {
         pcapconfig->DerefFunc(pcapconfig);
         SCReturnInt(TM_ECODE_FAILED);
     }
@@ -492,8 +492,7 @@ TmEcode ReceivePcapThreadInit(ThreadVars *tv, void *initdata, void **data) {
     }
 
     PcapThreadVars *ptv = SCMalloc(sizeof(PcapThreadVars));
-    if (ptv == NULL) {
-        /* Dereference config */
+    if (unlikely(ptv == NULL)) {
         pcapconfig->DerefFunc(pcapconfig);
         SCReturnInt(TM_ECODE_FAILED);
     }

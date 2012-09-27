@@ -49,10 +49,10 @@ void SCProfilingAddPacket(Packet *);
         profile_rule_start_ = UtilCpuGetTicks(); \
     }
 
-#define RULE_PROFILING_END(r, m) \
+#define RULE_PROFILING_END(ctx, r, m) \
     if (profiling_rules_enabled) { \
         profile_rule_end_ = UtilCpuGetTicks(); \
-        SCProfilingUpdateRuleCounter(r->profiling_id, \
+        SCProfilingRuleUpdateCounter(ctx, r->profiling_id, \
             profile_rule_end_ - profile_rule_start_, m); \
         profiling_rules_entered--; \
     }
@@ -195,18 +195,24 @@ void SCProfilingAddPacket(Packet *);
         }                                                           \
     }
 
+
+void SCProfilingRulesGlobalInit(void);
+void SCProfilingRuleDestroyCtx(struct SCProfileDetectCtx_ *);
+void SCProfilingRuleInitCounters(DetectEngineCtx *);
+void SCProfilingRuleUpdateCounter(DetectEngineThreadCtx *, uint16_t, uint64_t, int);
+
+void SCProfilingRuleThreadSetup(struct SCProfileDetectCtx_ *, DetectEngineThreadCtx *);
+void SCProfilingRuleThreadCleanup(DetectEngineThreadCtx *);
+
 void SCProfilingInit(void);
 void SCProfilingDestroy(void);
-void SCProfilingInitRuleCounters(DetectEngineCtx *);
-void SCProfilingCounterAddUI64(uint16_t, uint64_t);
 void SCProfilingRegisterTests(void);
 void SCProfilingDump(void);
-void SCProfilingUpdateRuleCounter(uint16_t, uint64_t, int);
 
 #else
 
 #define RULE_PROFILING_START
-#define RULE_PROFILING_END(r, m)
+#define RULE_PROFILING_END(a,b,c)
 
 #define PACKET_PROFILING_START(p)
 #define PACKET_PROFILING_END(p)

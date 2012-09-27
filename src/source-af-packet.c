@@ -124,6 +124,11 @@ TmEcode NoAFPSupportExit(ThreadVars *tv, void *initdata, void **data)
 
 #define POLL_TIMEOUT 100
 
+#ifndef TP_STATUS_USER_BUSY
+/* for new use latest bit available in tp_status */
+#define TP_STATUS_USER_BUSY (1 << 31)
+#endif
+
 /** protect pfring_set_bpf_filter, as it is not thread safe */
 static SCMutex afpacket_bpf_set_filter_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -334,7 +339,7 @@ TmEcode AFPPeersListAdd(AFPThreadVars *ptv)
     AFPPeer *pitem;
     int mtu, out_mtu;
 
-    if (peer == NULL) {
+    if (unlikely(peer == NULL)) {
         SCReturnInt(TM_ECODE_FAILED);
     }
     memset(peer, 0, sizeof(AFPPeer));
@@ -643,15 +648,17 @@ TmEcode AFPReleaseDataFromRing(ThreadVars *t, Packet *p)
     }
 
     if (AFPDerefSocket(p->afp_v.mpeer) == 0)
-        return ret;
+        goto cleanup;
 
     if (p->afp_v.relptr) {
         union thdr h;
         h.raw = p->afp_v.relptr;
         h.h2->tp_status = TP_STATUS_KERNEL;
-        return ret;
     }
-    return TM_ECODE_FAILED;
+
+cleanup:
+    AFPV_CLEANUP(&p->afp_v);
+    return ret;
 }
 
 /**
@@ -696,6 +703,12 @@ int AFPReadFromRing(AFPThreadVars *ptv)
 
         read_pkts++;
 
+        /* Our packet is still used by suricata, we exit read loop to
+         * gain some time */
+        if (h.h2->tp_status & TP_STATUS_USER_BUSY) {
+            SCReturnInt(AFP_READ_OK);
+        }
+
         if ((ptv->flags & AFP_EMERGENCY_MODE) && (emergency_flush == 1)) {
             h.h2->tp_status = TP_STATUS_KERNEL;
             goto next_frame;
@@ -706,17 +719,10 @@ int AFPReadFromRing(AFPThreadVars *ptv)
             SCReturnInt(AFP_FAILURE);
         }
 
-        p->afp_v.relptr = h.raw;
-        p->ReleaseData = AFPReleaseDataFromRing;
-        p->afp_v.mpeer = ptv->mpeer;
-        AFPRefSocket(ptv->mpeer);
-
-        p->afp_v.copy_mode = ptv->copy_mode;
-        if (p->afp_v.copy_mode != AFP_COPY_MODE_NONE) {
-            p->afp_v.peer = ptv->mpeer->peer;
-        } else {
-            p->afp_v.peer = NULL;
-        }
+        /* Suricata will treat packet so telling it is busy, this
+         * status will be reset to 0 (ie TP_STATUS_KERNEL) in the release
+         * function. */
+        h.h2->tp_status |= TP_STATUS_USER_BUSY;
 
         from = (void *)h.raw + TPACKET_ALIGN(ptv->tp_hdrlen);
 
@@ -743,6 +749,9 @@ int AFPReadFromRing(AFPThreadVars *ptv)
                 SCReturnInt(AFP_FAILURE);
             } else {
                 p->afp_v.relptr = h.raw;
+                p->ReleaseData = AFPReleaseDataFromRing;
+                p->afp_v.mpeer = ptv->mpeer;
+                AFPRefSocket(ptv->mpeer);
 
                 p->afp_v.copy_mode = ptv->copy_mode;
                 if (p->afp_v.copy_mode != AFP_COPY_MODE_NONE) {
@@ -750,7 +759,6 @@ int AFPReadFromRing(AFPThreadVars *ptv)
                 } else {
                     p->afp_v.peer = NULL;
                 }
-                p->ReleaseData = AFPReleaseDataFromRing;
             }
         } else {
             if (PacketCopyData(p, (unsigned char*)h.raw + h.h2->tp_mac, h.h2->tp_snaplen) == -1) {
@@ -786,6 +794,11 @@ int AFPReadFromRing(AFPThreadVars *ptv)
             AFPDumpCounters(ptv, 1);
         }
 
+        /* release frame if not in zero copy mode */
+        if (!(ptv->flags &  AFP_ZERO_COPY)) {
+            h.h2->tp_status = TP_STATUS_KERNEL;
+        }
+
         if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
             h.h2->tp_status = TP_STATUS_KERNEL;
             if (++ptv->frame_offset >= ptv->req.tp_frame_nr) {
@@ -795,10 +808,6 @@ int AFPReadFromRing(AFPThreadVars *ptv)
             SCReturnInt(AFP_FAILURE);
         }
 
-        /* release frame if not in zero copy mode */
-        if (!(ptv->flags &  AFP_ZERO_COPY)) {
-            h.h2->tp_status = TP_STATUS_KERNEL;
-        }
 next_frame:
         if (++ptv->frame_offset >= ptv->req.tp_frame_nr) {
             ptv->frame_offset = 0;
@@ -1425,7 +1434,7 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data) {
     }
 
     AFPThreadVars *ptv = SCMalloc(sizeof(AFPThreadVars));
-    if (ptv == NULL) {
+    if (unlikely(ptv == NULL)) {
         afpconfig->DerefFunc(afpconfig);
         SCReturnInt(TM_ECODE_FAILED);
     }
@@ -1496,16 +1505,16 @@ TmEcode ReceiveAFPThreadInit(ThreadVars *tv, void *initdata, void **data) {
         SCLogInfo("Enabling zero copy mode by using data release call");
     }
 
-    if (AFPPeersListAdd(ptv) == TM_ECODE_FAILED) {
-        SCFree(ptv);
-        afpconfig->DerefFunc(afpconfig);
-        SCReturnInt(TM_ECODE_FAILED);
-    }
-
     ptv->copy_mode = afpconfig->copy_mode;
     if (ptv->copy_mode != AFP_COPY_MODE_NONE) {
         strlcpy(ptv->out_iface, afpconfig->out_iface, AFP_IFACE_NAME_LENGTH);
         ptv->out_iface[AFP_IFACE_NAME_LENGTH - 1]= '\0';
+    }
+
+    if (AFPPeersListAdd(ptv) == TM_ECODE_FAILED) {
+        SCFree(ptv);
+        afpconfig->DerefFunc(afpconfig);
+        SCReturnInt(TM_ECODE_FAILED);
     }
 
 #define T_DATA_SIZE 70000

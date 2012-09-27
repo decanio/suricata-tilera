@@ -701,6 +701,7 @@ typedef struct DecodeThreadVars_
     uint16_t counter_defrag_ipv6_fragments;
     uint16_t counter_defrag_ipv6_reassembled;
     uint16_t counter_defrag_ipv6_timeouts;
+    uint16_t counter_defrag_max_hit;
 } DecodeThreadVars;
 
 /**
@@ -824,6 +825,7 @@ typedef struct DecodeThreadVars_
         (p)->prev = NULL;                       \
         (p)->root = NULL;                       \
         (p)->livedev = NULL;                    \
+        (p)->ReleaseData = NULL;                \
         PACKET_RESET_CHECKSUMS((p));            \
         PACKET_PROFILING_RESET((p));            \
     } while (0)

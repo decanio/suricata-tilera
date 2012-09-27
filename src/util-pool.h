@@ -58,6 +58,7 @@ typedef struct Pool_ {
     void *(*Alloc)();
     int (*Init)(void *, void *);
     void *InitData;
+    void (*Cleanup)(void *);
     void (*Free)(void *);
 
     uint32_t elt_size;
@@ -66,7 +67,7 @@ typedef struct Pool_ {
 } Pool;
 
 /* prototypes */
-Pool* PoolInit(uint32_t, uint32_t, uint32_t, void *(*Alloc)(), int (*Init)(void *, void *), void *, void (*Free)(void *));
+Pool* PoolInit(uint32_t, uint32_t, uint32_t, void *(*Alloc)(), int (*Init)(void *, void *), void *, void (*Cleanup)(void *), void (*Free)(void *));
 void PoolFree(Pool *);
 void PoolPrint(Pool *);
 void PoolPrintSaturation(Pool *p);
