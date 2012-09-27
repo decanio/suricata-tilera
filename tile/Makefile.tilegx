@@ -192,7 +192,7 @@ CANNON_SPEED = --hvd CPU_SPEED=1200
 
 TILE_MONITOR_CANNON_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
-  --hvx "hugepagesz=512m hugepages=1" \
+  --hvx "hugepagesz=256m hugepages=1" \
   $(CANNON_SPEED) \
   --hvd MEMPROF_TILE=5,5 \
   --huge-pages 400 \
@@ -206,7 +206,7 @@ TILE_MONITOR_CANNON_STATIC_ARGS = \
 
 TILE_MONITOR_CANNON_CAPTURE_ARGS = \
   --hvx "dataplane=1-35" \
-  --hvx "hugepagesz=512m hugepages=1" \
+  --hvx "hugepagesz=256m hugepages=1" \
   $(CANNON_SPEED) \
   --hvd MEMPROF_TILE=5,5 \
   --huge-pages 400 \

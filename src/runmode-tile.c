@@ -221,6 +221,69 @@ void RunModeTileGetPipelineConfig(void) {
     SCLogInfo("%s queueing between tiles", (queue_type == simple) ? "simple" : "tmc");
 }
 
+void *ParseMpipeConfig(const char *iface)
+{
+    ConfNode *if_root;
+    ConfNode *mpipe_node;
+    MpipeIfaceConfig *aconf = SCMalloc(sizeof(*aconf));
+    char *copymodestr;
+    char *out_iface = NULL;
+
+    if (aconf == NULL) {
+        return NULL;
+    }
+
+    if (iface == NULL) {
+        SCFree(aconf);
+        return NULL;
+    }
+
+    strlcpy(aconf->iface, iface, sizeof(aconf->iface));
+
+    /* Find initial node */
+    mpipe_node = ConfGetNode("mpipe.inputs");
+    if (mpipe_node == NULL) {
+        SCLogInfo("Unable to find mpipe config using default value");
+        return aconf;
+    }
+
+    if_root = ConfNodeLookupKeyValue(mpipe_node, "interface", iface);
+    if (if_root == NULL) {
+        SCLogInfo("Unable to find mpipe config for "
+                  "interface %s, using default value",
+                  iface);
+        return aconf;
+    }
+
+    if (ConfGetChildValue(if_root, "copy-iface", &out_iface) == 1) {
+        if (strlen(out_iface) > 0) {
+            aconf->out_iface = out_iface;
+        }
+    }
+    aconf->copy_mode = MPIPE_COPY_MODE_NONE;
+    if (ConfGetChildValue(if_root, "copy-mode", &copymodestr) == 1) {
+        if (aconf->out_iface == NULL) {
+            SCLogInfo("Copy mode activated but no destination"
+                      " iface. Disabling feature");
+        } else if (strlen(copymodestr) <= 0) {
+            aconf->out_iface = NULL;
+        } else if (strcmp(copymodestr, "ips") == 0) {
+            SCLogInfo("MPIPE IPS mode activated %s->%s",
+                      iface,
+                      aconf->out_iface);
+            aconf->copy_mode = MPIPE_COPY_MODE_IPS;
+        } else if (strcmp(copymodestr, "tap") == 0) {
+            SCLogInfo("MPIPE TAP mode activated %s->%s",
+                      iface,
+                      aconf->out_iface);
+            aconf->copy_mode = MPIPE_COPY_MODE_TAP;
+        } else {
+            SCLogInfo("Invalid mode (no in tap, ips)");
+        }
+    }
+    return aconf;
+}
+
 /**
  * \brief RunModeIdsTileMpipeAuto set up the following thread packet handlers:
  *        - Receive thread (from iface pcap)
@@ -247,7 +310,7 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
     uint16_t cpu = 0;
     TmModule *tm_module;
     uint16_t thread;
-    uint32_t tile = 1;
+    /*uint32_t tile = 1;*/
     int pipe;
     char *detectmode = NULL;
     int pool_detect_threads = 0;
@@ -280,8 +343,17 @@ int RunModeIdsTileMpipeAuto(DetectEngineCtx *de_ctx) {
     char *mpipe_dev = NULL;
     int nlive = LiveGetDeviceCount();
     if (nlive > 0) {
+        char *link_name;
+        int i;
         SCLogInfo("Using %d live device(s).", nlive);
         /*mpipe_dev = LiveGetDevice(0);*/
+        for (i = 0; i < nlive; i++) {
+            MpipeIfaceConfig *aconf;
+            link_name = LiveGetDeviceName(i);
+            aconf = ParseMpipeConfig(link_name);
+            if (aconf != NULL) 
+                SCFree(aconf);
+        }
     } else {
         /*
          * Attempt to get interface from config file

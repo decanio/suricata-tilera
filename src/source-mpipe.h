@@ -1,4 +1,4 @@
-/* Copyright (C) 2011 Open Information Security Foundation
+/* Copyright (C) 2011, 2012 Open Information Security Foundation
  *
  * You can copy, redistribute or modify this Program under the terms of
  * the GNU General Public License version 2 as published by the Free
@@ -34,14 +34,31 @@
 #define MPIPE_FREE_PACKET(p)
 #endif
 
-void TmModuleReceiveMpipeRegister (void);
-void TmModuleDecodeMpipeRegister (void);
-TmEcode MpipeRegisterPipeStage(void *td);
-int MpipeLiveRegisterDevice(char *);
-int MpipeLiveGetDeviceCount(void);
-char *MpipeLiveGetDevice(int);
-void MpipeFreePacket(void *arg);
-TmEcode ReceiveMpipeGo(void);
+#define MPIPE_COPY_MODE_NONE    0
+#define MPIPE_COPY_MODE_TAP     1
+#define MPIPE_COPY_MODE_IPS     2
+
+#define MPIPE_IFACE_NAME_LENGTH 8
+
+typedef struct MpipeIfaceConfig_
+{
+    char iface[MPIPE_IFACE_NAME_LENGTH];
+    int copy_mode;
+    char *out_iface;
+} MpipeIfaceConfig;
+
+typedef struct MpipePeer_
+{
+    int channel;
+    char iface[MPIPE_IFACE_NAME_LENGTH];
+} MpipePeer;
+
+/* per interface TAP/IPS configuration */
+typedef struct MpipePeerVars_
+{
+    gxio_mpipe_equeue_t *peer_equeue;
+    int copy_mode;
+} MpipePeerVars;
 
 /* per packet Mpipe vars */
 typedef struct MpipePacketVars_
@@ -51,9 +68,23 @@ typedef struct MpipePacketVars_
         uint_reg_t bucket_id : 13;
         uint_reg_t nr : 1;
         uint_reg_t cs : 1;
+        uint_reg_t size : 3;
+        uint_reg_t channel : 5;
+        uint_reg_t l2_size : 14;
         uint_reg_t va : 42;
         uint_reg_t stack_idx : 5;
     } idesc;
+    gxio_mpipe_equeue_t *peer_equeue;
+    int copy_mode;
 } MpipePacketVars;
+
+void TmModuleReceiveMpipeRegister (void);
+void TmModuleDecodeMpipeRegister (void);
+TmEcode MpipeRegisterPipeStage(void *td);
+int MpipeLiveRegisterDevice(char *);
+int MpipeLiveGetDeviceCount(void);
+char *MpipeLiveGetDevice(int);
+void MpipeFreePacket(void *arg);
+TmEcode ReceiveMpipeGo(void);
 
 #endif /* __SOURCE_MPIPE_H__ */

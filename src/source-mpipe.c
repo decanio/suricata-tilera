@@ -144,6 +144,10 @@ void ReceiveMpipeThreadExitStats(ThreadVars *, void *);
 TmEcode DecodeMpipeThreadInit(ThreadVars *, void *, void **);
 TmEcode DecodeMpipe(ThreadVars *, Packet *, void *, PacketQueue *, PacketQueue *);
 
+#define PIPELINES 6       /* fix this. look elsewhere */
+#define MAX_INTERFACES 4  /* can probably find this in the MDE */
+#define MAX_CHANNELS 32   /* can probably find this in the MDE */
+
 /*
  * mpipe configuration.
  */
@@ -155,13 +159,31 @@ static gxio_mpipe_context_t* context = &context_body;
 /* The ingress queues (one per worker) */
 static gxio_mpipe_iqueue_t** iqueues;
 
+/* The egress queues (one per port) */
+static gxio_mpipe_equeue_t equeue_body[MAX_INTERFACES];
+static gxio_mpipe_equeue_t *equeue[MAX_INTERFACES];
+
+/* the number of entries in an equeue ring */
+static const int equeue_entries = 2048;
+
+/* Array of mpipe links */
+static gxio_mpipe_link_t mpipe_link[MAX_INTERFACES];
+
+/* Per interface configuration data */
+static MpipeIfaceConfig *mpipe_conf[MAX_INTERFACES];
+
+/* Per interface TAP/IPS configuration */
+//static MpipePeerVars mpipe_iface[MAX_CHANNELS];
+
+/* egress equeue associated with each ingress channel */
+//static gxio_mpipe_equeue_t *channel_to_equeue[MAX_CHANNELS];
+static MpipePeerVars channel_to_equeue[MAX_CHANNELS];
+
 /*
  * trio configuration.
  */
 static gxio_trio_context_t trio_context_body;
 static gxio_trio_context_t* trio_context = &trio_context_body;
-
-#define PIPELINES 6 /* fix this. look elsewhere */
 
 static gxpci_context_t gxpci_context_body[PIPELINES];
 static gxpci_context_t* gxpci_context[PIPELINES];
@@ -227,7 +249,7 @@ void TmModuleDecodeMpipeRegister (void) {
 
 void MpipeFreePacket(void *arg) {
     Packet *p = (Packet *)arg;
-
+    int result;
 #ifdef LATE_MPIPE_CREDIT
     gxio_mpipe_iqueue_t* iqueue = iqueues[p->pool];
 #ifdef LATE_MPIPE_BUCKET_CREDIT
@@ -238,9 +260,43 @@ void MpipeFreePacket(void *arg) {
     gxio_mpipe_credit(iqueue->context, iqueue->ring, bucket, 1);
 #endif
 #endif
-    gxio_mpipe_push_buffer(context,
-                           p->mpipe_v.idesc.stack_idx,
-                           (void *)(intptr_t)p->mpipe_v.idesc.va);
+    if (p->mpipe_v.copy_mode == MPIPE_COPY_MODE_IPS) {
+        if (p->action & ACTION_DROP) {
+            goto drop;
+        }
+        gxio_mpipe_edesc_t edesc;
+        edesc.words[0] = 0;
+        edesc.words[1] = 0;
+        edesc.bound = 1;
+        edesc.xfer_size = p->mpipe_v.idesc.l2_size;
+        edesc.va = p->mpipe_v.idesc.va;
+        edesc.stack_idx = p->mpipe_v.idesc.stack_idx;
+        edesc.hwb = 1;
+        edesc.size = p->mpipe_v.idesc.size;
+        result = gxio_mpipe_equeue_put(channel_to_equeue[p->mpipe_v.idesc.channel].peer_equeue, edesc);
+        if (result != 0) {
+            SCLogInfo("mpipe equeue put failed: %d", result);
+        }
+    } else if (p->mpipe_v.copy_mode == MPIPE_COPY_MODE_TAP) {
+        gxio_mpipe_edesc_t edesc;
+        edesc.words[0] = 0;
+        edesc.words[1] = 0;
+        edesc.bound = 1;
+        edesc.xfer_size = p->mpipe_v.idesc.l2_size;
+        edesc.va = p->mpipe_v.idesc.va;
+        edesc.stack_idx = p->mpipe_v.idesc.stack_idx;
+        edesc.hwb = 1;
+        edesc.size = p->mpipe_v.idesc.size;
+        result = gxio_mpipe_equeue_put(channel_to_equeue[p->mpipe_v.idesc.channel].peer_equeue, edesc);
+        if (result != 0) {
+            SCLogInfo("mpipe equeue put failed: %d", result);
+        }
+    } else {
+drop:
+        gxio_mpipe_push_buffer(context,
+                               p->mpipe_v.idesc.stack_idx,
+                               (void *)(intptr_t)p->mpipe_v.idesc.va);
+    }
 
     if (capture_enabled) {
         arch_atomic_decrement(&inflight[p->pool]);
@@ -308,8 +364,13 @@ static inline Packet *MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_
     p->mpipe_v.idesc.nr = idesc->nr;
     p->mpipe_v.idesc.cs = idesc->cs;
     p->mpipe_v.idesc.va = idesc->va;
+    p->mpipe_v.idesc.size = idesc->size;
     p->mpipe_v.idesc.stack_idx = idesc->stack_idx;
+    p->mpipe_v.idesc.l2_size = idesc->l2_size;
+    p->mpipe_v.idesc.channel = idesc->channel;
 
+    p->mpipe_v.copy_mode = channel_to_equeue[idesc->channel].copy_mode;
+    
     return p;
 }
 
@@ -342,7 +403,12 @@ static inline Packet *MpipePrepPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_t *
     p->mpipe_v.idesc.nr = idesc->nr;
     p->mpipe_v.idesc.cs = idesc->cs;
     p->mpipe_v.idesc.va = idesc->va;
+    p->mpipe_v.idesc.size = idesc->size;
     p->mpipe_v.idesc.stack_idx = idesc->stack_idx;
+    p->mpipe_v.idesc.l2_size = idesc->l2_size;
+    p->mpipe_v.idesc.channel = idesc->channel;
+
+    p->mpipe_v.copy_mode = channel_to_equeue[idesc->channel].copy_mode;
 
     return p;
 }
@@ -962,12 +1028,58 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             }
             gxio_mpipe_init(context, instance);
             VERIFY(result, "gxio_mpipe_init()");
+            /* open ingress interfaces */
             for (int i = 0; i < nlive; i++) {
-                gxio_mpipe_link_t link;
                 link_name = LiveGetDeviceName(i);
                 SCLogInfo("opening interface %s", link_name);
-                result = gxio_mpipe_link_open(&link, context, link_name, 0);
+                result = gxio_mpipe_link_open(&mpipe_link[i], context,
+                                              link_name, 0);
                 VERIFY(result, "gxio_mpipe_link_open()");
+                mpipe_conf[i] = ParseMpipeConfig(link_name);
+            }
+            /* find and open egress interfaces */
+            for (int i = 0; i < nlive; i++) {
+                MpipeIfaceConfig *aconf = mpipe_conf[i];
+                if (aconf != NULL) {
+                    if(aconf->copy_mode != MPIPE_COPY_MODE_NONE) {
+                        int channel;
+                        /* Initialize and equeue */
+                        result = gxio_mpipe_alloc_edma_rings(context, 1, 0, 0);
+                        VERIFY(result, "gxio_mpipe_alloc_edma_rings");
+                        uint32_t ering = result;
+                        size_t edescs_size = equeue_entries *
+                                                sizeof(gxio_mpipe_edesc_t);
+                        tmc_alloc_t edescs_alloc = TMC_ALLOC_INIT;
+                        tmc_alloc_set_pagesize(&edescs_alloc, edescs_size);
+                        void *edescs = tmc_alloc_map(&edescs_alloc, edescs_size);
+                        if (edescs == NULL) {
+                            SCLogError(SC_ERR_FATAL,
+                                       "Failed to allocate egress descriptors");
+                            SCReturnInt(TM_ECODE_FAILED);
+                        }
+                        /* retrieve channel of outbound interface */
+                        for (int j = 0; j < nlive; j++) {
+                            if (strcmp(aconf->out_iface,
+                                       mpipe_conf[j]->iface) == 0) {
+                                channel = gxio_mpipe_link_channel(&mpipe_link[j]);
+                                SCLogInfo("egress link: %s is channel: %d", aconf->out_iface, channel);
+                                result = gxio_mpipe_equeue_init(equeue[i],
+                                                                context,
+                                                                ering,
+                                                                channel,
+                                                                edescs,
+                                                                edescs_size,
+                                                                0);
+                                VERIFY(result, "gxio_mpipe_equeue_init");
+                                channel = gxio_mpipe_link_channel(&mpipe_link[i]);
+                                SCLogInfo("ingress link: %s is channel: %d copy_mode: %d", aconf->iface, channel, aconf->copy_mode);
+                                channel_to_equeue[channel].peer_equeue = equeue[i];
+                                channel_to_equeue[channel].copy_mode = aconf->copy_mode;
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         } else {
             SCLogInfo("using single interface %s", (char *)initdata);
@@ -1251,6 +1363,10 @@ TmEcode ReceiveMpipeInit(void) {
 
     SCLogInfo("TileNumPipelines: %d", TileNumPipelines);
     tmc_sync_barrier_init(&barrier, (TileNumPipelines+1)/2);
+
+    for (int i = 0; i < MAX_INTERFACES; i++) {
+        equeue[i] = &equeue_body[i];
+    }
 
     SCReturnInt(TM_ECODE_OK);
 }
