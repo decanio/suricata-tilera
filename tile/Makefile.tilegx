@@ -28,9 +28,11 @@ all:
 HOME_DIR=/home/tdecanio
 WORK_DIR=$(HOME_DIR)/work/TileGX
 # you can probably leave the following alone
-RULES_DIR=$(WORK_DIR)/rules
+#RULES_DIR=$(WORK_DIR)/rules
+RULES_DIR=$(HOME_DIR)/work/InterOp/TileGX/emergingthreats
 INSTALL_DIR=$(WORK_DIR)/suricata-install-dir
-RULES_CONFIG=/opt/suricata/etc/suricata.yaml
+#RULES_CONFIG=/opt/suricata/etc/suricata-tuned.yaml
+RULES_CONFIG=/opt/suricata/etc/suricata-etpro-norules.yaml
 YAML_DIR=$(WORK_DIR)/github/yaml
 LIBMAGIC_DIR=$(WORK_DIR)/github/libmagic
 PCAPFILE=$(HOME_DIR)/work/napatech/suricata1.pcap
@@ -196,10 +198,12 @@ TILE_MONITOR_WILDCAT_ARGS = \
 
 CANNON_SPEED = --hvd CPU_SPEED=1200
 
+# --vmlinux $(HOME_DIR)/work/npulse/linux/vmlinux \
+#
 TILE_MONITOR_CANNON_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   --hvx "hugepagesz=256m hugepages=1" \
- --vmlinux $(HOME_DIR)/work/npulse/linux/vmlinux \
+  --hvx "TLR_NETWORK=none" \
   $(CANNON_SPEED) \
   --hvd MEMPROF_TILE=5,5 \
   --huge-pages 400 \
@@ -208,6 +212,7 @@ TILE_MONITOR_CANNON_STATIC_ARGS = \
   --mount-tile /usr \
   --mount $(RULES_DIR) /opt \
   --mount $(LOG_DIR) /var/log/suricata \
+  --mount-same /home/tdecanio \
   --upload ./src/suricata suricata \
   --tunnel 10022 22 \
   --run -+- suricata -c $(RULES_CONFIG) --mpipe -+-
@@ -281,6 +286,36 @@ TILE_MONITOR_WILDCAT_FEEDBACK_STATIC_ARGS = \
   --run -+- mkdir -p /var/log/suricata -+- \
   --run -+- suricata -c $(RULES_CONFIG) -i xgbe3 -+- \
   --download /tmp/raw_feedback raw_feedback
+
+#  --mount-tile /usr/lib \
+# --vmlinux $(HOME_DIR)/work/npulse/linux/vmlinux \
+#
+TILE_MONITOR_CANNON_PROFILE_ARGS = \
+  --hvx "dataplane=1-35" \
+  --hvx "hugepagesz=256m hugepages=1" \
+  --hvx "TLR_NETWORK=none" \
+  $(CANNON_SPEED) \
+  --hvd MEMPROF_TILE=5,5 \
+  --huge-pages 400 \
+  --mount-tile /lib \
+  --mount-tile /usr/lib \
+  --mount $(RULES_DIR) /opt \
+  --mount $(LOG_DIR) /var/log/suricata \
+  --upload ./src/suricata suricata \
+  --tunnel 10022 22 \
+  --launch -+- suricata -c $(RULES_CONFIG) --mpipe -+- \
+  --run -+- sleep 210 -+- \
+  --profile-init --profile-kernel \
+  --profile-reset \
+  --profile-events '--event=ONE:10000000 --event=INSTRUCTION_BUNDLE:10000000 --event=LOAD_STALL:10000000 --event=INSTRUCTION_STALL:10000000' \
+  --profile-start \
+  --run -+- sleep 300 -+- \
+  --profile-stop \
+  --profile-dump \
+  --profile-capture samples \
+  --profile-analyze samples \
+  --profile-shutdown \
+  --quit
 
 TILE_MONITOR_WILDCAT_PROFILE_ARGS = \
   $(WILDCAT_CPU) \
@@ -363,6 +398,7 @@ run_net: $(SIM_DEPS)
 run_pci: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(PCI_ARGS) \
+	--debug-next \
 	$(TILE_MONITOR_CANNON_STATIC_ARGS)
 
 # boot and run suricata via USB interface
@@ -460,6 +496,13 @@ prof_net_static: $(SIM_DEPS)
         $(NET_ARGS) \
 	--debug-on-crash \
 	$(TILE_MONITOR_WILDCAT_PROFILE_STATIC_ARGS)
+
+# profile suricata on a "TILEncore-Gx" card via pcie interface
+prof_pci: $(SIM_DEPS)
+	$(TILE_MONITOR) \
+        $(PCI_ARGS) \
+	--debug-on-crash \
+	$(TILE_MONITOR_CANNON_PROFILE_ARGS)
 
 #
 # The following make targets are no longer supported but have been

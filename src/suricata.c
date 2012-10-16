@@ -686,6 +686,26 @@ void SCPrintBuildInfo(void) {
 #endif
 }
 
+void DumpPacketOffsets(void)
+{
+    printf("sizeof Packet %lu\n", sizeof(Packet));
+    printf("offsetof %s: %lu\n", "src", offsetof(Packet, src));
+    printf("offsetof %s: %lu\n", "dst", offsetof(Packet, dst));
+    printf("offsetof %s: %lu\n", "proto", offsetof(Packet, proto));
+    printf("offsetof %s: %lu\n", "recursion_level", offsetof(Packet, recursion_level));
+    printf("offsetof %s: %lu\n", "flags", offsetof(Packet, flags));
+    printf("offsetof %s: %lu\n", "pool", offsetof(Packet, pool));
+    printf("offsetof %s: %lu\n", "action", offsetof(Packet, action));
+    printf("offsetof %s: %lu\n", "flowflags", offsetof(Packet, flowflags));
+    printf("offsetof %s: %lu\n", "flow", offsetof(Packet, flow));
+    printf("offsetof %s: %lu\n", "next", offsetof(Packet, next));
+    printf("offsetof %s: %lu\n", "prev", offsetof(Packet, prev));
+    printf("offsetof %s: %lu\n", "datalink", offsetof(Packet, datalink));
+    printf("offsetof %s: %lu\n", "pktvar", offsetof(Packet, pktvar));
+    printf("offsetof %s: %lu\n", "events", offsetof(Packet, events));
+    printf("offsetof %s: %lu\n", "alerts", offsetof(Packet, alerts));
+}
+
 int main(int argc, char **argv)
 {
     int opt;
@@ -731,6 +751,8 @@ int main(int argc, char **argv)
 
     /* initialize the logging subsys */
     SCLogInitLogModule(NULL);
+
+    DumpPacketOffsets();
 
     if (SCSetThreadName("Suricata-Main") < 0) {
         SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
@@ -1805,8 +1827,10 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
+#ifdef NOTYET
     if (MagicInit() != 0)
         exit(EXIT_FAILURE);
+#endif
 
     if (SigLoadSignatures(de_ctx, sig_file, sig_file_exclusive) < 0) {
         if (sig_file == NULL) {

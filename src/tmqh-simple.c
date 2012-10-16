@@ -55,6 +55,19 @@ cycle_pause(unsigned int delay)
   while (get_cycle_count_low() - start < delay)
     ;
 }
+
+void TmqhDelay(void)
+{
+//     volatile int i;
+
+//     for (i = 0; i < 1024; i++) ;
+    cycle_relax();
+    cycle_relax();
+    cycle_relax();
+    cycle_relax();
+    cycle_relax();
+    cycle_relax();
+}
 #endif
 
 Packet *TmqhInputSimple(ThreadVars *t)
@@ -63,22 +76,24 @@ Packet *TmqhInputSimple(ThreadVars *t)
 
     SCPerfSyncCountersIfSignalled(t, 0);
 
-    SCMutexLock(&q->mutex_q);
+    //SCMutexLock(&q->mutex_q);
 
     if (unlikely(q->len == 0)) {
         /* if we have no packets in queue, wait... */
 #ifdef __tile__
         do {
-            SCMutexUnlock(&q->mutex_q);
+            //SCMutexUnlock(&q->mutex_q);
             while ((q->len == 0)/* && (q->cond_q == 0)*/) {
-	            cycle_pause(300);
+	            //cycle_pause(300);
+	            TmqhDelay();
             }
-            SCMutexLock(&q->mutex_q);
+            //SCMutexLock(&q->mutex_q);
         } while ((q->len == 0)/* && (q->cond_q == 0)*/);
 #else
         SCCondWait(&q->cond_q, &q->mutex_q);
 #endif
     }
+    SCMutexLock(&q->mutex_q);
 
     if (likely(q->len > 0)) {
         Packet *p = PacketDequeue(q);

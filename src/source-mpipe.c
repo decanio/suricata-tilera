@@ -38,6 +38,7 @@
 #include "util-error.h"
 #include "util-privs.h"
 #include "util-device.h"
+#include "util-profiling.h"
 #include "tmqh-packetpool.h"
 
 #ifdef __tilegx__
@@ -66,7 +67,7 @@
 //#define MPIPE_DEBUG
 
 // return bucket credits after completely done with packet
-//#define LATE_MPIPE_CREDIT 1
+#define LATE_MPIPE_CREDIT 1
 //#define LATE_MPIPE_BUCKET_CREDIT 1
 
 /* Align "p" mod "align", assuming "p" is a "void*". */
@@ -302,6 +303,8 @@ static inline Packet *MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_
     int caplen = idesc->l2_size;
     u_char *pkt = gxio_mpipe_idesc_get_va(idesc);
     Packet *p = (Packet *)(pkt - sizeof(Packet) - headroom/*2*/);
+
+    PACKET_RECYCLE(p);
 
     ptv->bytes += caplen;
     ptv->pkts++;

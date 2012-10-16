@@ -362,6 +362,7 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
             PACKET_RECYCLE(p->root);
 #ifdef __tile__
 #if 1
+            __insn_mf();
             MPIPE_FREE_PACKET(p->root);
 #else
             RingBufferMrMwPut(rb, (void *)p->root);
@@ -388,7 +389,7 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
         SCFree(p);
     } else {
 #ifdef __tilegx__
-        if (mica_memcpy_enabled) {
+        if (unlikely(mica_memcpy_enabled)) {
             //SCLogInfo("getting rid of mpipe pkt...  %p inf %p (root %p)", p,  t->inflight_p, p->root);
             if (likely(t->inflight_p)) {
                 while (gxio_mica_is_busy(&t->mica_cb)) ;
@@ -398,10 +399,15 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
             t->inflight_p = (void *)p;
         } else {
 #endif
+#if 0
             PACKET_RECYCLE(p);
+#endif
 #ifdef __tilegx__
             //SCLogInfo("getting rid of mpipe pkt... alloc'd %s (root %p)", p->flags & PKT_MPIPE ? "true" : "false", p->root);
-            tmc_mem_fence();
+            //tmc_mem_fence();
+#if 0
+            __insn_mf();
+#endif
             MPIPE_FREE_PACKET(p);
 #else
             RingBufferMrMwPut(ringbuffer, (void *)p);

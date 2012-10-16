@@ -340,6 +340,195 @@ struct PacketQueue_;
  *
  * sum of above 44/48 bytes
  */
+#ifdef __tile__
+typedef struct Packet_
+{
+    /* Addresses, Ports and protocol
+     * these are on top so we can use
+     * the Packet as a hash key */
+    Address src;
+    Address dst;
+    union {
+        Port sp;
+        uint8_t type;
+    };
+    union {
+        Port dp;
+        uint8_t code;
+    };
+    uint8_t proto;
+    /* make sure we can't be attacked on when the tunneled packet
+     * has the exact same tuple as the lower levels */
+    uint8_t recursion_level;
+
+    /* Pkt Flags */
+    uint32_t flags;
+    /* flow */
+    uint8_t flowflags;
+    struct Flow_ *flow;
+
+    /* data linktype in host order */
+    uint16_t datalink;
+
+    /* IPS action to take */
+    uint8_t action;
+
+    /* double linked list ptrs */
+    struct Packet_ *next;
+    struct Packet_ *prev;
+
+    union {
+        struct timespec ts_nsec; /* time from mpipe */
+        struct timeval ts;
+    };
+
+    /* used to hold flowbits only if debuglog is enabled */
+    int debuglog_flowbits_names_len;
+    const char **debuglog_flowbits_names;
+
+    EthernetHdr *ethh;
+
+    /* pkt vars */
+    PktVar *pktvar;
+
+    /* header pointers */
+    IPV4Hdr *ip4h;
+    IPV6Hdr *ip6h;
+    TCPHdr *tcph;
+    UDPHdr *udph;
+    SCTPHdr *sctph;
+    ICMPV4Hdr *icmpv4h;
+    ICMPV6Hdr *icmpv6h;
+
+    PPPHdr *ppph;
+    PPPOESessionHdr *pppoesh;
+    PPPOEDiscoveryHdr *pppoedh;
+
+    GREHdr *greh;
+
+    VLANHdr *vlanh;
+
+    /* ptr to the payload of the packet
+     * with it's length. */
+    uint8_t *payload;
+    uint16_t payload_len;
+
+    /* storage: set to pointer to heap and extended via allocation if necessary */
+    uint8_t *pkt;
+    uint8_t *ext_pkt;
+    uint32_t pktlen;
+
+    /* Incoming interface */
+    struct LiveDevice_ *livedev;
+
+#if 1
+    union {
+        IPV4Vars ip4vars;
+        struct {
+            IPV6Vars ip6vars;
+            IPV6ExtHdrs ip6eh;
+        };
+    };
+    union {
+        TCPVars tcpvars;
+        UDPVars udpvars;
+        ICMPV4Vars icmpv4vars;
+        ICMPV6Vars icmpv6vars;
+    };
+#else
+    IPV4Vars ip4vars /*__attribute__((aligned(64)))*/;
+    IPV6Vars ip6vars /*__attribute__((aligned(64)))*/;
+    IPV6ExtHdrs ip6eh /*__attribute__((aligned(64)))*/;
+    TCPVars tcpvars /*__attribute__((aligned(64)))*/;
+    UDPVars udpvars /*__attribute__((aligned(64)))*/;
+    ICMPV4Vars icmpv4vars /*__attribute__((aligned(64)))*/;
+    ICMPV6Vars icmpv6vars /*__attribute__((aligned(64)))*/;
+#endif
+
+    /** packet number in the pcap file, matches wireshark */
+    uint64_t pcap_cnt;
+
+    /** mutex to protect access to:
+     *  - tunnel_rtv_cnt
+     *  - tunnel_tpr_cnt
+     */
+    SCMutex tunnel_mutex;
+    /* ready to set verdict counter, only set in root */
+    uint16_t tunnel_rtv_cnt;
+    /* tunnel packet ref count */
+    uint16_t tunnel_tpr_cnt;
+
+    /* tunnel/encapsulation handling */
+    struct Packet_ *root; /* in case of tunnel this is a ptr
+                           * to the 'real' packet, the one we
+                           * need to set the verdict on --
+                           * It should always point to the lowest
+                           * packet in a encapsulated packet */
+
+    /* engine events */
+    PacketEngineEvents events;
+    PacketAlerts alerts;
+
+    /* required for cuda support */
+#ifdef __SC_CUDA_SUPPORT__
+    /* indicates if the cuda mpm would be conducted or a normal cpu mpm would
+     * be conduced on this packet.  If it is set to 0, the cpu mpm; else cuda mpm */
+    uint8_t cuda_mpm_enabled;
+    /* indicates if the cuda mpm has finished running the mpm and processed the
+     * results for this packet, assuming if cuda_mpm_enabled has been set for this
+     * packet */
+    uint16_t cuda_done;
+    /* used by the detect thread and the cuda mpm dispatcher thread.  The detect
+     * thread would wait on this cond var, if the cuda mpm dispatcher thread
+     * still hasn't processed the packet.  The dispatcher would use this cond
+     * to inform the detect thread(in case it is waiting on this packet), once
+     * the dispatcher is done processing the packet results */
+    SCMutex cuda_mutex;
+    SCCondT cuda_cond;
+    /* the extra 1 in the 1481, is to hold the no_of_matches from the mpm run */
+    uint16_t mpm_offsets[CUDA_MAX_PAYLOAD_SIZE + 1];
+#endif
+
+#ifdef PROFILING
+    PktProfiling profile;
+#endif
+    union {
+        /* nfq stuff */
+#ifdef NFQ
+        NFQPacketVars nfq_v;
+#endif /* NFQ */
+
+#ifdef IPFW
+        IPFWPacketVars ipfw_v;
+#endif /* IPFW */
+
+        /** libpcap vars: shared by Pcap Live mode and Pcap File mode */
+        PcapPacketVars pcap_v;
+
+#ifdef __tilegx__
+	struct {
+            /* packetpool this was allocated from */   
+            uint8_t pool;
+
+            /* TileGX mpipe stuff */
+            struct {
+                uint_reg_t bucket_id : 13;
+                uint_reg_t nr : 1;
+                uint_reg_t cs : 1;
+                uint_reg_t va : 42;
+                uint_reg_t stack_idx : 5;
+            } idesc;
+	};
+#elif defined(__tile__)
+        /* Tile64 netio stuff */
+    	netio_pkt_t netio_packet;
+#endif
+    };
+
+} __attribute__((aligned(128))) Packet;
+
+#else /* __tile__ */
+
 typedef struct Packet_
 {
     /* Addresses, Ports and protocol
@@ -623,6 +812,7 @@ typedef struct Packet_
 #else
 } Packet;
 #endif
+#endif /* !__tile__ */
 
 #define DEFAULT_PACKET_SIZE (1500 + ETHERNET_HEADER_LEN)
 /* storage: maximum ip packet size + link header */
@@ -771,8 +961,97 @@ typedef struct DecodeThreadVars_
  *  \brief Recycle a packet structure for reuse.
  *  \todo the mutex destroy & init is necessary because of the memset, reconsider
  */
+#if 1
 #define PACKET_DO_RECYCLE(p) do {               \
-        /*memset((p), 0, offsetof(Packet, pktvar));*/\
+        __insn_prefetch(&(p)->pktvar);		\
+        __insn_prefetch(&(p)->alerts.cnt); \
+        __insn_prefetch(&(p)->events.cnt); \
+	uint64_t *llp = (uint64_t *)(p);	\
+        __insn_wh64(llp);		\
+        __insn_wh64(&llp[8]);		\
+	llp[0] = 0;				\
+	llp[1] = 0;				\
+	llp[2] = 0;				\
+	llp[3] = 0;				\
+	llp[4] = 0;				\
+	llp[5] = 0;				\
+	llp[6] = 0;				\
+	llp[7] = 0;				\
+	llp[8] = 0;				\
+	llp[9] = 0;				\
+	llp[10] = 0;				\
+	llp[11] = 0;				\
+	llp[12] = 0;				\
+	llp[13] = 0;				\
+	llp[14] = 0;				\
+	llp[15] = 0;				\
+        /*CLEAR_ADDR(&(p)->src);*/                  \
+        /*CLEAR_ADDR(&(p)->dst);*/                  \
+        /*(p)->sp = 0;*/                            \
+        /*(p)->dp = 0;*/                            \
+        /*(p)->proto = 0;*/                         \
+        /*(p)->recursion_level = 0;*/               \
+        /*(p)->flags = 0;*/                         \
+        /*(p)->flowflags = 0;*/                     \
+        /*(p)->flow = NULL;*/                       \
+        /*(p)->ts.tv_sec = 0;*/                     \
+        /*(p)->ts.tv_usec = 0;*/                    \
+        /*(p)->datalink = 0;*/                      \
+        /*(p)->action = 0;*/                        \
+        if ((p)->pktvar != NULL) {              \
+            PktVarFree((p)->pktvar);            \
+            (p)->pktvar = NULL;                 \
+        }                                       \
+        /*(p)->ethh = NULL;*/                       \
+        if ((p)->ip4h != NULL) {                \
+            CLEAR_IPV4_PACKET((p));             \
+        }                                       \
+        if ((p)->ip6h != NULL) {                \
+            CLEAR_IPV6_PACKET((p));             \
+        }                                       \
+        if ((p)->tcph != NULL) {                \
+            CLEAR_TCP_PACKET((p));              \
+        }                                       \
+        if ((p)->udph != NULL) {                \
+            CLEAR_UDP_PACKET((p));              \
+        }                                       \
+        if ((p)->sctph != NULL) {                \
+            CLEAR_SCTP_PACKET((p));              \
+        }                                       \
+        if ((p)->icmpv4h != NULL) {             \
+            CLEAR_ICMPV4_PACKET((p));           \
+        }                                       \
+        if ((p)->icmpv6h != NULL) {             \
+            CLEAR_ICMPV6_PACKET((p));           \
+        }                                       \
+        (p)->ppph = NULL;                       \
+        (p)->pppoesh = NULL;                    \
+        (p)->pppoedh = NULL;                    \
+        (p)->greh = NULL;                       \
+        (p)->vlanh = NULL;                      \
+        (p)->payload = NULL;                    \
+        (p)->payload_len = 0;                   \
+        (p)->pktlen = 0;                        \
+        if (unlikely((p)->alerts.cnt)) (p)->alerts.cnt = 0; \
+        (p)->pcap_cnt = 0;                      \
+        (p)->tunnel_rtv_cnt = 0;                \
+        (p)->tunnel_tpr_cnt = 0;                \
+        SCMutexDestroy(&(p)->tunnel_mutex);     \
+        SCMutexInit(&(p)->tunnel_mutex, NULL);  \
+        if ((p)->events.cnt) (p)->events.cnt = 0; \
+        /*(p)->next = NULL;*/                   \
+        /*(p)->prev = NULL;*/                   \
+        (p)->root = NULL;                       \
+        (p)->livedev = NULL;                    \
+        PACKET_RESET_CHECKSUMS((p));            \
+        PACKET_PROFILING_RESET((p));            \
+    } while (0)
+#else
+#define PACKET_DO_RECYCLE(p) do {               \
+        /*if ((((unsigned long long)(p) & 63)) != 0)printf("unaligned %p\n", p);*/\
+        __insn_prefetch((&p->pktvar));		\
+        __insn_wh64((p));			\
+        __insn_wh64(&(((char *)(&p))[64]));	\
         CLEAR_ADDR(&(p)->src);                  \
         CLEAR_ADDR(&(p)->dst);                  \
         (p)->sp = 0;                            \
@@ -834,6 +1113,7 @@ typedef struct DecodeThreadVars_
         PACKET_RESET_CHECKSUMS((p));            \
         PACKET_PROFILING_RESET((p));            \
     } while (0)
+#endif
 
 #ifndef __SC_CUDA_SUPPORT__
 #define PACKET_RECYCLE(p) PACKET_DO_RECYCLE((p))
@@ -844,7 +1124,7 @@ typedef struct DecodeThreadVars_
     SCCondDestroy(&(p)->cuda_cond);             \
     SCMutexInit(&(p)->cuda_mutex, NULL);        \
     SCCondInit(&(p)->cuda_cond, NULL);          \
-    PACKET_RESET_CHECKSUMS((p));                \
+    /*PACKET_RESET_CHECKSUMS((p));*/                \
 } while(0)
 #endif
 
