@@ -32,6 +32,7 @@
 #include "cuda-packet-batcher.h"
 #ifdef __tilegx__
 #include "source-mpipe.h"
+#include <tmc/cpus.h>
 #endif
 #if defined(__tile__) && !defined(__tilegx__)
 #include "source-netio.h"
@@ -39,8 +40,6 @@
 
 #include "alert-fastlog.h"
 #include "alert-prelude.h"
-//#include "alert-unified-log.h"
-//#include "alert-unified-alert.h"
 #include "alert-unified2-alert.h"
 #include "alert-debuglog.h"
 
@@ -91,8 +90,12 @@ const char *RunModeIdsTileMpipeGetDefaultMode(void)
 void RunModeIdsTileMpipeRegister(void)
 {
     RunModeRegisterNewRunMode(RUNMODE_TILERA_MPIPE, "auto",
-                              "Multi threaded Tilegx mpipe mode",
+                              "Multi threaded tilegx mpipe mode",
                               RunModeIdsTileMpipeAuto);
+    RunModeRegisterNewRunMode(RUNMODE_TILERA_MPIPE, "workers",
+                              "Workers tilegx mpipe mode, each thread does all"
+                              " tasks from acquisition to logging",
+                              RunModeIdsTileMpipeWorkers);
     mpipe_default_mode = "auto";
 
     return;
@@ -550,6 +553,363 @@ SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
             printf("ERROR: TmThreadSpawn failed\n");
             exit(EXIT_FAILURE);
         }
+#endif
+    }
+
+    return 0;
+}
+/**
+ * \brief RunModeIdsTileMpipeWorkers set up the following thread packet handlers:
+ *        - Receive thread (from iface pcap)
+ *        - Decode thread
+ *        - Stream thread
+ *        - Detect: If we have only 1 cpu, it will setup one Detect thread
+ *                  If we have more than one, it will setup num_cpus - 1
+ *                  starting from the second cpu available.
+ *        - Respond/Reject thread
+ *        - Outputs thread
+ *        By default the threads will use the first cpu available
+ *        except the Detection threads if we have more than one cpu
+ *
+ * \param de_ctx pointer to the Detection Engine
+ * \param iface pointer to the name of the interface from which we will
+ *              fetch the packets
+ * \retval 0 if all goes well. (If any problem is detected the engine will
+ *           exit())
+ */
+int RunModeIdsTileMpipeWorkers(DetectEngineCtx *de_ctx) {
+    SCEnter();
+    char tname[32];
+    char *thread_name;
+    uint16_t cpu = 0;
+    TmModule *tm_module;
+    uint16_t thread;
+    uint32_t tile = 1;
+    int pipe;
+    unsigned int poll_n = TileNumPipelinesPerRx;
+    char *detectmode = NULL;
+    int pool_detect_threads = 0;
+    extern TmEcode ReceiveMpipeInit(void); // move this
+
+    SCLogInfo("RunModeIdsTileMpipeWorkers\n");
+    
+    if (ConfGet("tile.detect", &detectmode) == 1) {
+        if (detectmode) {
+        	SCLogInfo("DEBUG: detectmode %s", detectmode);
+        	if (strcmp(detectmode, "pooled") == 0) {
+        		pool_detect_threads = 1;
+        	}
+        }   
+    }
+
+    RunModeTileMpipeMapCores();
+
+    RunModeInitialize();
+
+    /* Available cpus */
+    cpu_set_t cpus;
+    tmc_cpus_get_dataplane_cpus(&cpus);
+    uint16_t ncpus = tmc_cpus_count(&cpus);
+
+    SCLogInfo("ncpus: %d\n", ncpus);
+
+    TimeModeSetLive();
+
+    int pipe_max = ncpus - 1;
+    TileNumPipelines = pipe_max;
+    TileNumPipelinesPerRx = 1;
+
+    ReceiveMpipeInit();
+
+    char *mpipe_dev = NULL;
+    int nlive = LiveGetDeviceCount();
+    if (nlive > 0) {
+        SCLogInfo("Using %d live device(s).", nlive);
+        /*mpipe_dev = LiveGetDevice(0);*/
+    } else {
+        /*
+         * Attempt to get interface from config file
+         * overrides -i from command line.
+         */
+        if (ConfGet("mpipe.interface", &mpipe_dev) == 0) {
+            if (ConfGet("mpipe.single_mpipe_dev", &mpipe_dev) == 0) {
+	            SCLogError(SC_ERR_RUNMODE, "Failed retrieving "
+                           "mpipe.single_mpipe_dev from Conf");
+                exit(EXIT_FAILURE);
+            }
+        }
+    }
+
+    /*
+     * Careful.  All of the pickup_queues must be created
+     * prior to building to pipeline so that the queues
+     * are adjacent in the lookup table.  This lets the
+     * demux2 queue handler work.
+     */
+    for (pipe = 0; pipe < pipe_max; pipe++) {
+        sprintf(pickup_queue[pipe], "pickup-queue%d", pipe);
+        if (TmqCreateQueue(pickup_queue[pipe]) == NULL) {
+            SCLogError(SC_ERR_RUNMODE, "Could not create pickup queue");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    for (pipe = 0; pipe < pipe_max; pipe++) {
+
+        char *mpipe_devc;
+
+        /* HACK: Receive Threads are shared between pairs of
+         * pipelines.  So for every other pipeline create two
+         * queues and spawn only one thread.
+         */
+
+        if (nlive > 0) {
+            mpipe_devc = SCStrdup("multi");
+        } else {
+            mpipe_devc = SCStrdup(mpipe_dev);
+        }
+
+        snprintf(tname, sizeof(tname), "Worker%d", pipe+1);
+        thread_name = SCStrdup(tname);
+
+        /* create the threads */
+        ThreadVars *tv_worker =
+             TmThreadCreatePacketHandler(thread_name,
+                                         "packetpool", "packetpool",
+                                         "packetpool", "packetpool", 
+                                         "pktacqloop");
+        if (tv_worker == NULL) {
+            printf("ERROR: TmThreadsCreate failed\n");
+            exit(EXIT_FAILURE);
+        }
+        tm_module = TmModuleGetByName("ReceiveMpipe");
+        if (tm_module == NULL) {
+            printf("ERROR: TmModuleGetByName failed for ReceiveMpipe\n");
+            exit(EXIT_FAILURE);
+        }
+        TmSlotSetFuncAppend(tv_worker, tm_module, (void *)mpipe_devc);
+
+        /* set affinity for worker */
+        TmThreadSetCPUAffinity(tv_worker, 1+pipe);
+
+        SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d",
+                  thread_name, pipe_max, pipe,
+                  1+pipe);
+
+        tm_module = TmModuleGetByName("DecodeMpipe");
+        if (tm_module == NULL) {
+            printf("ERROR: TmModuleGetByName DecodeMpipe failed\n");
+            exit(EXIT_FAILURE);
+        }
+        TmSlotSetFuncAppend(tv_worker,tm_module,NULL);
+
+        tm_module = TmModuleGetByName("StreamTcp");
+        if (tm_module == NULL) {
+            printf("ERROR: TmModuleGetByName StreamTcp failed\n");
+            exit(EXIT_FAILURE);
+        }
+        TmSlotSetFuncAppend(tv_worker,tm_module,NULL);
+
+        tm_module = TmModuleGetByName("Detect");
+        if (tm_module == NULL) {
+            printf("ERROR: TmModuleGetByName Detect failed\n");
+            exit(EXIT_FAILURE);
+        }
+        TmSlotSetFuncAppend(tv_worker,tm_module,(void *)de_ctx);
+
+        tm_module = TmModuleGetByName("RespondReject");
+        if (tm_module == NULL) {
+            printf("ERROR: TmModuleGetByName for RespondReject failed\n");
+            exit(EXIT_FAILURE);
+        }
+        TmSlotSetFuncAppend(tv_worker,tm_module,NULL);
+
+        SetupOutputs(tv_worker);
+
+        if (TmThreadSpawn(tv_worker) != TM_ECODE_OK) {
+            printf("ERROR: TmThreadSpawn failed\n");
+            exit(EXIT_FAILURE);
+        }
+
+#if 0
+        sprintf(stream_queue[pipe], "stream-queue%d", pipe);
+
+        snprintf(tname, sizeof(tname), "Decode&Stream%d", pipe+1);
+        thread_name = SCStrdup(tname);
+
+        ThreadVars *tv_decode1 =
+	        TmThreadCreatePacketHandler(thread_name,
+                                            //pickup_queue[pipe],"simple",
+                                            pickup_queue[pipe],(poll_n==2)?"demux2":"simple",
+                                            stream_queue[(pool_detect_threads) ? 0 : pipe], (queue_type == simple) ? "simple" : "tmc_mrsw",
+                                            "varslot");
+        if (tv_decode1 == NULL) {
+            printf("ERROR: TmThreadCreate failed for Decode1\n");
+            exit(EXIT_FAILURE);
+        }
+        tm_module = TmModuleGetByName("DecodeMpipe");
+        if (tm_module == NULL) {
+            printf("ERROR: TmModuleGetByName DecodeMpipe failed\n");
+            exit(EXIT_FAILURE);
+        }
+        TmSlotSetFuncAppend(tv_decode1,tm_module,NULL);
+
+        tm_module = TmModuleGetByName("StreamTcp");
+        if (tm_module == NULL) {
+            printf("ERROR: TmModuleGetByName StreamTcp failed\n");
+            exit(EXIT_FAILURE);
+        }
+        TmSlotSetFuncAppend(tv_decode1,tm_module,NULL);
+
+        //TmThreadSetCPUAffinity(tv_decode1, MapTile(tile++));
+        TmThreadSetCPUAffinity(tv_decode1,
+                               1+((pipe_max+1)/poll_n)+(pipe*TILES_PER_PIPELINE));
+
+        SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d",
+                  thread_name, pipe_max, pipe,
+                  1+((pipe_max+1)/poll_n)+(pipe*TILES_PER_PIPELINE));
+
+        if (TmThreadSpawn(tv_decode1) != TM_ECODE_OK) {
+            printf("ERROR: TmThreadSpawn failed\n");
+            exit(EXIT_FAILURE);
+        }
+
+        int thread_max = TileDetectThreadPerPipeline;
+
+        for (thread = 0; thread < thread_max; thread++) {
+            snprintf(tname, sizeof(tname),"Detect%d-%"PRIu16, pipe+1, thread+1);
+            if (tname == NULL)
+                break;
+
+            thread_name = SCStrdup(tname);
+            SCLogDebug("Assigning %s affinity to cpu %u", thread_name, cpu);
+
+            sprintf(verdict_queue[pipe], "verdict-queue%d", pipe);
+
+//#define PIPELINES_PER_OUTPUT 2
+#define PIPELINES_PER_OUTPUT 1
+            ThreadVars *tv_detect_ncpu =
+                TmThreadCreatePacketHandler(thread_name,
+                                            stream_queue[(pool_detect_threads) ? 0 : pipe], (queue_type == simple) ? "simple" : "tmc_mrsw", 
+#if 1
+                                            verdict_queue[pipe/PIPELINES_PER_OUTPUT], (queue_type == simple) ? "simple" : "tmc_srmw",
+#else
+                                            "packetpool", "packetpool", 
+#endif
+                                            "1slot");
+            if (tv_detect_ncpu == NULL) {
+                printf("ERROR: TmThreadsCreate failed\n");
+                exit(EXIT_FAILURE);
+            }
+            tm_module = TmModuleGetByName("Detect");
+            if (tm_module == NULL) {
+                printf("ERROR: TmModuleGetByName Detect failed\n");
+                exit(EXIT_FAILURE);
+            }
+            TmSlotSetFuncAppend(tv_detect_ncpu,tm_module,(void *)de_ctx);
+
+            //TmThreadSetCPUAffinity(tv_detect_ncpu, MapTile(tile++));
+            TmThreadSetCPUAffinity(tv_detect_ncpu,
+                               1+((pipe_max+1)/poll_n)+(pipe*TILES_PER_PIPELINE)+thread+1);
+SCLogInfo("Thread %s pipe_max %d pipe %d cpu %d", thread_name, pipe_max, pipe,
+                               1+((pipe_max+1)/poll_n)+(pipe*TILES_PER_PIPELINE)+thread+1);
+
+            char *thread_group_name = SCStrdup("Detect");
+            if (thread_group_name == NULL) {
+                printf("Error allocating memory\n");
+                exit(EXIT_FAILURE);
+            }
+            tv_detect_ncpu->thread_group_name = thread_group_name;
+
+            if (TmThreadSpawn(tv_detect_ncpu) != TM_ECODE_OK) {
+                printf("ERROR: TmThreadSpawn failed\n");
+                exit(EXIT_FAILURE);
+            }
+
+            if ((cpu + 1) == ncpus)
+                cpu = 0;
+            else
+                cpu++;
+        }
+
+#ifdef COMBINE_RESPOND_REJECT_AND_OUTPUT
+	//if ((pipe % PIPELINES_PER_OUTPUT) == 0) {
+	if (1) {
+        snprintf(tname, sizeof(tname), "RR&Output%d", pipe+1);
+        thread_name = SCStrdup(tname);
+        ThreadVars *tv_outputs =
+            TmThreadCreatePacketHandler(thread_name,
+                                        verdict_queue[pipe/PIPELINES_PER_OUTPUT], (queue_type == simple) ? "simple" : "tmc_srmw", 
+                                        "packetpool", "packetpool", 
+                                        "varslot");
+        if (tv_outputs == NULL) {
+            printf("ERROR: TmThreadsCreate failed\n");
+            exit(EXIT_FAILURE);
+        }
+        //TmThreadSetCPUAffinity(tv_outputs, MapTile(tile++));
+        //TmThreadSetCPUAffinity(tv_outputs, MapTile((pipe_max * TILES_PER_PIPELINE) + (pipe / 2) + 1));
+        TmThreadSetCPUAffinity(tv_outputs,
+                               1+((pipe_max+1)/poll_n)+(pipe_max*TILES_PER_PIPELINE)+(pipe/PIPELINES_PER_OUTPUT));
+
+        tm_module = TmModuleGetByName("RespondReject");
+        if (tm_module == NULL) {
+            printf("ERROR: TmModuleGetByName for RespondReject failed\n");
+            exit(EXIT_FAILURE);
+        }
+        TmSlotSetFuncAppend(tv_outputs,tm_module,NULL);
+
+        SetupOutputs(tv_outputs);
+
+        if (TmThreadSpawn(tv_outputs) != TM_ECODE_OK) {
+            printf("ERROR: TmThreadSpawn failed\n");
+            exit(EXIT_FAILURE);
+        }
+	}
+#else
+        sprintf(alert_queue[pipe], "alert-queue%d", pipe);
+
+        snprintf(tname, sizeof(tname), "RespondReject%"PRIu16, pipe+1);
+        thread_name = SCStrdup(tname);
+        ThreadVars *tv_rreject =
+            TmThreadCreatePacketHandler(thread_name,
+                                        verdict_queue[pipe],"simple", 
+                                        alert_queue[pipe],"simple",
+                                        "1slot");
+        if (tv_rreject == NULL) {
+            printf("ERROR: TmThreadsCreate failed\n");
+            exit(EXIT_FAILURE);
+        }
+        tm_module = TmModuleGetByName("RespondReject");
+        if (tm_module == NULL) {
+            printf("ERROR: TmModuleGetByName for RespondReject failed\n");
+            exit(EXIT_FAILURE);
+        }
+        TmSlotSetFuncAppend(tv_rreject,tm_module,NULL);
+
+        TmThreadSetCPUAffinity(tv_rreject, MapTile(tile++));
+
+        if (TmThreadSpawn(tv_rreject) != TM_ECODE_OK) {
+            printf("ERROR: TmThreadSpawn failed\n");
+            exit(EXIT_FAILURE);
+        }
+
+        snprintf(tname, sizeof(tname), "Outputs%"PRIu16, pipe+1);
+        thread_name = SCStrdup(tname);
+
+        ThreadVars *tv_outputs =
+            TmThreadCreatePacketHandler(thread_name,
+                                        alert_queue[pipe], "simple", 
+                                        "packetpool", "packetpool", 
+                                        "varslot");
+        SetupOutputs(tv_outputs);
+
+        TmThreadSetCPUAffinity(tv_outputs, MapTile(tile++));
+
+        if (TmThreadSpawn(tv_outputs) != TM_ECODE_OK) {
+            printf("ERROR: TmThreadSpawn failed\n");
+            exit(EXIT_FAILURE);
+        }
+#endif
 #endif
     }
 

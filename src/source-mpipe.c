@@ -182,10 +182,11 @@ static gxio_trio_context_t trio_context_body;
 static gxio_trio_context_t* trio_context = &trio_context_body;
 
 #define PIPELINES 6 /* fix this. look elsewhere */
+#define MAX_TILES 36
 
 static gxpci_context_t gxpci_context_body[PIPELINES];
 static gxpci_context_t* gxpci_context[PIPELINES];
-static int *inflight[PIPELINES];
+static int *inflight[MAX_TILES];
 
 /* The TRIO index. */
 static int trio_index = 0;
@@ -518,7 +519,9 @@ static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
     int rank = cpu-1;
     int max[2];
 
-    SCLogInfo("cpu: %d rank: %d", cpu, rank);
+    if (rank == 0) {
+    	SCLogInfo("suricata is ready to process network traffic");
+    }
 
     tilera_fast_gettimeofday(&timeval);
 
@@ -793,11 +796,18 @@ TmEcode ReceiveMpipeLoopPair(ThreadVars *tv, void *data, void *slot) {
     intmax_t value = 0;
     int nqueue = 2;
     char *ctype;
+    char *runmode;
     TmEcode rc;
 
     SCEnter();
 
-    if (ConfGetInt("mpipe.poll", &value) == 1) {
+    if (ConfGet("runmode", &runmode) == 1) {
+        if (strcmp(runmode, "workers") == 0) {
+	    nqueue = 1;
+        }
+    }
+
+    if ((nqueue == 2) && (ConfGetInt("mpipe.poll", &value) == 1)) {
         /* only 1 and 2 are permitted */
         if ((value >= 1) && (value <= 2)) {
             nqueue = (int) value;
@@ -965,7 +975,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
     if (rank == 0) {
         unsigned int i = 0;
-        for (i = 0; i < PIPELINES; i++) {
+        for (i = 0; i < sizeof(inflight)/sizeof(inflight[0]); i++) {
             inflight[i] = NULL;
         }
 

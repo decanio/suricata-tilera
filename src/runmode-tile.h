@@ -72,7 +72,7 @@ void RunModeIdsTileNetioRegister(void);
 const char *RunModeIdsTileNetioGetDefaultMode(void);
 
 int RunModeIdsTileMpipeAuto(DetectEngineCtx *);
-int RunModeIdsTileMpipeAutoFp(DetectEngineCtx *de_ctx);
+int RunModeIdsTileMpipeWorkers(DetectEngineCtx *de_ctx);
 void RunModeIdsTileMpipeRegister(void);
 const char *RunModeIdsTileMpipeGetDefaultMode(void);
 

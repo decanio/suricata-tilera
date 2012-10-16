@@ -32,7 +32,7 @@ WORK_DIR=$(HOME_DIR)/work/TileGX
 RULES_DIR=$(HOME_DIR)/work/InterOp/TileGX/emergingthreats
 INSTALL_DIR=$(WORK_DIR)/suricata-install-dir
 #RULES_CONFIG=/opt/suricata/etc/suricata-tuned.yaml
-RULES_CONFIG=/opt/suricata/etc/suricata-etpro-norules.yaml
+RULES_CONFIG=/opt/suricata/etc/suricata-etpro-tuned.yaml
 YAML_DIR=$(WORK_DIR)/github/yaml
 LIBMAGIC_DIR=$(WORK_DIR)/github/libmagic
 PCAPFILE=$(HOME_DIR)/work/napatech/suricata1.pcap
@@ -398,7 +398,7 @@ run_net: $(SIM_DEPS)
 run_pci: $(SIM_DEPS)
 	$(TILE_MONITOR) \
         $(PCI_ARGS) \
-	--debug-next \
+	--debug-on-crash \
 	$(TILE_MONITOR_CANNON_STATIC_ARGS)
 
 # boot and run suricata via USB interface
