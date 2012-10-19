@@ -686,6 +686,7 @@ void SCPrintBuildInfo(void) {
 #endif
 }
 
+#if 0
 void DumpPacketOffsets(void)
 {
     printf("sizeof Packet %lu\n", sizeof(Packet));
@@ -705,6 +706,7 @@ void DumpPacketOffsets(void)
     printf("offsetof %s: %lu\n", "events", offsetof(Packet, events));
     printf("offsetof %s: %lu\n", "alerts", offsetof(Packet, alerts));
 }
+#endif
 
 int main(int argc, char **argv)
 {
@@ -752,7 +754,7 @@ int main(int argc, char **argv)
     /* initialize the logging subsys */
     SCLogInitLogModule(NULL);
 
-    DumpPacketOffsets();
+    /*DumpPacketOffsets();*/
 
     if (SCSetThreadName("Suricata-Main") < 0) {
         SCLogWarning(SC_ERR_THREAD_INIT, "Unable to set thread name");
@@ -1827,10 +1829,8 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-#ifdef NOTYET
     if (MagicInit() != 0)
         exit(EXIT_FAILURE);
-#endif
 
     if (SigLoadSignatures(de_ctx, sig_file, sig_file_exclusive) < 0) {
         if (sig_file == NULL) {

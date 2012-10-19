@@ -591,7 +591,7 @@ int RunModeIdsTileMpipeWorkers(DetectEngineCtx *de_ctx) {
     int pool_detect_threads = 0;
     extern TmEcode ReceiveMpipeInit(void); // move this
 
-    SCLogInfo("RunModeIdsTileMpipeWorkers\n");
+    //SCLogInfo("RunModeIdsTileMpipeWorkers");
     
     if (ConfGet("tile.detect", &detectmode) == 1) {
         if (detectmode) {
@@ -611,7 +611,7 @@ int RunModeIdsTileMpipeWorkers(DetectEngineCtx *de_ctx) {
     tmc_cpus_get_dataplane_cpus(&cpus);
     uint16_t ncpus = tmc_cpus_count(&cpus);
 
-    SCLogInfo("ncpus: %d\n", ncpus);
+    //SCLogInfo("ncpus: %d", ncpus);
 
     TimeModeSetLive();
 
