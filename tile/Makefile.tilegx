@@ -28,14 +28,12 @@ all:
 HOME_DIR=/home/tdecanio
 WORK_DIR=$(HOME_DIR)/work/TileGX
 # you can probably leave the following alone
-#RULES_DIR=$(WORK_DIR)/rules
-RULES_DIR=$(HOME_DIR)/work/InterOp/TileGX/emergingthreats
+RULES_DIR=$(WORK_DIR)/rules
+##RULES_DIR=$(HOME_DIR)/work/InterOp/TileGX/emergingthreats
 INSTALL_DIR=$(WORK_DIR)/suricata-install-dir
-#RULES_CONFIG=/opt/suricata/etc/suricata-tuned.yaml
-RULES_CONFIG=/opt/suricata/etc/suricata-etpro-tuned.yaml
+RULES_CONFIG=/opt/suricata/etc/suricata.yaml
+##RULES_CONFIG=/opt/suricata/etc/suricata-etpro-tuned.yaml
 YAML_DIR=$(WORK_DIR)/github/yaml
-LIBMAGIC_DIR=$(WORK_DIR)/github/libmagic
-PCAPFILE=$(HOME_DIR)/work/napatech/suricata1.pcap
 LOG_DIR=$(WORK_DIR)/logs
 
 # Modify the following with the IP address of your Tilera target
