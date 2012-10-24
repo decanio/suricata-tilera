@@ -377,6 +377,10 @@ platforms.
 Copy the suricata binary, built above, and your suricata configuration files to
 your Tilera platform.
 
+Make certain that the suricata log directory exists with:
+
+    mkdir -p /var/log/suricata
+
 Execute suricata with a command such as the following:
 
     suricata -c /opt/suricata/etc/suricata.yaml --mpipe
