@@ -37,7 +37,7 @@ YAML_DIR=$(WORK_DIR)/github/yaml
 LOG_DIR=$(WORK_DIR)/logs
 
 # Modify the following with the IP address of your Tilera target
-NET_ARGS=--net 192.168.0.11
+NET_ARGS=--net 192.168.0.11 --reflash
 # Modify the following with the USB port attached to your Tilera target
 WILDCAT_ARGS=--dev usb1
 # Modify the following to point to your locally installed "TILEncore-Gx" card
