@@ -210,7 +210,6 @@ TILE_MONITOR_CANNON_STATIC_ARGS = \
   --mount-tile /usr \
   --mount $(RULES_DIR) /opt \
   --mount $(LOG_DIR) /var/log/suricata \
-  --mount-same /home/tdecanio \
   --upload ./src/suricata suricata \
   --tunnel 10022 22 \
   --run -+- suricata -c $(RULES_CONFIG) --mpipe -+-
@@ -232,7 +231,7 @@ TILE_MONITOR_CANNON_CAPTURE_ARGS = \
     --mount $(LOG_DIR) /var/log/suricata \
     --upload ./src/suricata suricata \
     --run -+- suricata -c $(RULES_CONFIG) --mpipe -+- \
-  -++- /home/tdecanio/hack/gxpci_host_pq/run6.sh
+  -++- $(HOME_DIR)/hack/gxpci_host_pq/run6.sh
 
 # This is sized for an 16GB Wildcat card
 TILE_MONITOR_WILDCAT_STATIC_ARGS = \
