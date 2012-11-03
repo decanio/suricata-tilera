@@ -137,6 +137,7 @@ struct DetectEngineEvents_ {
     { "stream.4whs_invalid_ack", STREAM_4WHS_INVALID_ACK, },
     { "stream.closewait_ack_out_of_window", STREAM_CLOSEWAIT_ACK_OUT_OF_WINDOW, },
     { "stream.closewait_fin_out_of_window", STREAM_CLOSEWAIT_FIN_OUT_OF_WINDOW, },
+    { "stream.closewait_pkt_before_last_ack", STREAM_CLOSEWAIT_PKT_BEFORE_LAST_ACK, },
     { "stream.closewait_invalid_ack", STREAM_CLOSEWAIT_INVALID_ACK, },
     { "stream.closing_ack_wrong_seq", STREAM_CLOSING_ACK_WRONG_SEQ, },
     { "stream.closing_invalid_ack", STREAM_CLOSING_INVALID_ACK, },
@@ -166,11 +167,14 @@ struct DetectEngineEvents_ {
     { "stream.timewait_invalid_ack", STREAM_TIMEWAIT_INVALID_ACK, },
     { "stream.pkt_invalid_timestamp", STREAM_PKT_INVALID_TIMESTAMP, },
     { "stream.pkt_invalid_ack", STREAM_PKT_INVALID_ACK, },
+    { "stream.pkt_broken_ack", STREAM_PKT_BROKEN_ACK, },
     { "stream.rst_invalid_ack", STREAM_RST_INVALID_ACK, },
     { "stream.shutdown_syn_resend", STREAM_SHUTDOWN_SYN_RESEND, },
+    { "stream.pkt_retransmission", STREAM_PKT_RETRANSMISSION, },
     { "stream.reassembly_segment_before_base_seq", STREAM_REASSEMBLY_SEGMENT_BEFORE_BASE_SEQ, },
     { "stream.reassembly_no_segment", STREAM_REASSEMBLY_NO_SEGMENT, },
     { "stream.reassembly_seq_gap", STREAM_REASSEMBLY_SEQ_GAP, },
+    { "stream.reassembly_overlap_different_data", STREAM_REASSEMBLY_OVERLAP_DIFFERENT_DATA, },
     { NULL, 0 },
 };
 #endif /* DETECT_EVENTS */

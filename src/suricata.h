@@ -150,5 +150,7 @@ void SignalHandlerSigusr2EngineShutdown(int);
 
 int RunmodeIsUnittests(void);
 
+extern int run_mode;
+
 #endif /* __SURICATA_H__ */
 

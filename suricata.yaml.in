@@ -224,7 +224,7 @@ af-packet:
     #  * cluster_round_robin: round robin load balancing
     #  * cluster_flow: all packets of a given flow are send to the same socket
     #  * cluster_cpu: all packets treated in kernel by a CPU are send to the same socket
-    cluster-type: cluster_round_robin
+    cluster-type: cluster_flow
     # In some fragmentation case, the hash can not be computed. If "defrag" is set
     # to yes, the kernel will do the needed defragmentation before sending the packets.
     defrag: yes
@@ -266,7 +266,7 @@ af-packet:
   - interface: eth1
     threads: 1
     cluster-id: 98
-    cluster-type: cluster_round_robin
+    cluster-type: cluster_flow
     defrag: yes
     # buffer-size: 32768
     # disable-promisc: no
@@ -570,7 +570,7 @@ flow-timeouts:
 stream:
   memcap: 32mb
   checksum-validation: yes      # reject wrong csums
-  inline: no                    # no inline mode
+  inline: auto                  # auto will use inline mode in IPS mode, yes or no set it statically
   reassembly:
     memcap: 64mb
     depth: 1mb                  # reassemble 1mb into a stream
@@ -638,7 +638,7 @@ pfring:
 
     # Default PF_RING cluster type. PF_RING can load balance per flow or per hash.
     # This is only supported in versions of PF_RING > 4.1.1.
-    cluster-type: cluster_round_robin
+    cluster-type: cluster_flow
     # bpf filter for this interface
     #bpf-filter: tcp
     # Choose checksum verification mode for the interface. At the moment
@@ -922,10 +922,19 @@ libhtp:
 
    default-config:
      personality: IDS
+
      # Can be specified in kb, mb, gb.  Just a number indicates
      # it's in bytes.
      request-body-limit: 3072
      response-body-limit: 3072
+
+     # inspection limits
+     request-body-minimal-inspect-size: 32kb
+     request-body-inspect-window: 4kb
+     response-body-minimal-inspect-size: 32kb
+     response-body-inspect-window: 4kb
+
+     # decoding
      double-decode-path: no
      double-decode-query: no
 

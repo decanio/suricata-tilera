@@ -43,6 +43,7 @@
 #include "tm-threads.h"
 #include "source-pfring.h"
 #include "util-debug.h"
+#include "util-checksum.h"
 #include "util-privs.h"
 #include "util-device.h"
 #include "runmodes.h"
@@ -122,6 +123,9 @@ typedef struct PfringThreadVars_
     uint64_t bytes;
     uint32_t pkts;
 
+    uint16_t capture_kernel_packets;
+    uint16_t capture_kernel_drops;
+
     ThreadVars *tv;
     TmSlot *slot;
 
@@ -168,6 +172,15 @@ void TmModuleDecodePfringRegister (void) {
     tmm_modules[TMM_DECODEPFRING].ThreadDeinit = NULL;
     tmm_modules[TMM_DECODEPFRING].RegisterTests = NULL;
     tmm_modules[TMM_DECODEPFRING].flags = TM_FLAG_DECODE_TM;
+}
+
+static inline void PfringDumpCounters(PfringThreadVars *ptv)
+{
+    pfring_stat pfring_s;
+    if (likely((pfring_stats(ptv->pd, &pfring_s) >= 0))) {
+        SCPerfCounterSetUI64(ptv->capture_kernel_packets, ptv->tv->sc_perf_pca, pfring_s.recv);
+        SCPerfCounterSetUI64(ptv->capture_kernel_drops, ptv->tv->sc_perf_pca, pfring_s.drop);
+    }
 }
 
 /**
@@ -248,6 +261,8 @@ TmEcode ReceivePfringLoop(ThreadVars *tv, void *data, void *slot)
     Packet *p = NULL;
     struct pfring_pkthdr hdr;
     TmSlot *s = (TmSlot *)slot;
+    time_t last_dump = 0;
+    struct timeval current_time;
 
     ptv->slot = s->slot_next;
 
@@ -269,6 +284,7 @@ TmEcode ReceivePfringLoop(ThreadVars *tv, void *data, void *slot)
         if (p == NULL) {
             SCReturnInt(TM_ECODE_FAILED);
         }
+        PKT_SET_SRC(p, PKT_SRC_WIRE);
 
         /* Some flavours of PF_RING may fail to set timestamp - see PF-RING-enabled libpcap code*/
         hdr.ts.tv_sec = hdr.ts.tv_usec = 0;
@@ -295,6 +311,13 @@ TmEcode ReceivePfringLoop(ThreadVars *tv, void *data, void *slot)
             if (TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p) != TM_ECODE_OK) {
                 TmqhOutputPacketpool(ptv->tv, p);
                 SCReturnInt(TM_ECODE_FAILED);
+            }
+
+            /* Trigger one dump of stats every second */
+            TimeGet(&current_time);
+            if (current_time.tv_sec != last_dump) {
+                PfringDumpCounters(ptv);
+                last_dump = current_time.tv_sec;
             }
         } else {
             SCLogError(SC_ERR_PF_RING_RECV,"pfring_recv error  %" PRId32 "", r);
@@ -324,7 +347,6 @@ TmEcode ReceivePfringLoop(ThreadVars *tv, void *data, void *slot)
 TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
     int rc;
     u_int32_t version = 0;
-    char *tmpclusterid;
     PfringIfaceConfig *pfconf = (PfringIfaceConfig *) initdata;
 
 
@@ -372,18 +394,22 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
 
     ptv->cluster_id = pfconf->cluster_id;
 
+    if ((ptv->threads == 1) && (strncmp(ptv->interface, "dna", 3) == 0)) {
+        SCLogInfo("DNA interface detected, not adding thread to cluster");
+    } else {
 #ifdef HAVE_PFRING_CLUSTER_TYPE
-    ptv->ctype = pfconf->ctype;
-    rc = pfring_set_cluster(ptv->pd, ptv->cluster_id, ptv->ctype);
+        ptv->ctype = pfconf->ctype;
+        rc = pfring_set_cluster(ptv->pd, ptv->cluster_id, ptv->ctype);
 #else
-    rc = pfring_set_cluster(ptv->pd, ptv->cluster_id);
+        rc = pfring_set_cluster(ptv->pd, ptv->cluster_id);
 #endif /* HAVE_PFRING_CLUSTER_TYPE */
 
-    if (rc != 0) {
-        SCLogError(SC_ERR_PF_RING_SET_CLUSTER_FAILED, "pfring_set_cluster "
-                "returned %d for cluster-id: %d", rc, ptv->cluster_id);
-        pfconf->DerefFunc(pfconf);
-        return TM_ECODE_FAILED;
+        if (rc != 0) {
+            SCLogError(SC_ERR_PF_RING_SET_CLUSTER_FAILED, "pfring_set_cluster "
+                    "returned %d for cluster-id: %d", rc, ptv->cluster_id);
+            pfconf->DerefFunc(pfconf);
+            return TM_ECODE_FAILED;
+        }
     }
 
     if (ptv->threads > 1) {
@@ -410,6 +436,15 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
     }
 #endif /* HAVE_PFRING_SET_BPF_FILTER */
 
+    ptv->capture_kernel_packets = SCPerfTVRegisterCounter("capture.kernel_packets",
+            ptv->tv,
+            SC_PERF_TYPE_UINT64,
+            "NULL");
+    ptv->capture_kernel_drops = SCPerfTVRegisterCounter("capture.kernel_drops",
+            ptv->tv,
+            SC_PERF_TYPE_UINT64,
+            "NULL");
+
 /* It seems that as of 4.7.1 this is required */
 #ifdef HAVE_PFRING_ENABLE
     rc = pfring_enable_ring(ptv->pd);
@@ -434,18 +469,13 @@ TmEcode ReceivePfringThreadInit(ThreadVars *tv, void *initdata, void **data) {
  */
 void ReceivePfringThreadExitStats(ThreadVars *tv, void *data) {
     PfringThreadVars *ptv = (PfringThreadVars *)data;
-    pfring_stat pfring_s;
 
-    if(pfring_stats(ptv->pd, &pfring_s) < 0) {
-        SCLogError(SC_ERR_STAT,"(%s) Failed to get pfring stats", tv->name);
-        SCLogInfo("(%s) Packets %" PRIu32 ", bytes %" PRIu64 "", tv->name, ptv->pkts, ptv->bytes);
-    } else {
-        SCLogInfo("(%s) Packets %" PRIu32 ", bytes %" PRIu64 "", tv->name, ptv->pkts, ptv->bytes);
-
-        SCLogInfo("(%s) Pfring Total:%" PRIu64 " Recv:%" PRIu64 " Drop:%" PRIu64 " (%02.1f%%).", tv->name,
-        (uint64_t)pfring_s.recv + (uint64_t)pfring_s.drop, (uint64_t)pfring_s.recv,
-        (uint64_t)pfring_s.drop, ((float)pfring_s.drop/(float)(pfring_s.drop + pfring_s.recv))*100);
-    }
+    PfringDumpCounters(ptv);
+    SCLogInfo("(%s) Kernel: Packets %" PRIu64 ", dropped %" PRIu64 "",
+            tv->name,
+            (uint64_t) SCPerfGetLocalCounterValue(ptv->capture_kernel_packets, tv->sc_perf_pca),
+            (uint64_t) SCPerfGetLocalCounterValue(ptv->capture_kernel_drops, tv->sc_perf_pca));
+    SCLogInfo("(%s) Packets %" PRIu32 ", bytes %" PRIu64 "", tv->name, ptv->pkts, ptv->bytes);
 }
 
 /**

@@ -39,6 +39,18 @@ typedef enum {
     CHECKSUM_VALIDATION_KERNEL,
 } ChecksumValidationMode;
 
+enum {
+    PKT_SRC_WIRE = 1,
+    PKT_SRC_DECODER_GRE,
+    PKT_SRC_DECODER_IPV4,
+    PKT_SRC_DECODER_IPV6,
+    PKT_SRC_DECODER_TEREDO,
+    PKT_SRC_DEFRAG,
+    PKT_SRC_STREAM_TCP_STREAM_END_PSEUDO,
+    PKT_SRC_FFR_V2,
+    PKT_SRC_FFR_SHUTDOWN,
+};
+
 #include "source-nfq.h"
 #include "source-ipfw.h"
 #include "source-pcap.h"
@@ -372,6 +384,9 @@ typedef struct Packet_
 #endif
     /* flow */
     uint8_t flowflags;
+
+    uint8_t pkt_src;
+
     struct Flow_ *flow;
 
 #ifdef __tile__
@@ -760,7 +775,6 @@ typedef struct DecodeThreadVars_
 #endif
 #endif
 
-
 /**
  *  \brief Recycle a packet structure for reuse.
  *  \todo the mutex destroy & init is necessary because of the memset, reconsider
@@ -775,7 +789,8 @@ typedef struct DecodeThreadVars_
         (p)->recursion_level = 0;               \
         (p)->flags = 0;                         \
         (p)->flowflags = 0;                     \
-        (p)->flow = NULL;                       \
+        (p)->pkt_src = 0;                       \
+        FlowDeReference(&((p)->flow));          \
         (p)->ts.tv_sec = 0;                     \
         (p)->ts.tv_usec = 0;                    \
         (p)->datalink = 0;                      \
@@ -1077,6 +1092,8 @@ void AddressDebugPrint(Address *);
 
 /** \brief return 1 if the packet is a pseudo packet */
 #define PKT_IS_PSEUDOPKT(p) ((p)->flags & PKT_PSEUDO_STREAM_END)
+
+#define PKT_SET_SRC(p, src_val) ((p)->pkt_src = src_val)
 
 #endif /* __DECODE_H__ */
 

@@ -492,6 +492,10 @@ static Flow *FlowGetNew(Packet *p) {
             }
 
             f = FlowGetUsedFlow();
+            if (f == NULL) {
+                /* very rare, but we can fail. Just giving up */
+                return NULL;
+            }
 
             /* freed a flow, but it's unlocked */
         } else {
@@ -508,8 +512,6 @@ static Flow *FlowGetNew(Packet *p) {
 
         /* flow is initialized (recylced) but *unlocked* */
     }
-
-    FlowIncrUsecnt(f);
 
     FLOWLOCK_WRLOCK(f);
     return f;
@@ -555,6 +557,8 @@ Flow *FlowGetFlowFromHash (Packet *p)
         fb->head = f;
         fb->tail = f;
 
+        FlowReference(&p->flow, f);
+
         /* got one, now lock, initialize and return */
         FlowInit(f,p);
         f->fb = fb;
@@ -590,6 +594,8 @@ Flow *FlowGetFlowFromHash (Packet *p)
 
                 f->hprev = pf;
 
+                FlowReference(&p->flow, f);
+
                 /* initialize and return */
                 FlowInit(f,p);
                 f->fb = fb;
@@ -617,8 +623,9 @@ Flow *FlowGetFlowFromHash (Packet *p)
                 fb->head->hprev = f;
                 fb->head = f;
 
+                FlowReference(&p->flow, f);
+
                 /* found our flow, lock & return */
-                FlowIncrUsecnt(f);
                 FLOWLOCK_WRLOCK(f);
                 FBLOCK_UNLOCK(fb);
                 FlowHashCountUpdate;
@@ -628,7 +635,7 @@ Flow *FlowGetFlowFromHash (Packet *p)
     }
 
     /* lock & return */
-    FlowIncrUsecnt(f);
+    FlowReference(&p->flow, f);
     FLOWLOCK_WRLOCK(f);
     FBLOCK_UNLOCK(fb);
     FlowHashCountUpdate;
@@ -652,7 +659,7 @@ static Flow *FlowGetUsedFlow(void) {
     uint32_t cnt = flow_config.hash_size;
 
     while (cnt--) {
-        if (idx++ >= flow_config.hash_size)
+        if (++idx >= flow_config.hash_size)
             idx = 0;
 
         FlowBucket *fb = &flow_hash[idx];

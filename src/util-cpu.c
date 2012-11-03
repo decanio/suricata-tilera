@@ -191,7 +191,7 @@ uint64_t UtilCpuGetTicks(void)
 #if defined(__tile__)
     val = get_cycle_count();
 #else
-#if defined(__x86_64) || defined(_X86_64_) || defined(ia_64)
+#if defined(__x86_64) || defined(_X86_64_) || defined(ia_64) || defined(__i386__)
     __asm__ __volatile__ (
     "xorl %%eax,%%eax\n\t"
     "cpuid\n\t"

@@ -31,7 +31,6 @@
 #include "conf.h"
 
 #include "util-unittest.h"
-
 #include <magic.h>
 
 static magic_t g_magic_ctx = NULL;
@@ -94,7 +93,7 @@ error:
  *
  *  \retval result pointer to null terminated string
  */
-char *MagicLookup(uint8_t *buf, uint32_t buflen) {
+char *MagicGlobalLookup(uint8_t *buf, uint32_t buflen) {
     const char *result = NULL;
     char *magic = NULL;
 
@@ -111,6 +110,31 @@ char *MagicLookup(uint8_t *buf, uint32_t buflen) {
     }
 
     SCMutexUnlock(&g_magic_lock);
+    SCReturnPtr(magic, "const char");
+}
+
+/**
+ *  \brief Find the magic value for a buffer.
+ *
+ *  \param buf the buffer
+ *  \param buflen length of the buffer
+ *
+ *  \retval result pointer to null terminated string
+ */
+char *MagicThreadLookup(magic_t *ctx, uint8_t *buf, uint32_t buflen) {
+    const char *result = NULL;
+    char *magic = NULL;
+
+    if (buf != NULL && buflen > 0) {
+        result = magic_buffer(*ctx, (void *)buf, (size_t)buflen);
+        if (result != NULL) {
+            magic = SCStrdup(result);
+            if (magic == NULL) {
+                SCLogError(SC_ERR_MEM_ALLOC, "Unable to dup magic");
+            }
+        }
+    }
+
     SCReturnPtr(magic, "const char");
 }
 
@@ -342,7 +366,7 @@ int MagicDetectTest05(void) {
 
     MagicInit();
 
-    result = MagicLookup(buffer, buffer_len);
+    result = MagicGlobalLookup(buffer, buffer_len);
     if (result == NULL || strncmp(result, "PDF document", 12) != 0) {
         printf("result %p:%s, not \"PDF document\": ", result,result?result:"(null)");
         goto end;
@@ -378,7 +402,7 @@ int MagicDetectTest06(void) {
 
     MagicInit();
 
-    result = MagicLookup(buffer, buffer_len);
+    result = MagicGlobalLookup(buffer, buffer_len);
     if (result == NULL || strcmp(result, "Microsoft Office Document") != 0) {
         printf("result %p:%s, not \"Microsoft Office Document\": ", result,result?result:"(null)");
         goto end;
@@ -423,7 +447,7 @@ int MagicDetectTest07(void) {
 
     MagicInit();
 
-    result = MagicLookup(buffer, buffer_len);
+    result = MagicGlobalLookup(buffer, buffer_len);
     if (result == NULL || strcmp(result, "OpenDocument Text") != 0) {
         printf("result %p:%s, not \"OpenDocument Text\": ", result,result?result:"(null)");
         goto end;
@@ -473,7 +497,7 @@ int MagicDetectTest08(void) {
 
     MagicInit();
 
-    result = MagicLookup(buffer, buffer_len);
+    result = MagicGlobalLookup(buffer, buffer_len);
     if (result == NULL || strcmp(result, "OpenOffice.org 1.x Database file") != 0) {
         printf("result %p:%s, not \"OpenOffice.org 1.x Database file\": ", result,result?result:"(null)");
         goto end;
@@ -495,13 +519,13 @@ int MagicDetectTest09(void) {
 
     MagicInit();
 
-    result1 = MagicLookup(buffer, buffer_len);
+    result1 = MagicGlobalLookup(buffer, buffer_len);
     if (result1 == NULL || strncmp(result1, "PDF document", 12) != 0) {
         printf("result %p:%s, not \"PDF document\": ", result1,result1?result1:"(null)");
         goto end;
     }
 
-    result2 = MagicLookup(buffer, buffer_len);
+    result2 = MagicGlobalLookup(buffer, buffer_len);
     if (result2 == NULL || strncmp(result2, "PDF document", 12) != 0) {
         printf("result %p:%s, not \"PDF document\": ", result2,result2?result2:"(null)");
         goto end;
@@ -509,6 +533,40 @@ int MagicDetectTest09(void) {
 
     if (result1 != result2) {
         printf("pointers not equal, weird... %p != %p: ", result1, result2);
+        goto end;
+    }
+
+    retval = 1;
+end:
+    MagicDeinit();
+    return retval;
+}
+
+/** \test results in valgrind warning about invalid read, tested with
+ *        file 5.09 and 5.11 */
+static int MagicDetectTest10ValgrindError(void) {
+    const char *result = NULL;
+    uint8_t buffer[] = {
+        0xFF,0xD8,0xFF,0xE0,0x00,0x10,0x4A,0x46,0x49,0x46,0x00,0x01,0x01,0x01,0x01,0x2C,
+        0x01,0x2C,0x00,0x00,0xFF,0xFE,0x00,0x4C,0x53,0x69,0x67,0x6E,0x61,0x74,0x75,0x72,
+        0x65,0x3A,0x34,0x31,0x31,0x65,0x33,0x38,0x61,0x61,0x61,0x31,0x37,0x65,0x33,0x30,
+        0x66,0x30,0x32,0x38,0x62,0x61,0x30,0x31,0x36,0x32,0x36,0x37,0x66,0x66,0x30,0x31,
+        0x36,0x36,0x61,0x65,0x35,0x39,0x65,0x38,0x31,0x39,0x62,0x61,0x32,0x34,0x63,0x39,
+        0x62,0x31,0x33,0x37,0x33,0x62,0x31,0x61,0x35,0x61,0x38,0x65,0x64,0x63,0x36,0x30,
+        0x65,0x37,0xFF,0xE2,0x02,0x2C,0x49,0x43,0x43,0x5F,0x50,0x52,0x4F,0x46,0x49,0x4C,
+        0x45,0x00,0x01,0x01,0x00,0x00,0x02,0x1C,0x41,0x44,0x42,0x45,0x02,0x10,0x00,0x00,
+        0x6D,0x6E,0x74,0x72,0x52,0x47,0x42,0x20,0x58,0x59,0x5A,0x20,0x07,0xCF,0x00,0x05,
+        0x00,0x09,0x00,0x15,0x00,0x0B,0x00,0x21,0x61,0x63,0x73,0x70,0x41,0x50,0x50,0x4C,
+        0x00,0x00,0x00,0x00,0x6E,0x6F,0x6E,0x65,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    };
+    size_t buffer_len = sizeof(buffer);
+    int retval = 0;
+
+    MagicInit();
+
+    result = MagicGlobalLookup(buffer, buffer_len);
+    if (result == NULL || strncmp(result, "JPEG", 4) != 0) {
+        printf("result %p:%s, not \"JPEG\": ", result,result?result:"(null)");
         goto end;
     }
 
@@ -535,5 +593,7 @@ void MagicRegisterTests(void) {
     UtRegisterTest("MagicDetectTest08", MagicDetectTest08, 1);
     /* fails in valgrind, somehow it returns different pointers then.
     UtRegisterTest("MagicDetectTest09", MagicDetectTest09, 1); */
+
+    UtRegisterTest("MagicDetectTest10ValgrindError", MagicDetectTest10ValgrindError, 1);
 #endif /* UNITTESTS */
 }

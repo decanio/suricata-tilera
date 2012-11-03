@@ -310,7 +310,6 @@ void FlowHandlePacket (ThreadVars *tv, Packet *p)
     FLOWLOCK_UNLOCK(f);
 
     /* set the flow in the packet */
-    p->flow = f;
     p->flags |= PKT_HAS_FLOW;
     return;
 }
@@ -413,7 +412,9 @@ void FlowInitConfig(char quiet)
                   (uintmax_t)sizeof(FlowBucket));
     }
 
+#ifdef __tile__
     FlowAllocPoolInit();
+#endif
     /* pre allocate flows */
     for (i = 0; i < flow_config.prealloc; i++) {
         if (!(FLOW_CHECK_MEMCAP(sizeof(Flow)))) {

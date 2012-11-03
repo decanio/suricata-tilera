@@ -194,7 +194,6 @@ extern int rule_reload;
 extern int engine_analysis;
 static int fp_engine_analysis_set = 0;
 static int rule_engine_analysis_set = 0;
-static FILE *fp_engine_analysis_FD = NULL;
 
 SigMatch *SigMatchAlloc(void);
 void DetectExitPrintStats(ThreadVars *tv, void *data);
@@ -268,236 +267,6 @@ char *DetectLoadCompleteSigPath(char *sig_file)
     return path;
 }
 
-static inline void EngineAnalysisWriteFastPattern(Signature *s, SigMatch *mpm_sm)
-{
-    int fast_pattern_set = 0;
-    int fast_pattern_only_set = 0;
-    int fast_pattern_chop_set = 0;
-    DetectContentData *fp_cd = NULL;
-
-    if (mpm_sm != NULL) {
-        fp_cd = (DetectContentData *)mpm_sm->ctx;
-        if (fp_cd->flags & DETECT_CONTENT_FAST_PATTERN) {
-            fast_pattern_set = 1;
-            if (fp_cd->flags & DETECT_CONTENT_FAST_PATTERN_ONLY) {
-                fast_pattern_only_set = 1;
-            } else if (fp_cd->flags & DETECT_CONTENT_FAST_PATTERN_CHOP) {
-                fast_pattern_chop_set = 1;
-            }
-        }
-    }
-
-    if (fp_cd == NULL) {
-        fprintf(fp_engine_analysis_FD, "== Sid: %u ==\n", s->id);
-        fprintf(fp_engine_analysis_FD, "    No content present\n");
-        return;
-    }
-
-    fprintf(fp_engine_analysis_FD, "== Sid: %u ==\n", s->id);
-    fprintf(fp_engine_analysis_FD, "    Fast pattern matcher: ");
-    int list_type = SigMatchListSMBelongsTo(s, mpm_sm);
-    if (list_type == DETECT_SM_LIST_PMATCH)
-        fprintf(fp_engine_analysis_FD, "content\n");
-    else if (list_type == DETECT_SM_LIST_UMATCH)
-        fprintf(fp_engine_analysis_FD, "http uri content\n");
-    else if (list_type == DETECT_SM_LIST_HRUDMATCH)
-        fprintf(fp_engine_analysis_FD, "http raw uri content\n");
-    else if (list_type == DETECT_SM_LIST_HHDMATCH)
-        fprintf(fp_engine_analysis_FD, "http header content\n");
-    else if (list_type == DETECT_SM_LIST_HRHDMATCH)
-        fprintf(fp_engine_analysis_FD, "http raw header content\n");
-    else if (list_type == DETECT_SM_LIST_HMDMATCH)
-        fprintf(fp_engine_analysis_FD, "http method content\n");
-    else if (list_type == DETECT_SM_LIST_HCDMATCH)
-        fprintf(fp_engine_analysis_FD, "http cookie content\n");
-    else if (list_type == DETECT_SM_LIST_HCBDMATCH)
-        fprintf(fp_engine_analysis_FD, "http client body content\n");
-    else if (list_type == DETECT_SM_LIST_HSBDMATCH)
-        fprintf(fp_engine_analysis_FD, "http server body content\n");
-    else if (list_type == DETECT_SM_LIST_HSCDMATCH)
-        fprintf(fp_engine_analysis_FD, "http stat code content\n");
-    else if (list_type == DETECT_SM_LIST_HSMDMATCH)
-        fprintf(fp_engine_analysis_FD, "http stat msg content\n");
-
-    fprintf(fp_engine_analysis_FD, "    Fast pattern set: %s\n", fast_pattern_set ? "yes" : "no");
-    fprintf(fp_engine_analysis_FD, "    Fast pattern only set: %s\n",
-            fast_pattern_only_set ? "yes" : "no");
-    fprintf(fp_engine_analysis_FD, "    Fast pattern chop set: %s\n",
-            fast_pattern_chop_set ? "yes" : "no");
-    if (fast_pattern_chop_set) {
-        fprintf(fp_engine_analysis_FD, "    Fast pattern offset, length: %u, %u\n",
-                fp_cd->fp_chop_offset, fp_cd->fp_chop_len);
-    }
-    fprintf(fp_engine_analysis_FD, "    Content negated: %s\n",
-            (fp_cd->flags & DETECT_CONTENT_NEGATED) ? "yes" : "no");
-
-    uint16_t patlen = fp_cd->content_len;
-    uint8_t *pat = SCMalloc(fp_cd->content_len + 1);
-    if (unlikely(pat == NULL)) {
-        SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory");
-        exit(EXIT_FAILURE);
-    }
-    memcpy(pat, fp_cd->content, fp_cd->content_len);
-    pat[fp_cd->content_len] = '\0';
-    fprintf(fp_engine_analysis_FD, "    Original content: ");
-    PrintRawUriFp(fp_engine_analysis_FD, pat, patlen);
-    fprintf(fp_engine_analysis_FD, "\n");
-
-    if (fast_pattern_chop_set) {
-        SCFree(pat);
-        patlen = fp_cd->fp_chop_len;
-        pat = SCMalloc(fp_cd->fp_chop_len + 1);
-        if (unlikely(pat == NULL)) {
-            exit(EXIT_FAILURE);
-        }
-        memcpy(pat, fp_cd->content + fp_cd->fp_chop_offset, fp_cd->fp_chop_len);
-        pat[fp_cd->fp_chop_len] = '\0';
-        fprintf(fp_engine_analysis_FD, "    Final content: ");
-        PrintRawUriFp(fp_engine_analysis_FD, pat, patlen);
-        fprintf(fp_engine_analysis_FD, "\n");
-    } else {
-        fprintf(fp_engine_analysis_FD, "    Final content: ");
-        PrintRawUriFp(fp_engine_analysis_FD, pat, patlen);
-        fprintf(fp_engine_analysis_FD, "\n");
-    }
-    SCFree(pat);
-
-    return;
-}
-
-/**
- * \brief Prints analysis of fast pattern for a signature.
- *
- *        The code here mimics the logic to select fast_pattern from staging.
- *        If any changes are made to the staging logic, this should follow suit.
- *
- * \param s Pointer to the signature.
- */
-void EngineAnalysisFastPattern(Signature *s)
-{
-    SigMatch *mpm_sm = NULL;
-    uint32_t fast_pattern = 0;
-    int list_id = 0;
-
-    for (list_id = 0; list_id < DETECT_SM_LIST_MAX; list_id++) {
-        /* we have no keywords that support fp in this Signature sm list */
-        if (!FastPatternSupportEnabledForSigMatchList(list_id))
-            continue;
-
-        SigMatch *sm = NULL;
-        /* get the total no of patterns in this Signature, as well as find out
-         * if we have a fast_pattern set in this Signature */
-        for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
-            /* this keyword isn't registered for fp support */
-            if (sm->type != DETECT_CONTENT)
-                continue;
-
-            DetectContentData *cd = (DetectContentData *)sm->ctx;
-            if (cd->flags & DETECT_CONTENT_FAST_PATTERN) {
-                fast_pattern = 1;
-                break;
-            }
-        } /* for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) */
-
-        /* found a fast pattern for the sig.  Let's get outta here */
-        if (fast_pattern)
-            break;
-    } /* for ( ; list_id < DETECT_SM_LIST_MAX; list_id++) */
-
-    int max_len = 0;
-    int max_len_negated = 0;
-    int max_len_non_negated = 0;
-    /* get the longest pattern in the sig */
-    if (!fast_pattern) {
-        SigMatch *sm = NULL;
-        for (list_id = 0; list_id < DETECT_SM_LIST_MAX; list_id++) {
-            if (!FastPatternSupportEnabledForSigMatchList(list_id))
-                continue;
-
-            for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
-                if (sm->type != DETECT_CONTENT)
-                    continue;
-
-                DetectContentData *cd = (DetectContentData *)sm->ctx;
-                if (cd->flags & DETECT_CONTENT_NEGATED) {
-                    if (max_len_negated < cd->content_len)
-                        max_len_negated = cd->content_len;
-                } else {
-                    if (max_len_non_negated < cd->content_len)
-                        max_len_non_negated = cd->content_len;
-                }
-            }
-        }
-    }
-
-    int skip_negated_content = 0;
-    if (max_len_non_negated == 0) {
-        max_len = max_len_negated;
-        skip_negated_content = 0;
-    } else {
-        max_len = max_len_non_negated;
-        skip_negated_content = 1;
-    }
-
-    SigMatch *sm = NULL;
-    for (list_id = 0; list_id < DETECT_SM_LIST_MAX; list_id++) {
-        if (!FastPatternSupportEnabledForSigMatchList(list_id))
-            continue;
-
-        for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
-            if (sm->type != DETECT_CONTENT)
-                continue;
-
-            /* skip in case of:
-             * 1. we expect a fastpattern but this isn't it */
-            if (fast_pattern) {
-                /* can be any content based keyword since all of them
-                 * now use a unified structure - DetectContentData */
-                DetectContentData *cd = (DetectContentData *)sm->ctx;
-                if (!(cd->flags & DETECT_CONTENT_FAST_PATTERN)) {
-                    SCLogDebug("not a fast pattern %"PRIu32"", cd->id);
-                    continue;
-                }
-                SCLogDebug("fast pattern %"PRIu32"", cd->id);
-            } else {
-                DetectContentData *cd = (DetectContentData *)sm->ctx;
-                if ((cd->flags & DETECT_CONTENT_NEGATED) && skip_negated_content)
-                    continue;
-                if (cd->content_len < max_len)
-                    continue;
-
-            } /* else - if (fast_pattern[sig] == 1) */
-
-            if (mpm_sm == NULL) {
-                mpm_sm = sm;
-                if (fast_pattern)
-                    break;
-            } else {
-                DetectContentData *data1 = (DetectContentData *)sm->ctx;
-                DetectContentData *data2 = (DetectContentData *)mpm_sm->ctx;
-                uint32_t ls = PatternStrength(data1->content, data1->content_len);
-                uint32_t ss = PatternStrength(data2->content, data2->content_len);
-                if (ls > ss) {
-                    mpm_sm = sm;
-                } else if (ls == ss) {
-                    /* if 2 patterns are of equal strength, we pick the longest */
-                    if (data1->content_len > data2->content_len)
-                        mpm_sm = sm;
-                } else {
-                    SCLogDebug("sticking with mpm_sm");
-                }
-            } /* else - if (mpm == NULL) */
-        } /* for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) */
-        if (mpm_sm != NULL && fast_pattern)
-            break;
-    } /* for ( ; list_id < DETECT_SM_LIST_MAX; list_id++) */
-
-    /* output result to file */
-    EngineAnalysisWriteFastPattern(s, mpm_sm);
-
-    return;
-}
-
 /**
  *  \brief Load a file with signatures
  *  \param de_ctx Pointer to the detection engine context
@@ -560,11 +329,14 @@ int DetectLoadSigFile(DetectEngineCtx *de_ctx, char *sig_file, int *sigs_tot) {
         sig = DetectEngineAppendSig(de_ctx, line);
         (*sigs_tot)++;
         if (sig != NULL) {
-            if (fp_engine_analysis_set) {
-                EngineAnalysisFastPattern(sig);
-            }
-            if (rule_engine_analysis_set) {
-                EngineAnalysisRules(sig, line);
+            if (rule_engine_analysis_set || fp_engine_analysis_set) {
+                sig->mpm_sm = RetrieveFPForSig(sig);
+                if (fp_engine_analysis_set) {
+                    EngineAnalysisFP(sig, line);
+                }
+                if (rule_engine_analysis_set) {
+                    EngineAnalysisRules(sig, line);
+                }
             }
             SCLogDebug("signature %"PRIu32" loaded", sig->id);
             good++;
@@ -603,46 +375,8 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
     int sigtotal = 0;
     char *sfile = NULL;
 
-    /* needed by engine_analysis */
-    char log_path[PATH_MAX];
-
     if (engine_analysis) {
-        if ((ConfGetBool("engine-analysis.rules-fast-pattern",
-                         &fp_engine_analysis_set)) == 0) {
-            SCLogInfo("Conf parameter \"engine-analysis.rules-fast-pattern\" not "
-                      "found.  Defaulting to not printing the fast_pattern "
-                      "report.");
-            fp_engine_analysis_set = 0;
-        }
-        if (fp_engine_analysis_set) {
-            char *log_dir;
-            if (ConfGet("default-log-dir", &log_dir) != 1)
-                log_dir = DEFAULT_LOG_DIR;
-            snprintf(log_path, sizeof(log_path), "%s/%s", log_dir, "rules_fast_pattern.txt");
-
-            fp_engine_analysis_FD = fopen(log_path, "w");
-            if (fp_engine_analysis_FD == NULL) {
-                SCLogError(SC_ERR_FOPEN, "failed to open %s: %s", log_path,
-                           strerror(errno));
-                return -1;
-            }
-            struct timeval tval;
-            struct tm *tms;
-            gettimeofday(&tval, NULL);
-            struct tm local_tm;
-            tms = (struct tm *)SCLocalTime(tval.tv_sec, &local_tm);
-            fprintf(fp_engine_analysis_FD, "----------------------------------------------"
-                    "---------------------\n");
-            fprintf(fp_engine_analysis_FD, "Date: %" PRId32 "/%" PRId32 "/%04d -- "
-                    "%02d:%02d:%02d\n",
-                    tms->tm_mday, tms->tm_mon + 1, tms->tm_year + 1900, tms->tm_hour,
-                    tms->tm_min, tms->tm_sec);
-            fprintf(fp_engine_analysis_FD, "----------------------------------------------"
-                    "---------------------\n");
-        }
-        else {
-            SCLogInfo("Engine-Analysis for fast_pattern disabled in conf file.");
-        }
+        fp_engine_analysis_set = SetupFPAnalyzer();
         rule_engine_analysis_set = SetupRuleAnalyzer();
     }
 
@@ -734,16 +468,11 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
 
  end:
     if (engine_analysis) {
-        if (fp_engine_analysis_set) {
-            if (fp_engine_analysis_FD != NULL) {
-                SCLogInfo("Engine-Analyis for fast_pattern printed to file - %s",
-                          log_path);
-                fclose(fp_engine_analysis_FD);
-                fp_engine_analysis_FD = NULL;
-            }
-        }
         if (rule_engine_analysis_set) {
             CleanupRuleAnalyzer();
+        }
+        if (fp_engine_analysis_set) {
+            CleanupFPAnalyzer();
         }
     }
 
@@ -768,20 +497,30 @@ static inline int SigMatchSignaturesBuildMatchArrayAddSignature(DetectEngineThre
         Packet *p, SignatureHeader *s, uint16_t alproto)
 {
     /* if the sig has alproto and the session as well they should match */
-    if (s->flags & SIG_FLAG_APPLAYER && s->alproto != ALPROTO_UNKNOWN && s->alproto != alproto) {
-        if (s->alproto == ALPROTO_DCERPC) {
-            if (alproto != ALPROTO_SMB && alproto != ALPROTO_SMB2) {
-                SCLogDebug("DCERPC sig, alproto not SMB or SMB2");
+    if (likely(s->flags & SIG_FLAG_APPLAYER)) {
+        if (s->alproto != ALPROTO_UNKNOWN && s->alproto != alproto) {
+            if (s->alproto == ALPROTO_DCERPC) {
+                if (alproto != ALPROTO_SMB && alproto != ALPROTO_SMB2) {
+                    SCLogDebug("DCERPC sig, alproto not SMB or SMB2");
+                    return 0;
+                }
+            } else {
+                SCLogDebug("alproto mismatch");
                 return 0;
             }
-        } else {
-            SCLogDebug("alproto mismatch");
+        }
+    }
+
+    if (unlikely(s->flags & SIG_FLAG_DSIZE)) {
+        if (likely(p->payload_len < s->dsize_low || p->payload_len > s->dsize_high)) {
+            SCLogDebug("kicked out as p->payload_len %u, dsize low %u, hi %u",
+                    p->payload_len, s->dsize_low, s->dsize_high);
             return 0;
         }
     }
 
     /* check for a pattern match of the one pattern in this sig. */
-    if (s->flags & (SIG_FLAG_MPM_PACKET|SIG_FLAG_MPM_STREAM|SIG_FLAG_MPM_HTTP))
+    if (likely(s->flags & (SIG_FLAG_MPM_PACKET|SIG_FLAG_MPM_STREAM|SIG_FLAG_MPM_HTTP)))
     {
         /* filter out sigs that want pattern matches, but
          * have no matches */
@@ -1032,7 +771,9 @@ static int SigMatchSignaturesRunPostMatch(ThreadVars *tv,
 
     DetectReplaceExecute(p, det_ctx->replist);
     det_ctx->replist = NULL;
-    DetectFilestorePostMatch(tv, det_ctx,p);
+
+    if (s->flags & SIG_FLAG_FILESTORE)
+        DetectFilestorePostMatch(tv, det_ctx, p, s);
 
     return 1;
 }
@@ -1427,8 +1168,6 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
             flags |= STREAM_EOF;
             SCLogDebug("STREAM_EOF set");
         }
-
-        FlowIncrUsecnt(p->flow);
 
         FLOWLOCK_WRLOCK(p->flow);
         {
@@ -1852,6 +1591,9 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
         if (!(s->flags & SIG_FLAG_NOALERT)) {
             PacketAlertAppend(det_ctx, s, p, alert_flags);
+        } else {
+            /* apply actions even if not alerting */
+            p->action |= s->action;
         }
 next:
         DetectReplaceFree(det_ctx->replist);
@@ -1987,8 +1729,6 @@ end:
         StreamMsgReturnListToPool(smsg);
 
         FLOWLOCK_UNLOCK(p->flow);
-
-        FlowDecrUsecnt(p->flow);
     }
     PACKET_PROFILING_DETECT_END(p, PROF_DETECT_CLEANUP);
 
@@ -2634,6 +2374,99 @@ static void SigInitStandardMpmFactoryContexts(DetectEngineCtx *de_ctx)
     return;
 }
 
+/** \brief get max dsize "depth"
+ *  \param s signature to get dsize value from
+ *  \retval depth or negative value
+ */
+static int SigParseGetMaxDsize(Signature *s) {
+    if (s->flags & SIG_FLAG_DSIZE && s->dsize_sm != NULL) {
+        DetectDsizeData *dd = (DetectDsizeData *)s->dsize_sm->ctx;
+
+        switch (dd->mode) {
+            case DETECTDSIZE_LT:
+            case DETECTDSIZE_EQ:
+                return dd->dsize;
+            case DETECTDSIZE_RA:
+                return dd->dsize2;
+            case DETECTDSIZE_GT:
+            default:
+                SCReturnInt(-2);
+        }
+    }
+    SCReturnInt(-1);
+}
+
+/** \brief set prefilter dsize pair
+ *  \param s signature to get dsize value from
+ */
+static void SigParseSetDsizePair(Signature *s) {
+    if (s->flags & SIG_FLAG_DSIZE && s->dsize_sm != NULL) {
+        DetectDsizeData *dd = (DetectDsizeData *)s->dsize_sm->ctx;
+
+        uint16_t low = 0;
+        uint16_t high = 65535;
+
+        switch (dd->mode) {
+            case DETECTDSIZE_LT:
+                low = 0;
+                high = dd->dsize;
+                break;
+            case DETECTDSIZE_EQ:
+                low = dd->dsize;
+                high = dd->dsize;
+                break;
+            case DETECTDSIZE_RA:
+                low = dd->dsize;
+                high = dd->dsize2;
+                break;
+            case DETECTDSIZE_GT:
+                low = dd->dsize;
+                high = 65535;
+                break;
+        }
+        s->dsize_low = low;
+        s->dsize_high = high;
+
+        SCLogDebug("low %u, high %u", low, high);
+    }
+}
+
+/**
+ *  \brief Apply dsize as depth to content matches in the rule
+ *  \param s signature to get dsize value from
+ */
+static void SigParseApplyDsizeToContent(Signature *s) {
+    SCEnter();
+
+    if (s->flags & SIG_FLAG_DSIZE) {
+        SigParseSetDsizePair(s);
+
+        int dsize = SigParseGetMaxDsize(s);
+        if (dsize < 0) {
+            /* nothing to do */
+            return;
+        }
+
+        SigMatch *sm = s->sm_lists[DETECT_SM_LIST_PMATCH];
+        for ( ; sm != NULL;  sm = sm->next) {
+            if (sm->type != DETECT_CONTENT) {
+                continue;
+            }
+
+            DetectContentData *cd = (DetectContentData *)sm->ctx;
+            if (cd == NULL) {
+                continue;
+            }
+
+            if (cd->depth == 0 || cd->depth >= dsize) {
+                cd->depth = (uint16_t)dsize;
+                SCLogDebug("updated %u, content %u to have depth %u "
+                        "because of dsize.", s->id, cd->id, cd->depth);
+            }
+        }
+    }
+}
+
 /**
  * \brief Add all signatures to their own source address group
  *
@@ -2755,6 +2588,8 @@ int SigAddressPrepareStage1(DetectEngineCtx *de_ctx) {
             }
             cnt++;
         }
+
+        SigParseApplyDsizeToContent(tmp_s);
 
         de_ctx->sig_cnt++;
     }

@@ -56,28 +56,146 @@
 #include "app-layer-htp.h"
 #include "app-layer-protos.h"
 
-/**
- * \brief Helps buffer http normalized headers from different transactions and
- *        stores them away in detection context.
- *
- * \param de_ctx    Detection engine ctx.
- * \param det_ctx   Detection engine thread ctx.
- * \param f         Pointer to the locked flow.
- * \param htp_state http state.
- *
- * \warning Make sure flow is locked.
- */
-static void DetectEngineBufferHttpHeaders(DetectEngineThreadCtx *det_ctx, Flow *f,
-                                          HtpState *htp_state, uint8_t flags)
+#define BUFFER_STEP 50
+
+static inline int HHDCreateSpace(DetectEngineThreadCtx *det_ctx, uint16_t size) {
+    if (size > det_ctx->hhd_buffers_size) {
+        det_ctx->hhd_buffers = SCRealloc(det_ctx->hhd_buffers, (det_ctx->hhd_buffers_size + BUFFER_STEP) * sizeof(uint8_t *));
+        if (det_ctx->hhd_buffers == NULL) {
+            det_ctx->hhd_buffers_size = 0;
+            det_ctx->hhd_buffers_list_len = 0;
+            return -1;
+        }
+        memset(det_ctx->hhd_buffers + det_ctx->hhd_buffers_size, 0, BUFFER_STEP * sizeof(uint8_t *));
+        det_ctx->hhd_buffers_len = SCRealloc(det_ctx->hhd_buffers_len, (det_ctx->hhd_buffers_size + BUFFER_STEP) * sizeof(uint32_t));
+        if (det_ctx->hhd_buffers_len == NULL) {
+            det_ctx->hhd_buffers_size = 0;
+            det_ctx->hhd_buffers_list_len = 0;
+            return -1;
+        }
+        memset(det_ctx->hhd_buffers_len + det_ctx->hhd_buffers_size, 0, BUFFER_STEP * sizeof(uint32_t));
+        det_ctx->hhd_buffers_size += BUFFER_STEP;
+    }
+    memset(det_ctx->hhd_buffers_len + det_ctx->hhd_buffers_list_len, 0, (size - det_ctx->hhd_buffers_list_len) * sizeof(uint32_t));
+
+    return 0;
+}
+
+
+static uint8_t *DetectEngineHHDGetBufferForTX(int tx_id,
+                                              DetectEngineCtx *de_ctx,
+                                              DetectEngineThreadCtx *det_ctx,
+                                              Flow *f, HtpState *htp_state,
+                                              uint8_t flags,
+                                              uint32_t *buffer_len)
 {
-    int idx = 0;
-    htp_tx_t *tx = NULL;
-    int i = 0;
+    int index = 0;
+    *buffer_len = 0;
+
+    if (det_ctx->hhd_buffers_list_len == 0) {
+        if (HHDCreateSpace(det_ctx, 1) < 0)
+            goto end;
+        index = 0;
+
+        if (det_ctx->hhd_buffers_list_len == 0) {
+            det_ctx->hhd_start_tx_id = tx_id;
+        }
+        det_ctx->hhd_buffers_list_len++;
+    } else {
+        if ((tx_id - det_ctx->hhd_start_tx_id) < det_ctx->hhd_buffers_list_len) {
+            if (det_ctx->hhd_buffers_len[(tx_id - det_ctx->hhd_start_tx_id)] != 0) {
+                *buffer_len = det_ctx->hhd_buffers_len[(tx_id - det_ctx->hhd_start_tx_id)];
+                return det_ctx->hhd_buffers[(tx_id - det_ctx->hhd_start_tx_id)];
+            }
+        } else {
+            if (HHDCreateSpace(det_ctx, (tx_id - det_ctx->hhd_start_tx_id) + 1) < 0)
+                goto end;
+
+            if (det_ctx->hhd_buffers_list_len == 0) {
+                det_ctx->hhd_start_tx_id = tx_id;
+            }
+            det_ctx->hhd_buffers_list_len++;
+        }
+        index = (tx_id - det_ctx->hhd_start_tx_id);
+    }
+
+    htp_tx_t *tx = list_get(htp_state->connp->conn->transactions, tx_id);
+    if (tx == NULL) {
+        SCLogDebug("no tx");
+        goto end;
+    }
+
+    table_t *headers;
+    if (flags & STREAM_TOSERVER) {
+        headers = tx->request_headers;
+    } else {
+        headers = tx->response_headers;
+    }
+    if (headers == NULL)
+        goto end;
+
+    htp_header_t *h = NULL;
+    uint8_t *headers_buffer = det_ctx->hhd_buffers[index];
+    size_t headers_buffer_len = 0;
+
+    table_iterator_reset(headers);
+    while (table_iterator_next(headers, (void **)&h) != NULL) {
+        size_t size1 = bstr_size(h->name);
+        size_t size2 = bstr_size(h->value);
+
+        if (flags & STREAM_TOSERVER) {
+            if (size1 == 6 &&
+                SCMemcmpLowercase("cookie", bstr_ptr(h->name), 6) == 0) {
+                continue;
+            }
+        } else {
+            if (size1 == 10 &&
+                SCMemcmpLowercase("set-cookie", bstr_ptr(h->name), 10) == 0) {
+                continue;
+            }
+        }
+
+        /* the extra 4 bytes if for ": " and "\r\n" */
+        headers_buffer = SCRealloc(headers_buffer, headers_buffer_len + size1 + size2 + 4);
+        if (headers_buffer == NULL) {
+            det_ctx->hhd_buffers[index] = NULL;
+            det_ctx->hhd_buffers_len[index] = 0;
+            goto end;
+        }
+
+        memcpy(headers_buffer + headers_buffer_len, bstr_ptr(h->name), size1);
+        headers_buffer_len += size1;
+        headers_buffer[headers_buffer_len] = ':';
+        headers_buffer[headers_buffer_len + 1] = ' ';
+        headers_buffer_len += 2;
+        memcpy(headers_buffer + headers_buffer_len, bstr_ptr(h->value), size2);
+        headers_buffer_len += size2 + 2;
+        /* \r */
+        headers_buffer[headers_buffer_len - 2] = '\r';
+        /* \n */
+        headers_buffer[headers_buffer_len - 1] = '\n';
+    }
+
+    /* store the buffers.  We will need it for further inspection */
+    det_ctx->hhd_buffers[index] = headers_buffer;
+    det_ctx->hhd_buffers_len[index] = headers_buffer_len;
+
+    *buffer_len = headers_buffer_len;
+ end:
+    return headers_buffer;
+}
+
+int DetectEngineRunHttpHeaderMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
+                                 HtpState *htp_state, uint8_t flags)
+{
+    uint32_t cnt = 0;
 
     if (htp_state == NULL) {
         SCLogDebug("no HTTP state");
         goto end;
     }
+
+    FLOWLOCK_WRLOCK(f);
 
     if (htp_state->connp == NULL || htp_state->connp->conn == NULL) {
         SCLogDebug("HTP state has no conn(p)");
@@ -85,210 +203,70 @@ static void DetectEngineBufferHttpHeaders(DetectEngineThreadCtx *det_ctx, Flow *
     }
 
     /* get the transaction id */
-    int tmp_idx = AppLayerTransactionGetInspectId(f);
+    int idx = AppLayerTransactionGetInspectId(f);
     /* error!  get out of here */
-    if (tmp_idx == -1)
+    if (idx == -1)
         goto end;
-
-    /* let's get the transaction count.  We need this to hold the header
-     * buffer for each transaction */
-    det_ctx->hhd_buffers_list_len = list_size(htp_state->connp->conn->transactions) - tmp_idx;
-    /* no transactions?!  cool.  get out of here */
-    if (det_ctx->hhd_buffers_list_len == 0)
-        goto end;
-
-    /* assign space to hold buffers.  Each per transaction */
-    det_ctx->hhd_buffers = SCMalloc(det_ctx->hhd_buffers_list_len * sizeof(uint8_t *));
-    if (det_ctx->hhd_buffers == NULL) {
-        goto end;
-    }
-    memset(det_ctx->hhd_buffers, 0, det_ctx->hhd_buffers_list_len * sizeof(uint8_t *));
-
-    det_ctx->hhd_buffers_len = SCMalloc(det_ctx->hhd_buffers_list_len * sizeof(uint32_t));
-    if (det_ctx->hhd_buffers_len == NULL) {
-        goto end;
-    }
-    memset(det_ctx->hhd_buffers_len, 0, det_ctx->hhd_buffers_list_len * sizeof(uint32_t));
-
-    idx = AppLayerTransactionGetInspectId(f);
-    if (idx == -1) {
-        goto end;
-    }
 
     int size = (int)list_size(htp_state->connp->conn->transactions);
-    for (; idx < size; idx++, i++) {
-
-        tx = list_get(htp_state->connp->conn->transactions, idx);
-        if (tx == NULL)
+    for (; idx < size; idx++) {
+        uint32_t buffer_len = 0;
+        uint8_t *buffer = DetectEngineHHDGetBufferForTX(idx,
+                                                        NULL, det_ctx,
+                                                        f, htp_state,
+                                                        flags,
+                                                        &buffer_len);
+        if (buffer_len == 0)
             continue;
 
-        table_t *headers;
-        if (flags & STREAM_TOSERVER) {
-            headers = tx->request_headers;
-        } else {
-            headers = tx->response_headers;
-        }
-
-        htp_header_t *h = NULL;
-        uint8_t *headers_buffer = NULL;
-        size_t headers_buffer_len = 0;
-
-        table_iterator_reset(headers);
-        while (table_iterator_next(headers, (void **)&h) != NULL) {
-            size_t size1 = bstr_size(h->name);
-            size_t size2 = bstr_size(h->value);
-
-            if (flags & STREAM_TOSERVER) {
-                if (size1 == 6 &&
-                    SCMemcmpLowercase("cookie", bstr_ptr(h->name), 6)) {
-                    continue;
-                }
-            } else {
-                if (size1 == 10 &&
-                    SCMemcmpLowercase("set-cookie", bstr_ptr(h->name), 10) == 0) {
-                    continue;
-                }
-            }
-
-            /* the extra 4 bytes if for ": " and "\r\n" */
-            headers_buffer = SCRealloc(headers_buffer, headers_buffer_len + size1 + size2 + 4);
-            if (headers_buffer == NULL) {
-                continue;
-            }
-
-            memcpy(headers_buffer + headers_buffer_len, bstr_ptr(h->name), size1);
-            headers_buffer_len += size1;
-            headers_buffer[headers_buffer_len] = ':';
-            headers_buffer[headers_buffer_len + 1] = ' ';
-            headers_buffer_len += 2;
-            memcpy(headers_buffer + headers_buffer_len, bstr_ptr(h->value), size2);
-            headers_buffer_len += size2 + 2;
-            /* \r */
-            headers_buffer[headers_buffer_len - 2] = '\r';
-            /* \n */
-            headers_buffer[headers_buffer_len - 1] = '\n';
-        }
-
-        /* store the buffers.  We will need it for further inspection */
-        det_ctx->hhd_buffers[i] = headers_buffer;
-        det_ctx->hhd_buffers_len[i] = headers_buffer_len;
-
-    } /* for (idx = AppLayerTransactionGetInspectId(f); .. */
-
-end:
-    return;
-}
-
-/**
- *  \brief run the mpm against the assembled http header buffer(s)
- *  \retval cnt Number of matches reported by the mpm algo.
- */
-int DetectEngineRunHttpHeaderMpm(DetectEngineThreadCtx *det_ctx, Flow *f,
-                                 HtpState *htp_state, uint8_t flags)
-{
-    int i;
-    uint32_t cnt = 0;
-
-    if (det_ctx->hhd_buffers_list_len == 0) {
-        FLOWLOCK_RDLOCK(f);
-        DetectEngineBufferHttpHeaders(det_ctx, f, htp_state, flags);
-        FLOWLOCK_UNLOCK(f);
-
-        for (i = 0; i < det_ctx->hhd_buffers_list_len; i++) {
-            cnt += HttpHeaderPatternSearch(det_ctx,
-                                           det_ctx->hhd_buffers[i],
-                                           det_ctx->hhd_buffers_len[i],
-                                           flags);
-        }
-    } else {
-        for (i = 0; i < det_ctx->hhd_buffers_list_len; i++) {
-            cnt += HttpHeaderPatternSearch(det_ctx,
-                                           det_ctx->hhd_buffers[i],
-                                           det_ctx->hhd_buffers_len[i],
-                                           flags);
-        }
+        cnt += HttpHeaderPatternSearch(det_ctx, buffer, buffer_len, flags);
     }
 
+ end:
+    FLOWLOCK_UNLOCK(f);
     return cnt;
 }
 
-/**
- * \brief Do the http_header content inspection for a signature.
- *
- * \param de_ctx  Detection engine context.
- * \param det_ctx Detection engine thread context.
- * \param s       Signature to inspect.
- * \param f       Flow.
- * \param flags   App layer flags.
- * \param state   App layer state.
- *
- * \retval 0 No match.
- * \retval 1 Match.
- */
-int DetectEngineInspectHttpHeader(DetectEngineCtx *de_ctx,
+int DetectEngineInspectHttpHeader(ThreadVars *tv,
+                                  DetectEngineCtx *de_ctx,
                                   DetectEngineThreadCtx *det_ctx,
                                   Signature *s, Flow *f, uint8_t flags,
-                                  void *alstate)
+                                  void *alstate, int tx_id)
 {
-    SCEnter();
-    int r = 0;
-    int i = 0;
+    HtpState *htp_state = (HtpState *)alstate;
+    uint32_t buffer_len = 0;
+    uint8_t *buffer = DetectEngineHHDGetBufferForTX(tx_id,
+                                                    de_ctx, det_ctx,
+                                                    f, htp_state,
+                                                    flags,
+                                                    &buffer_len);
+    if (buffer_len == 0)
+        return 0;
 
-    if (det_ctx->hhd_buffers_list_len == 0) {
-        FLOWLOCK_RDLOCK(f);
-        DetectEngineBufferHttpHeaders(det_ctx, f, alstate, flags);
-        FLOWLOCK_UNLOCK(f);
-    }
-
-    for (i = 0; i < det_ctx->hhd_buffers_list_len; i++) {
-        uint8_t *hhd_buffer = det_ctx->hhd_buffers[i];
-        uint32_t hhd_buffer_len = det_ctx->hhd_buffers_len[i];
-
-        if (hhd_buffer == NULL)
-            continue;
-
-        det_ctx->buffer_offset = 0;
-        det_ctx->discontinue_matching = 0;
-        det_ctx->inspection_recursion_counter = 0;
-
-        r = DetectEngineContentInspection(de_ctx, det_ctx, s, s->sm_lists[DETECT_SM_LIST_HHDMATCH],
+    det_ctx->buffer_offset = 0;
+    det_ctx->discontinue_matching = 0;
+    det_ctx->inspection_recursion_counter = 0;
+    int r = DetectEngineContentInspection(de_ctx, det_ctx, s, s->sm_lists[DETECT_SM_LIST_HHDMATCH],
                                           f,
-                                          hhd_buffer,
-                                          hhd_buffer_len,
+                                          buffer,
+                                          buffer_len,
                                           DETECT_ENGINE_CONTENT_INSPECTION_MODE_HHD, NULL);
-        //r = DoInspectHttpHeader(de_ctx, det_ctx, s, s->sm_lists[DETECT_SM_LIST_HHDMATCH],
-        //hhd_buffer, hhd_buffer_len);
-        if (r == 1) {
-            break;
-        }
-    }
+    if (r == 1)
+        return 1;
 
-    SCReturnInt(r);
+    return 0;
 }
 
-/**
- * \brief Clean the hhd buffers.
- *
- * \param det_ctx Pointer to the detection engine thread ctx.
- */
 void DetectEngineCleanHHDBuffers(DetectEngineThreadCtx *det_ctx)
 {
     if (det_ctx->hhd_buffers_list_len != 0) {
         int i;
         for (i = 0; i < det_ctx->hhd_buffers_list_len; i++) {
-            if (det_ctx->hhd_buffers[i] != NULL)
-                SCFree(det_ctx->hhd_buffers[i]);
-        }
-        if (det_ctx->hhd_buffers != NULL) {
-            SCFree(det_ctx->hhd_buffers);
-            det_ctx->hhd_buffers = NULL;
-        }
-        if (det_ctx->hhd_buffers_len != NULL) {
-            SCFree(det_ctx->hhd_buffers_len);
-            det_ctx->hhd_buffers_len = NULL;
+            det_ctx->hhd_buffers_len[i] = 0;
         }
         det_ctx->hhd_buffers_list_len = 0;
     }
+    det_ctx->hhd_start_tx_id = 0;
 
     return;
 }
@@ -3260,6 +3238,101 @@ end:
     return result;
 }
 
+/** \test reassembly bug where headers with names of length 6 were
+  *       skipped
+  */
+static int DetectEngineHttpHeaderTest31(void)
+{
+    TcpSession ssn;
+    Packet *p1 = NULL;
+    ThreadVars th_v;
+    DetectEngineCtx *de_ctx = NULL;
+    DetectEngineThreadCtx *det_ctx = NULL;
+    HtpState *http_state = NULL;
+    Flow f;
+    uint8_t http1_buf[] =
+        "GET /index.html HTTP/1.0\r\n"
+        "Accept: blah\r\n"
+        "Cookie: blah\r\n"
+        "Crazy6: blah\r\n"
+        "SixZix: blah\r\n\r\n";
+    uint32_t http1_len = sizeof(http1_buf) - 1;
+    int result = 0;
+
+    memset(&th_v, 0, sizeof(th_v));
+    memset(&f, 0, sizeof(f));
+    memset(&ssn, 0, sizeof(ssn));
+
+    p1 = UTHBuildPacket(NULL, 0, IPPROTO_TCP);
+
+    FLOW_INITIALIZE(&f);
+    f.protoctx = (void *)&ssn;
+    f.flags |= FLOW_IPV4;
+
+    p1->flow = &f;
+    p1->flowflags |= FLOW_PKT_TOSERVER;
+    p1->flowflags |= FLOW_PKT_ESTABLISHED;
+    p1->flags |= PKT_HAS_FLOW|PKT_STREAM_EST;
+    f.alproto = ALPROTO_HTTP;
+
+    StreamTcpInitConfig(TRUE);
+
+    de_ctx = DetectEngineCtxInit();
+    if (de_ctx == NULL)
+        goto end;
+
+    de_ctx->flags |= DE_QUIET;
+
+    de_ctx->sig_list = SigInit(de_ctx,"alert http any any -> any any "
+                               "(content:\"Accept|3a|\"; http_header; "
+                               "content:!\"Cookie|3a|\"; http_header; "
+                               "content:\"Crazy6|3a|\"; http_header; "
+                               "content:\"SixZix|3a|\"; http_header; "
+                               "sid:1;)");
+    if (de_ctx->sig_list == NULL)
+        goto end;
+
+    SigGroupBuild(de_ctx);
+    DetectEngineThreadCtxInit(&th_v, (void *)de_ctx, (void *)&det_ctx);
+
+    int r = AppLayerParse(NULL, &f, ALPROTO_HTTP, STREAM_TOSERVER, http1_buf, http1_len);
+    if (r != 0) {
+        printf("toserver chunk 1 returned %" PRId32 ", expected 0: ", r);
+        result = 0;
+        goto end;
+    }
+
+    http_state = f.alstate;
+    if (http_state == NULL) {
+        printf("no http state: \n");
+        result = 0;
+        goto end;
+    }
+
+    /* do detect */
+    SigMatchSignatures(&th_v, de_ctx, det_ctx, p1);
+
+    if (!(PacketAlertCheck(p1, 1))) {
+        printf("sid 1 didn't match but should have: ");
+        goto end;
+    }
+
+    result = 1;
+
+end:
+    if (de_ctx != NULL)
+        SigGroupCleanup(de_ctx);
+    if (de_ctx != NULL)
+        SigCleanSignatures(de_ctx);
+    if (de_ctx != NULL)
+        DetectEngineCtxFree(de_ctx);
+
+    StreamTcpFreeConfig(TRUE);
+    FLOW_DESTROY(&f);
+    UTHFreePackets(&p1, 1);
+    return result;
+}
+
 #endif /* UNITTESTS */
 
 void DetectEngineHttpHeaderRegisterTests(void)
@@ -3326,6 +3399,8 @@ void DetectEngineHttpHeaderRegisterTests(void)
                    DetectEngineHttpHeaderTest29, 1);
     UtRegisterTest("DetectEngineHttpHeaderTest30",
                    DetectEngineHttpHeaderTest30, 1);
+    UtRegisterTest("DetectEngineHttpHeaderTest31",
+                   DetectEngineHttpHeaderTest31, 1);
 #if 0
     UtRegisterTest("DetectEngineHttpHeaderTest30",
                    DetectEngineHttpHeaderTest30, 1);

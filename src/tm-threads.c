@@ -83,6 +83,7 @@ __thread uint64_t rwr_lock_cnt;
 #ifdef __tilegx__
 #include "source-mpipe.h"
 #include <gxio/mica.h>
+#include <tmc/task.h>
 
 #define VERIFY(VAL, WHAT)                                       \
   do {                                                          \
@@ -1703,7 +1704,9 @@ void TmThreadExchange(ThreadVars *otv, ThreadVars *ntv, int type)
  */
 void TmThreadKillThread(ThreadVars *tv)
 {
+#ifndef __tile__
     int i = 0;
+#endif
 
     if (tv == NULL)
         return;
