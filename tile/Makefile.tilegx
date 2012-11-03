@@ -26,9 +26,11 @@ all:
 HOME_DIR=/home/decanio
 WORK_DIR=$(HOME_DIR)/work/TileGX
 # you can probably leave the following alone
-RULES_DIR=$(WORK_DIR)/rules
+#RULES_DIR=$(WORK_DIR)/rules
+RULES_DIR=$(WORK_DIR)/etpro
 INSTALL_DIR=$(WORK_DIR)/suricata-install-dir
-RULES_CONFIG=/opt/suricata/etc/suricata.yaml
+#RULES_CONFIG=/opt/suricata/etc/suricata.yaml
+RULES_CONFIG=/opt/suricata/etc/suricata-1.3-etpro.yaml
 YAML_DIR=$(WORK_DIR)/github/yaml
 LIBMAGIC_DIR=$(WORK_DIR)/github/libmagic
 PCAPFILE=$(HOME_DIR)/work/napatech/suricata1.pcap
@@ -190,6 +192,8 @@ TILE_MONITOR_WILDCAT_ARGS = \
 
 CANNON_SPEED = --hvd CPU_SPEED=1200
 
+#  --hv-bin-dir $(TILERA_ROOT)/src/sys/hv \
+
 TILE_MONITOR_CANNON_STATIC_ARGS = \
   --hvx "dataplane=1-35" \
   --hvx "hugepagesz=256m hugepages=1" \
@@ -201,6 +205,7 @@ TILE_MONITOR_CANNON_STATIC_ARGS = \
   --mount-tile /usr \
   --mount $(RULES_DIR) /opt \
   --mount $(LOG_DIR) /var/log/suricata \
+  --tunnel 10022 22 \
   --upload ./src/suricata suricata \
   --run -+- suricata -c $(RULES_CONFIG) --mpipe -+-
 
@@ -391,6 +396,13 @@ boot_net: $(SIM_DEPS)
 	$(TILE_MONITOR) \
     $(NET_ARGS) \
 	$(TILE_MONITOR_WILDCAT_BOOT_STATIC_ARGS)
+
+# boot tilera and mount home directory
+# useful for testing as if this was installed on SSD
+boot_home:
+	$(TILE_MONITOR) \
+	$(NET_ARGS) \
+	--root --mount-same $(HOME_DIR)
 
 # boot and run suricata on a "TILEncore-Gx" card via pcie interface
 # with pcie forwarding enabled (note requires gxpci_host_pq and a
