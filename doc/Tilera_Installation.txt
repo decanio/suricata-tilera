@@ -37,6 +37,13 @@ These instructions describe the procedure for cross compiling suricata on an
 x86 host containing Tilera's MDE development software for a Tilera target
 platform.
 
+Cross compiling suricata for a Tilera target imposes some requirements of the
+x86 host environment.  Suricata has been successfully cross compiled on hosts
+running CentOS 6.3 and Ubuntu 12.04.  Other x86 Linux distributions, or
+alternate versions of CentOS and Ubuntu, may not meet the basic requirements to
+successfully cross compile suricata for Tilera.  We recommend using the host
+environments mentioned.
+
 Suricata for Tilera is provided in source code form. 
 
 For TileGX based systems you'll need:
@@ -376,6 +383,10 @@ platforms.
 
 Copy the suricata binary, built above, and your suricata configuration files to
 your Tilera platform.
+
+Make certain that the suricata log directory exists with:
+
+    mkdir -p /var/log/suricata
 
 Execute suricata with a command such as the following:
 
