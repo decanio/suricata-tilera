@@ -62,6 +62,7 @@ cycle_pause(unsigned int delay)
 #define MAX_TILERA_PIPELINES 16
 
 extern unsigned int TileNumPipelines;
+extern unsigned int TileNumPipelinesPerRx;
 extern unsigned int TileDetectThreadPerPipeline;
 extern unsigned int TilesPerPipeline;
 
@@ -71,7 +72,7 @@ void RunModeIdsTileNetioRegister(void);
 const char *RunModeIdsTileNetioGetDefaultMode(void);
 
 int RunModeIdsTileMpipeAuto(DetectEngineCtx *);
-int RunModeIdsTileMpipeAutoFp(DetectEngineCtx *de_ctx);
+int RunModeIdsTileMpipeWorkers(DetectEngineCtx *de_ctx);
 void RunModeIdsTileMpipeRegister(void);
 const char *RunModeIdsTileMpipeGetDefaultMode(void);
 
