@@ -1287,6 +1287,7 @@ int main(int argc, char **argv)
     }
 
 #ifdef REVISION
+    printf("This is %s version %s (rev %s)", PROG_NAME, PROG_VER, xstr(REVISION));
     SCLogInfo("This is %s version %s (rev %s)", PROG_NAME, PROG_VER, xstr(REVISION));
 #elif defined RELEASE
     SCLogInfo("This is %s version %s RELEASE", PROG_NAME, PROG_VER);

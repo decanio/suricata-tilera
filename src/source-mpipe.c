@@ -68,7 +68,7 @@
 //#define MPIPE_DEBUG
 
 // return bucket credits after completely done with packet
-#define LATE_MPIPE_CREDIT 1
+//#define LATE_MPIPE_CREDIT 1
 //#define LATE_MPIPE_BUCKET_CREDIT 1
 
 /* Align "p" mod "align", assuming "p" is a "void*". */
@@ -269,6 +269,7 @@ void TmModuleDecodeMpipeRegister (void) {
     tmm_modules[TMM_DECODEMPIPE].flags = TM_FLAG_DECODE_TM;
 }
 
+#if 0
 void MpipeFreePacket(void *arg) {
     Packet *p = (Packet *)arg;
     int result;
@@ -282,8 +283,14 @@ void MpipeFreePacket(void *arg) {
     gxio_mpipe_credit(iqueue->context, iqueue->ring, bucket, 1);
 #endif
 #endif
-    if (p->mpipe_v.copy_mode == MPIPE_COPY_MODE_IPS) {
-        if (p->action & ACTION_DROP) {
+    if (unlikely(capture_enabled)) {
+        int *ptr;
+        if ((ptr = inflight[p->pool])) {
+            arch_atomic_decrement(&inflight[p->pool]);
+        }
+    }
+    if (unlikely(p->mpipe_v.copy_mode == MPIPE_COPY_MODE_IPS)) {
+        if (unlikely(p->action & ACTION_DROP)) {
             goto drop;
         }
         gxio_mpipe_edesc_t edesc;
@@ -296,10 +303,10 @@ void MpipeFreePacket(void *arg) {
         edesc.hwb = 1;
         edesc.size = p->mpipe_v.idesc.size;
         result = gxio_mpipe_equeue_put(channel_to_equeue[p->mpipe_v.idesc.channel].peer_equeue, edesc);
-        if (result != 0) {
+        if (unlikely(result != 0)) {
             SCLogInfo("mpipe equeue put failed: %d", result);
         }
-    } else if (p->mpipe_v.copy_mode == MPIPE_COPY_MODE_TAP) {
+    } else if (unlikely(p->mpipe_v.copy_mode == MPIPE_COPY_MODE_TAP)) {
         gxio_mpipe_edesc_t edesc;
         edesc.words[0] = 0;
         edesc.words[1] = 0;
@@ -310,7 +317,7 @@ void MpipeFreePacket(void *arg) {
         edesc.hwb = 1;
         edesc.size = p->mpipe_v.idesc.size;
         result = gxio_mpipe_equeue_put(channel_to_equeue[p->mpipe_v.idesc.channel].peer_equeue, edesc);
-        if (result != 0) {
+        if (unlikely(result != 0)) {
             SCLogInfo("mpipe equeue put failed: %d", result);
         }
     } else {
@@ -320,11 +327,58 @@ drop:
                                (void *)(intptr_t)p->mpipe_v.idesc.va);
     }
 
-    if (capture_enabled) {
+#if 0
+    if (unlikely(capture_enabled)) {
         int *ptr;
         if ((ptr = inflight[p->pool])) {
             arch_atomic_decrement(&inflight[p->pool]);
         }
+    }
+#endif
+
+//#define __TILEGX_FEEDBACK_RUN__
+#ifdef __TILEGX_FEEDBACK_RUN__
+    static uint32_t packet_count = 0;
+
+    /* disable profiling at end of simulation input */
+    if (++packet_count == 1000000) {
+        SCLogInfo("Mpipe exiting\n");
+        EngineStop();
+    }
+#endif
+
+#ifdef __TILEGX_SIMULATION__
+    static uint32_t packet_count = 0;
+
+    /* disable profiling at end of simulation input */
+    if (++packet_count == 10000) {
+        SCLogInfo("Mpipe disabling profiler\n");
+        sim_profiler_disable();
+        SCLogInfo("Mpipe exiting\n");
+        EngineStop();
+    }
+#endif
+}
+#else
+void MpipeFreePacket(void *arg) {
+    Packet *p = (Packet *)arg;
+
+#ifdef LATE_MPIPE_CREDIT
+    gxio_mpipe_iqueue_t* iqueue = iqueues[p->pool];
+#ifdef LATE_MPIPE_BUCKET_CREDIT
+    gxio_mpipe_credit(iqueue->context, -1, p->idesc.bucket_id, 1);
+#else
+    //gxio_mpipe_iqueue_release(iqueue, &p->idesc);
+    int bucket = p->mpipe_v.idesc.nr ? -1 : p->mpipe_v.idesc.bucket_id;
+    gxio_mpipe_credit(iqueue->context, iqueue->ring, bucket, 1);
+#endif
+#endif
+    gxio_mpipe_push_buffer(context,
+                           p->mpipe_v.idesc.stack_idx,
+                           (void *)(intptr_t)p->mpipe_v.idesc.va);
+    int *ptr;
+    if ((ptr = inflight[p->pool])) {
+        arch_atomic_decrement(ptr);
     }
 
 //#define __TILEGX_FEEDBACK_RUN__
@@ -350,6 +404,7 @@ drop:
     }
 #endif
 }
+#endif
 
 /**
  * \brief Mpipe Packet Process function.
@@ -393,12 +448,15 @@ static inline Packet *MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_
     p->mpipe_v.idesc.nr = idesc->nr;
     p->mpipe_v.idesc.cs = idesc->cs;
     p->mpipe_v.idesc.va = idesc->va;
-    p->mpipe_v.idesc.size = idesc->size;
     p->mpipe_v.idesc.stack_idx = idesc->stack_idx;
-    p->mpipe_v.idesc.l2_size = idesc->l2_size;
-    p->mpipe_v.idesc.channel = idesc->channel;
+    if (unlikely((p->mpipe_v.copy_mode = channel_to_equeue[idesc->channel].copy_mode) !=
+             MPIPE_COPY_MODE_NONE)) {
+        p->mpipe_v.idesc.size = idesc->size;
+        p->mpipe_v.idesc.l2_size = idesc->l2_size;
+        p->mpipe_v.idesc.channel = idesc->channel;
+        //p->mpipe_v.copy_mode = channel_to_equeue[idesc->channel].copy_mode;
+    }
 
-    p->mpipe_v.copy_mode = channel_to_equeue[idesc->channel].copy_mode;
 
     if (ptv->checksum_mode == CHECKSUM_VALIDATION_DISABLE)
         p->flags |= PKT_IGNORE_CHECKSUM;

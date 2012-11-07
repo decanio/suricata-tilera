@@ -1134,7 +1134,7 @@ typedef struct DecodeThreadVars_
     SCCondDestroy(&(p)->cuda_cond);             \
     SCMutexInit(&(p)->cuda_mutex, NULL);        \
     SCCondInit(&(p)->cuda_cond, NULL);          \
-    PACKET_RESET_CHECKSUMS((p));                \
+    /*PACKET_RESET_CHECKSUMS((p));*/                \
 } while(0)
 #endif
 

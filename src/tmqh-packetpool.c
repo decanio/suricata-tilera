@@ -362,20 +362,17 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
             }
             p->root->ext_pkt = NULL;
         }
-        //MPIPE_FREE_PACKET(p->root);
-        //NETIO_FREE_PACKET(p->root)
         if (p->root->flags & PKT_ALLOC) {
             PACKET_CLEANUP(p->root);
             SCFree(p->root);
             p->root = NULL;
         } else {
+#ifndef __tile__
+            /* done at beginning of pipeline on tile */
             PACKET_RECYCLE(p->root);
-#ifdef __tile__
-#if 1
-            MPIPE_FREE_PACKET(p->root);
-#else
-            RingBufferMrMwPut(rb, (void *)p->root);
 #endif
+#ifdef __tile__
+            MPIPE_FREE_PACKET(p->root);
 #else
             RingBufferMrMwPut(ringbuffer, (void *)p->root);
 #endif
@@ -405,7 +402,7 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
         SCFree(p);
     } else {
 #ifdef __tilegx__
-        if (mica_memcpy_enabled) {
+        if (unlikely(mica_memcpy_enabled)) {
             //SCLogInfo("getting rid of mpipe pkt...  %p inf %p (root %p)", p,  t->inflight_p, p->root);
             if (likely(t->inflight_p)) {
                 while (gxio_mica_is_busy(&t->mica_cb)) ;
@@ -415,10 +412,13 @@ void TmqhOutputPacketpool(ThreadVars *t, Packet *p)
             t->inflight_p = (void *)p;
         } else {
 #endif
+#ifndef __tile__
+            /* done at beginning of pipeline on tile */
             PACKET_RECYCLE(p);
+#endif
 #ifdef __tilegx__
             //SCLogInfo("getting rid of mpipe pkt... alloc'd %s (root %p)", p->flags & PKT_MPIPE ? "true" : "false", p->root);
-            tmc_mem_fence();
+            //tmc_mem_fence();
             MPIPE_FREE_PACKET(p);
 #else
             RingBufferMrMwPut(ringbuffer, (void *)p);
