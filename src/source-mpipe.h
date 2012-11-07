@@ -65,17 +65,17 @@ typedef struct MpipePacketVars_
 {
     /* TileGX mpipe stuff */
     struct {
+        uint_reg_t channel : 5;
+        uint_reg_t l2_size : 14;
+        uint_reg_t size : 3;
         uint_reg_t bucket_id : 13;
         uint_reg_t nr : 1;
         uint_reg_t cs : 1;
-        uint_reg_t size : 3;
-        uint_reg_t channel : 5;
-        uint_reg_t l2_size : 14;
         uint_reg_t va : 42;
         uint_reg_t stack_idx : 5;
     } idesc;
-    gxio_mpipe_equeue_t *peer_equeue;
     int copy_mode;
+    gxio_mpipe_equeue_t *peer_equeue;
 } MpipePacketVars;
 
 void TmModuleReceiveMpipeRegister (void);

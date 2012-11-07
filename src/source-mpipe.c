@@ -68,7 +68,7 @@
 //#define MPIPE_DEBUG
 
 // return bucket credits after completely done with packet
-//#define LATE_MPIPE_CREDIT 1
+#define LATE_MPIPE_CREDIT 1
 //#define LATE_MPIPE_BUCKET_CREDIT 1
 
 /* Align "p" mod "align", assuming "p" is a "void*". */
@@ -269,7 +269,6 @@ void TmModuleDecodeMpipeRegister (void) {
     tmm_modules[TMM_DECODEMPIPE].flags = TM_FLAG_DECODE_TM;
 }
 
-#if 0
 void MpipeFreePacket(void *arg) {
     Packet *p = (Packet *)arg;
     int result;
@@ -327,15 +326,6 @@ drop:
                                (void *)(intptr_t)p->mpipe_v.idesc.va);
     }
 
-#if 0
-    if (unlikely(capture_enabled)) {
-        int *ptr;
-        if ((ptr = inflight[p->pool])) {
-            arch_atomic_decrement(&inflight[p->pool]);
-        }
-    }
-#endif
-
 //#define __TILEGX_FEEDBACK_RUN__
 #ifdef __TILEGX_FEEDBACK_RUN__
     static uint32_t packet_count = 0;
@@ -359,52 +349,6 @@ drop:
     }
 #endif
 }
-#else
-void MpipeFreePacket(void *arg) {
-    Packet *p = (Packet *)arg;
-
-#ifdef LATE_MPIPE_CREDIT
-    gxio_mpipe_iqueue_t* iqueue = iqueues[p->pool];
-#ifdef LATE_MPIPE_BUCKET_CREDIT
-    gxio_mpipe_credit(iqueue->context, -1, p->idesc.bucket_id, 1);
-#else
-    //gxio_mpipe_iqueue_release(iqueue, &p->idesc);
-    int bucket = p->mpipe_v.idesc.nr ? -1 : p->mpipe_v.idesc.bucket_id;
-    gxio_mpipe_credit(iqueue->context, iqueue->ring, bucket, 1);
-#endif
-#endif
-    gxio_mpipe_push_buffer(context,
-                           p->mpipe_v.idesc.stack_idx,
-                           (void *)(intptr_t)p->mpipe_v.idesc.va);
-    int *ptr;
-    if ((ptr = inflight[p->pool])) {
-        arch_atomic_decrement(ptr);
-    }
-
-//#define __TILEGX_FEEDBACK_RUN__
-#ifdef __TILEGX_FEEDBACK_RUN__
-    static uint32_t packet_count = 0;
-
-    /* disable profiling at end of simulation input */
-    if (++packet_count == 1000000) {
-        SCLogInfo("Mpipe exiting\n");
-        EngineStop();
-    }
-#endif
-
-#ifdef __TILEGX_SIMULATION__
-    static uint32_t packet_count = 0;
-
-    /* disable profiling at end of simulation input */
-    if (++packet_count == 10000) {
-        SCLogInfo("Mpipe disabling profiler\n");
-        sim_profiler_disable();
-        SCLogInfo("Mpipe exiting\n");
-        EngineStop();
-    }
-#endif
-}
-#endif
 
 /**
  * \brief Mpipe Packet Process function.
