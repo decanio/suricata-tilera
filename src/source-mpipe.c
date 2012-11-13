@@ -273,7 +273,7 @@ void MpipeFreePacket(void *arg) {
     Packet *p = (Packet *)arg;
     int result;
 #ifdef LATE_MPIPE_CREDIT
-    gxio_mpipe_iqueue_t* iqueue = iqueues[p->pool];
+    gxio_mpipe_iqueue_t* iqueue = iqueues[p->mpipe_v.pool];
 #ifdef LATE_MPIPE_BUCKET_CREDIT
     gxio_mpipe_credit(iqueue->context, -1, p->mpipe_v.idesc.bucket_id, 1);
 #else
@@ -284,8 +284,8 @@ void MpipeFreePacket(void *arg) {
 #endif
     if (unlikely(capture_enabled)) {
         int *ptr;
-        if ((ptr = inflight[p->pool])) {
-            arch_atomic_decrement(&inflight[p->pool]);
+        if ((ptr = inflight[p->mpipe_v.pool])) {
+            arch_atomic_decrement(&inflight[p->mpipe_v.pool]);
         }
     }
     if (unlikely(p->mpipe_v.copy_mode == MPIPE_COPY_MODE_IPS)) {
@@ -301,6 +301,9 @@ void MpipeFreePacket(void *arg) {
         edesc.stack_idx = p->mpipe_v.idesc.stack_idx;
         edesc.hwb = 1;
         edesc.size = p->mpipe_v.idesc.size;
+//printf("Freeing packet from channel %d\n", p->mpipe_v.idesc.channel);
+//printf("equeue[channel] %p\n", channel_to_equeue[p->mpipe_v.idesc.channel]);
+//goto drop;
         result = gxio_mpipe_equeue_put(channel_to_equeue[p->mpipe_v.idesc.channel].peer_equeue, edesc);
         if (unlikely(result != 0)) {
             SCLogInfo("mpipe equeue put failed: %d", result);
@@ -315,6 +318,9 @@ void MpipeFreePacket(void *arg) {
         edesc.stack_idx = p->mpipe_v.idesc.stack_idx;
         edesc.hwb = 1;
         edesc.size = p->mpipe_v.idesc.size;
+//printf("Freeing packet from channel %d\n", p->mpipe_v.idesc.channel);
+//printf("equeue[channel] %p\n", channel_to_equeue[p->mpipe_v.idesc.channel]);
+//goto drop;
         result = gxio_mpipe_equeue_put(channel_to_equeue[p->mpipe_v.idesc.channel].peer_equeue, edesc);
         if (unlikely(result != 0)) {
             SCLogInfo("mpipe equeue put failed: %d", result);
@@ -398,6 +404,7 @@ static inline Packet *MpipeProcessPacket(MpipeThreadVars *ptv, gxio_mpipe_idesc_
         p->mpipe_v.idesc.size = idesc->size;
         p->mpipe_v.idesc.l2_size = idesc->l2_size;
         p->mpipe_v.idesc.channel = idesc->channel;
+//printf("rx on chan: %d %d\n",        p->mpipe_v.idesc.channel, idesc->channel);
         //p->mpipe_v.copy_mode = channel_to_equeue[idesc->channel].copy_mode;
     }
 
@@ -550,7 +557,7 @@ TmEcode ReceiveMpipeLoop(ThreadVars *tv, void *data, void *slot) {
                 for (i = 0; i < m; i++, idesc++) {
                     if (likely(!idesc->be)) {
                         p = MpipeProcessPacket(ptv, idesc, (timestamp == ts_linux) ? &timeval : NULL);
-                        p->pool = rank;
+                        p->mpipe_v.pool = rank;
                         TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
                         r = 1;
 #ifdef LATE_MPIPE_CREDIT
@@ -647,7 +654,7 @@ static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                 for (j = 0; j < m; j++, idesc++) {
                     if (likely(!idesc->be)) {
                         p = MpipeProcessPacket(ptv, idesc, (timestamp == ts_linux) ? &timeval : NULL);
-                        p->pool = pool;
+                        p->mpipe_v.pool = pool;
                         TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
 #ifdef LATE_MPIPE_CREDIT
                         gxio_mpipe_iqueue_advance(iqueue, 1);
@@ -799,7 +806,7 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                             }
 
                             p = MpipePrepPacket(ptv, idesc, (timestamp_mode == ts_linux) ? &timeval : NULL);
-                            p->pool = pool;
+                            p->mpipe_v.pool = pool;
 
 #ifdef LATE_MPIPE_CREDIT
                             gxio_mpipe_iqueue_advance(iqueue, 1);
@@ -818,7 +825,7 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                     for (j = 0; j < m; j++, idesc++) {
                         if (likely(!idesc->be)) {
                             p = MpipeProcessPacket(ptv,  idesc, (timestamp_mode == ts_linux) ? &timeval : NULL);
-                            p->pool = pool;
+                            p->mpipe_v.pool = pool;
                             TmThreadsSlotProcessPkt(ptv->tv, ptv->slot, p);
 #ifdef LATE_MPIPE_CREDIT
                             gxio_mpipe_iqueue_advance(iqueue, 1);

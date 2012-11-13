@@ -63,6 +63,9 @@ typedef struct MpipePeerVars_
 /* per packet Mpipe vars */
 typedef struct MpipePacketVars_
 {
+    /* packetpool this was allocated from */   
+    uint8_t pool;
+
     /* TileGX mpipe stuff */
     struct {
         uint_reg_t channel : 5;

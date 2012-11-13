@@ -4809,7 +4809,7 @@ Packet *StreamTcpPseudoSetup(Packet *parent, uint8_t *pkt, uint32_t len)
     SCEnter();
 
 #ifdef __tile__
-    Packet *p = PacketGetFromQueueOrAlloc(parent->pool);
+    Packet *p = PacketGetFromQueueOrAlloc(parent->mpipe_v.pool);
 #else
     Packet *p = PacketGetFromQueueOrAlloc();
 #endif

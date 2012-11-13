@@ -114,7 +114,7 @@ void TmqhInputDemux2ShutdownHandler(ThreadVars *tv) {
 
 void TmqhOutputDemux2(ThreadVars *t, Packet *p)
 {
-    int n = t->outq->id + (p->pool & 1);
+    int n = t->outq->id + (p->mpipe_v.pool & 1);
     SCLogDebug("Packet %p, p->root %p, alloced %s", p, p->root, p->flags & PKT_ALLOC ? "true":"false");
     //SCLogInfo("Packet %p, id %d q %d p->pool %d, p->root %p, alloced %s", p, n, t->outq->id, p->pool, p->root, p->flags & PKT_ALLOC ? "true":"false");
 

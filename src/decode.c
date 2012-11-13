@@ -209,7 +209,7 @@ Packet *PacketPseudoPktSetup(Packet *parent, uint8_t *pkt, uint16_t len, uint8_t
 
     /* get us a packet */
 #ifdef __tile__
-    Packet *p = PacketGetFromQueueOrAlloc(parent->pool);
+    Packet *p = PacketGetFromQueueOrAlloc(parent->mpipe_v.pool);
 #else
     Packet *p = PacketGetFromQueueOrAlloc();
 #endif

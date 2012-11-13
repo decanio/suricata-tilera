@@ -144,7 +144,7 @@ void PacketPoolWait(void) {
  */
 void PacketPoolStorePacket(Packet *p) {
 #ifdef __tile__
-    int pool = p->pool;
+    int pool = p->mpipe_v.pool;
     RingBuffer16 *rb = ringbuffer[pool];
 
     if (RingBufferIsFull(rb)) {

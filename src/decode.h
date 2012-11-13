@@ -526,9 +526,6 @@ typedef struct Packet_
         PcapPacketVars pcap_v;
 
 #ifdef __tilegx__
-        /* packetpool this was allocated from */   
-        uint8_t pool;
-
         MpipePacketVars mpipe_v;
 #elif defined(__tile__)
         /* Tile64 netio stuff */
