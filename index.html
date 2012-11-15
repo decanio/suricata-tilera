@@ -3,11 +3,12 @@
 <HEAD>
 	<META HTTP-EQUIV="CONTENT-TYPE" CONTENT="text/html; charset=utf-8">
 	<TITLE></TITLE>
-	<META NAME="GENERATOR" CONTENT="LibreOffice 3.5  (Linux)">
+	<META NAME="GENERATOR" CONTENT="LibreOffice 3.6  (Linux)">
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
 	<META NAME="CREATED" CONTENT="20120102;16542200">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
-	<META NAME="CHANGED" CONTENT="20120829;13112400">
+	<META NAME="CHANGED" CONTENT="20121115;11551300">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
@@ -19,8 +20,8 @@
 	<STYLE TYPE="text/css">
 	<!--
 		@page { margin: 0.79in }
-		H1.western { font-size: 20pt }
 		P { margin-bottom: 0.08in }
+		H1.western { font-size: 20pt }
 		PRE.cjk { font-family: "WenQuanYi Micro Hei", monospace }
 		PRE.ctl { font-family: "Lohit Hindi", monospace }
 		H2.western { font-size: 16pt }
@@ -73,6 +74,13 @@
 			<P>These instructions describe the procedure for cross compiling
 			suricata on an x86 host containing Tilera's MDE development
 			software for a Tilera target platform.</P>
+			<P>Cross compiling suricata for a Tilera target imposes some
+			requirements of the x86 host environment.  Suricata has been
+			successfully cross compiled on hosts running CentOS 6.3 and Ubuntu
+			12.04.  Other x86 Linux distributions, or alternate versions of
+			CentOS and Ubuntu, may not meet the basic requirements to
+			successfully cross compile suricata for Tilera.  We recommend
+			using the host environments mentioned.</P>
 			<P>Suricata for Tilera is provided in source code form. 
 			</P>
 			<P>For TileGX based systems you'll need:</P>
@@ -406,7 +414,9 @@
 			typical Intel based platforms.</P>
 			<P>Copy the suricata binary, built above, and your suricata
 			configuration files to your Tilera platform.</P>
-			<P>Execute suricata with a command such as the following:</P>
+			<P>Make certain that the suricata log directory exists with:</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">mkdir -p /var/log/suricata</CODE></PRE><P>
+			Execute suricata with a command such as the following:</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">suricata -c /opt/suricata/etc/suricata.yaml --mpipe</CODE></PRE><P>
 			Tilera tilegx platforms use Tilera's mpipe hardware to deliver
 			packets to Suricata. Therefore the --mpipe flag indicates usage of
