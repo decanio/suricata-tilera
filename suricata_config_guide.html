@@ -7,7 +7,8 @@
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
 	<META NAME="CREATED" CONTENT="20120102;16542200">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
-	<META NAME="CHANGED" CONTENT="20121115;17351800">
+	<META NAME="CHANGED" CONTENT="20121115;17564700">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
@@ -56,13 +57,24 @@
 			</P>
 			<H2 CLASS="western">Suricata on Tilera</H2>
 			<P>Suricata for Tilera has been modified to support Tilera's many
-			core architecture.  In addition the Tilera tilegx port of Suricata
+			core architecture. In addition the Tilera tilegx port of Suricata
 			has been written to take advantage of Tilera's mpipe packet
 			classification unit.</P>
 			<P>Tilera specific Suricata runmodes have been added to Suricata
 			to take advantage of the combination of many core and mpipe.</P>
+			<P><BR><BR>
+			</P>
+			<H3 CLASS="western">Suricata Operation</H3>
+			<P>Internally, Suricata generally looks like the following
+			diagram:</P>
+			<P ALIGN=CENTER><IMG SRC="suricata_config_guide_html_m4f983d27.gif" NAME="graphics2" ALIGN=MIDDLE WIDTH=705 HEIGHT=227 BORDER=0><BR><BR>
+			</P>
+			<P ALIGN=LEFT>However, the exact configuration of this processing
+			path is determined by the Suricata runmode.  Suricata on Tilera is
+			generally more complex, making use of the multitude of tiles on
+			the many core.</P>
 			<H3 CLASS="western">Suricata runmodes for Tilera</H3>
-			<P>Suricata on Tilera is executed with the <FONT FACE="DejaVu Sans Mono, monospace"><FONT SIZE=2 STYLE="font-size: 11pt">–mpipe</FONT></FONT>
+			<P>Suricata on Tilera is executed with the –<FONT FACE="DejaVu Sans Mono, monospace"><FONT SIZE=2 STYLE="font-size: 11pt">mpipe</FONT></FONT>
 			command line option.</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">suricata -c /opt/suricata/etc/suricata.yaml --mpipe</CODE></PRE><P>
 			This causes Suricata to run in either of two runmodes as
@@ -71,20 +83,29 @@
 			<P>The “workers” runmode is chosen by setting the <FONT FACE="DejaVu Sans Mono, monospace">runmode</FONT>
 			parameter to <FONT FACE="DejaVu Sans Mono, monospace">workers</FONT>
 			in suricata.yaml.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Runmode custom mode the engine should run in.  Please check –list-runmodes<BR># to get the runmode custom modes that can be used here for a particular runmode.<BR>runmode: workers</FONT></CODE></PRE><P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Runmode custom mode the engine should run in.  Please check –list-runmodes</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># to get the runmode custom modes that can be used here for a particular runmode.</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">runmode: workers</FONT></CODE></PRE><P STYLE="margin-left: 0.5in">
 			This configuration causes Suricata to spawn a thread on nearly all
-			of the available Tilera “dataplane” tiles.  The Suricata
+			of the available Tilera “dataplane” tiles. The Suricata
 			processing pipeline will operate in a “run to completion” mode
-			on each of these tiles.  Generally the “workers” runmode
+			on each of these tiles. Generally the “workers” runmode
 			provides the highest aggregate throughput.</P>
 			<H4 CLASS="western">Pipelined Auto Runmode</H4>
 			<P>The “auto” runmode for mpipe is chosen bu setting the
 			<FONT FACE="DejaVu Sans Mono, monospace">runmode</FONT> parameter
 			to <FONT FACE="DejaVu Sans Mono, monospace">auto</FONT> in
-			suricata.yaml.  This is the default configuration if this
+			suricata.yaml. This is the default configuration if this
 			configuration is eliminated, or commented out.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Runmode custom mode the engine should run in.  Please check –list-runmodes<BR># to get the runmode custom modes that can be used here for a particular runmode.<BR>runmode: auto</FONT></CODE></PRE><P>
-			This configurtation causes Suricata.</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Runmode custom mode the engine should run in.  Please check –list-runmodes</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># to get the runmode custom modes that can be used here for a particular runmode.</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">runmode: auto</FONT></CODE></PRE>
+            <P>
+            This configuration causes Suricata to run as several parallel
+			pipelines.  Each individual pipeline consists of the following:</P>
+			<P><BR><BR>
+			</P>
+			<P ALIGN=CENTER><IMG SRC="suricata_config_guide_html_mcd6413d.gif" ALIGN=MIDDLE></P>
 			<H2 CLASS="western">The suricata.yaml File</H2>
 			<H2 CLASS="western">Suricata Release 1.4 Features On Tilera</H2>
 			<H3 CLASS="western">IPS and TAP Support</H3>
