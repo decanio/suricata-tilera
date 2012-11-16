@@ -7,7 +7,8 @@
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
 	<META NAME="CREATED" CONTENT="20120102;16542200">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
-	<META NAME="CHANGED" CONTENT="20121116;14381800">
+	<META NAME="CHANGED" CONTENT="20121116;15322700">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
@@ -155,11 +156,13 @@
 			following:</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Tilera mpipe configuration. for use on Tilera tilegx</FONT></CODE>
 <CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">mpipe:</FONT></CODE>
-<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Load balancing mode &quot;static&quot; or &quot;dynamic&quot;.</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Load balancing mode &quot;static&quot; or &quot;dynamic&quot;.</FONT></CODE>
 <CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">load-balance: dynamic</FONT></CODE>
 <CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Enable packet capture to pcie</FONT></CODE>
 <CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">capture:</FONT></CODE>
 <CODE CLASS="western">   </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">enabled: no</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># </FONT></CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">Timestamp option</FONT></CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"> &quot;</FONT></CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">linux</FONT></CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">&quot; or &quot;</FONT></CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">mpipe</FONT></CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">&quot;.</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">timestamp</FONT></CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">: </FONT></CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">linux</FONT></CODE>
 <CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># List of interfaces we will listen on.</FONT></CODE>
 <CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">inputs:</FONT></CODE>
 <CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe1</FONT></CODE>
@@ -263,7 +266,7 @@
 </DIV>
 <P>Note that is possible to have normal IDS interface running
 simultaneously. For example, <EM>xgbe1</EM> could be added to the
-<EM><FONT FACE="DejaVu Sans Mono, monospace"><SPAN STYLE="font-style: normal">mpipe</SPAN></FONT></EM>
+<EM><SPAN STYLE="font-variant: normal"><FONT FACE="DejaVu Sans Mono, monospace"><SPAN STYLE="font-style: normal">mpipe</SPAN></FONT></SPAN></EM>
 configuration and used a IDS interface.</P>
 </BODY>
 </HTML>
