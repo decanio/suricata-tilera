@@ -7,7 +7,8 @@
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
 	<META NAME="CREATED" CONTENT="20120102;16542200">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
-	<META NAME="CHANGED" CONTENT="20121116;14312200">
+	<META NAME="CHANGED" CONTENT="20121116;14381800">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
@@ -189,7 +190,7 @@
 			Suricata Release 1.4 Features On Tilera</H2>
 			<H3 CLASS="western">IPS and TAP Support</H3>
 			<P>Suricata release 1.4 contains support for IPS and TAP
-			operation.  The support was implemented in a way that follows the
+			operation. The support was implemented in a way that follows the
 			model introduced for AF_PACKET IPS mode described <A HREF="https://home.regit.org/2012/09/new-af_packet-ips-mode-in-suricata/?utm_source=rss&amp;utm_medium=rss&amp;utm_campaign=new-af_packet-ips-mode-in-suricata">here.</A></P>
 			<P>The IPS and TAP operating modes peer pairs of network
 			interfaces and all packets received from one interface are sent to
@@ -215,12 +216,30 @@
 
 <CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># number of queues to poll</FONT></CODE>
 <CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">poll: 2</FONT></CODE></PRE><P>
-			If the <FONT FACE="DejaVu Sans Mono, monospace">ips copy-mode</FONT>
+			Basically, we’ve got a configuration with two interfaces.
+			Interface <EM>xgbe2</EM> will copy all received packets to <EM>xgbe4</EM>
+			because of the <EM>copy-*</EM> configuration variable:</P>
+			<PRE CLASS="western">    copy-mode: ips
+    copy-iface: xgbe4</PRE><P>
+			The configuration on x<EM>gbe4</EM> is symmetric:</P>
+			<PRE CLASS="western">    copy-mode: ips
+    copy-iface: xgbe2</PRE><P STYLE="margin-bottom: 0.2in">
+			The <EM>copy-mode</EM> variable can take the following values: 
+			</P>
+			<UL>
+				<LI><P STYLE="margin-bottom: 0in"><EM>ips</EM>: the drop keyword
+				is honored and matching packet are dropped. 
+				</P>
+				<LI><P><EM>tap</EM>: no drop occurs, Suricata act as a bridge 
+				</P>
+			</UL>
+			<P>Note, that mode can be different on the peered interfaces.</P>
+			<P>When the <FONT FACE="DejaVu Sans Mono, monospace">ips copy-mode</FONT>
 			is chosen the bridge will operate as an IPS, dropping packets that
 			fire on a rule containing a drop keyword.</P>
-			<P>If the <FONT FACE="DejaVu Sans Mono, monospace">tap copy-mode</FONT>
+			<P>When the <FONT FACE="DejaVu Sans Mono, monospace">tap copy-mode</FONT>
 			is selected the bridge operates as an IDS operating as if it were
-			attached to a tap on the bridge.  A tap configuration is shown
+			attached to a tap on the bridge. A tap configuration is shown
 			below.</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Tilera mpipe configuration. for use on Tilera tilegx</FONT></CODE>
 <CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">mpipe:</FONT></CODE>
@@ -231,10 +250,10 @@
 <CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># List of interfaces we will listen on.</FONT></CODE>
 <CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">inputs:</FONT></CODE>
 <CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe2</FONT></CODE>
-<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">copy-mode: </FONT></CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">tap</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">copy-mode: tap</FONT></CODE>
 <CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">copy-iface: xgbe4</FONT></CODE>
 <CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe4</FONT></CODE>
-<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">copy-mode: </FONT></CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">tap</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">copy-mode: tap</FONT></CODE>
 <CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">copy-iface: xgbe2</FONT></CODE>
 
 <CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># number of queues to poll</FONT></CODE>
@@ -242,5 +261,9 @@
 		</DIV>
 	</DIV>
 </DIV>
+<P>Note that is possible to have normal IDS interface running
+simultaneously. For example, <EM>xgbe1</EM> could be added to the
+<EM><FONT FACE="DejaVu Sans Mono, monospace"><SPAN STYLE="font-style: normal">mpipe</SPAN></FONT></EM>
+configuration and used a IDS interface.</P>
 </BODY>
 </HTML>
