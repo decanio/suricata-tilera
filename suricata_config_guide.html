@@ -7,7 +7,8 @@
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
 	<META NAME="CREATED" CONTENT="20120102;16542200">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
-	<META NAME="CHANGED" CONTENT="20121115;15295900">
+	<META NAME="CHANGED" CONTENT="20121115;17351800">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
@@ -25,7 +26,17 @@
 		H2.western { font-size: 16pt }
 		H2.cjk { font-family: "Droid Sans" }
 		H2.ctl { font-family: "Lohit Hindi" }
+		H3.western { font-family: "Albany", sans-serif }
+		H3.cjk { font-family: "HG Mincho Light J" }
+		H3.ctl { font-family: "Arial Unicode MS" }
+		PRE.cjk { font-family: "WenQuanYi Micro Hei", monospace }
+		PRE.ctl { font-family: "Lohit Hindi", monospace }
+		H4.western { font-family: "Albany", sans-serif; font-size: 11pt; font-style: italic }
+		H4.cjk { font-family: "HG Mincho Light J"; font-size: 11pt; font-style: italic }
+		H4.ctl { font-family: "Arial Unicode MS"; font-size: 11pt; font-style: italic }
 		A:link { so-language: zxx }
+		CODE.cjk { font-family: "WenQuanYi Micro Hei", monospace }
+		CODE.ctl { font-family: "Lohit Hindi", monospace }
 	-->
 	</STYLE>
 </HEAD>
@@ -33,37 +44,52 @@
 <P STYLE="margin-bottom: 0in"><BR>
 </P>
 <DIV ID="wiki-content" DIR="LTR">
+	<P><BR><BR>
+	</P>
 	<DIV ID="wiki-body" DIR="LTR">
+		<P><BR><BR>
+		</P>
 		<DIV ID="template" DIR="LTR">
 			<H1 CLASS="western"><IMG SRC="http://www.openinfosecfoundation.org/images/stories/suricata.png" NAME="graphics1" ALIGN=BOTTOM WIDTH=200 HEIGHT=166 BORDER=0>
 			<FONT FACE="Arial, sans-serif">for Tilera</FONT></H1>
 			<P><BR><BR>
 			</P>
-			<H2 CLASS="western">Background on Suricata</H2>
-			<P>Suricata is an Open Source IDS / IPS / NSM engine.  It is
-			written and maintained by the <A HREF="http://www.openinfosecfoundation.org/">Open
-			Information Security Foundation</A>. 
+			<H2 CLASS="western">Suricata on Tilera</H2>
+			<P>Suricata for Tilera has been modified to support Tilera's many
+			core architecture.  In addition the Tilera tilegx port of Suricata
+			has been written to take advantage of Tilera's mpipe packet
+			classification unit.</P>
+			<P>Tilera specific Suricata runmodes have been added to Suricata
+			to take advantage of the combination of many core and mpipe.</P>
+			<H3 CLASS="western">Suricata runmodes for Tilera</H3>
+			<P>Suricata on Tilera is executed with the <FONT FACE="DejaVu Sans Mono, monospace"><FONT SIZE=2 STYLE="font-size: 11pt">–mpipe</FONT></FONT>
+			command line option.</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">suricata -c /opt/suricata/etc/suricata.yaml --mpipe</CODE></PRE><P>
+			This causes Suricata to run in either of two runmodes as
+			configured in the suricata.yaml file.</P>
+			<H4 CLASS="western">Workers Runmode</H4>
+			<P>The “workers” runmode is chosen by setting the <FONT FACE="DejaVu Sans Mono, monospace">runmode</FONT>
+			parameter to <FONT FACE="DejaVu Sans Mono, monospace">workers</FONT>
+			in suricata.yaml.</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Runmode custom mode the engine should run in.  Please check –list-runmodes<BR># to get the runmode custom modes that can be used here for a particular runmode.<BR>runmode: workers</FONT></CODE></PRE><P>
+			This configuration causes Suricata to spawn a thread on nearly all
+			of the available Tilera “dataplane” tiles.  The Suricata
+			processing pipeline will operate in a “run to completion” mode
+			on each of these tiles.  Generally the “workers” runmode
+			provides the highest aggregate throughput.</P>
+			<H4 CLASS="western">Pipelined Auto Runmode</H4>
+			<P>The “auto” runmode for mpipe is chosen bu setting the
+			<FONT FACE="DejaVu Sans Mono, monospace">runmode</FONT> parameter
+			to <FONT FACE="DejaVu Sans Mono, monospace">auto</FONT> in
+			suricata.yaml.  This is the default configuration if this
+			configuration is eliminated, or commented out.</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Runmode custom mode the engine should run in.  Please check –list-runmodes<BR># to get the runmode custom modes that can be used here for a particular runmode.<BR>runmode: auto</FONT></CODE></PRE><P>
+			This configurtation causes Suricata.</P>
+			<H2 CLASS="western">The suricata.yaml File</H2>
+			<H2 CLASS="western">Suricata Release 1.4 Features On Tilera</H2>
+			<H3 CLASS="western">IPS and TAP Support</H3>
+			<P><BR><BR>
 			</P>
-			<P>A <A HREF="http://suricata-ids.org/">website</A> dedicated to
-			Suricata can be found <A HREF="http://suricata-ids.org/">here</A>.</P>
-			<P>Documentation on Suricata is located <A HREF="http://suricata-ids.org/docs/">here.</A>
-			 Documentation specific to the Tilera implementation is contained
-			at this web site.</P>
-			<H2 CLASS="western"><STRONG>Installation Guide</STRONG></H2>
-			<P><STRONG><A HREF="http://decanio.github.com/suricata/Tilera_Installation.html">Build
-			and Installation Guide</A></STRONG></P>
-			<P><A HREF="http://decanio.github.com/suricata/Tilera_Installation.txt">Build
-			and Install Guide (text version)</A></P>
-			<H2 CLASS="western">Advanced Suricata Configuration</H2>
-			<P>The steps contained in the “<STRONG><A HREF="http://decanio.github.com/suricata/Tilera_Installation.html">Build
-			and Installation Guide</A>”</STRONG> provided an example
-			Suricata setup and configuration.  The <A HREF="http://decanio.github.com/suricata/suricata_config_guide.html">suricata
-			configuration guide</A> provides information about Tilera specific
-			extensions to the Suricata software and configuration capabilities
-			specific to the Tilera version of Suricata.</P>
-			<H2 CLASS="western"><STRONG>Running Splunk with Suricata on Tilera</STRONG></H2>
-			<P><STRONG><A HREF="http://decanio.github.com/suricata/splunk_instructions.html">Splunk
-			Setup Guide</A></STRONG></P>
 			<P><BR><BR>
 			</P>
 			<P><BR><BR>
