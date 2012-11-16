@@ -7,7 +7,8 @@
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
 	<META NAME="CREATED" CONTENT="20120102;16542200">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
-	<META NAME="CHANGED" CONTENT="20121116;9084100">
+	<META NAME="CHANGED" CONTENT="20121116;14122200">
+	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
@@ -107,7 +108,9 @@
 			<P>The “workers” runmode is chosen by setting the <FONT FACE="DejaVu Sans Mono, monospace">runmode</FONT>
 			parameter to <FONT FACE="DejaVu Sans Mono, monospace">workers</FONT>
 			in suricata.yaml.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Runmode custom mode the engine should run in.  Please check –list-runmodes<BR># to get the runmode custom modes that can be used here for a particular runmode.<BR>runmode: workers</FONT></CODE></PRE><P STYLE="margin-left: 0.01in">
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Runmode custom mode the engine should run in.  Please check –list-runmodes</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># to get the runmode custom modes that can be used here for a particular runmode.</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">runmode: workers</FONT></CODE></PRE><P STYLE="margin-left: 0.01in">
 			This configuration causes Suricata to spawn a thread on nearly all
 			of the available Tilera “dataplane” tiles. The Suricata
 			processing pipeline will operate in a “run to completion” mode
@@ -118,28 +121,92 @@
 			the operation of suricata on Tilera processors.</P>
 			<P>The <FONT FACE="DejaVu Sans Mono, monospace">max-pending-packets</FONT>
 			setting controls the overall number of packets processed by
-			Suricata at any given time.  This number is useful when operating
-			suricata with the PCIe packet capture feature  enabled in order to
+			Suricata at any given time. This number is useful when operating
+			suricata with the PCIe packet capture feature enabled in order to
 			prevent packet loss which capturing packets at speeds higher than
 			the rate at which Suricata packet processing is able to sustain.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Number of packets allowed to be processed simultaneously.  Default is a<BR># conservative 50. a higher number will make sure CPU's/CPU cores will be<BR># more easily kept busy, but will negatively impact caching.<BR>#<BR># If you are using the CUDA pattern matcher (b2g_cuda below), different rules<BR># apply. In that case try something like 4000 or more. This is because the CUDA<BR># pattern matcher scans many packets in parallel.<BR>max-pending-packets: 8192</FONT></CODE></PRE><P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Number of packets allowed to be processed simultaneously.  Default is a</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># conservative 50. a higher number will make sure CPU's/CPU cores will be</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># more easily kept busy, but will negatively impact caching.</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">#</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># If you are using the CUDA pattern matcher (b2g_cuda below), different rules</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># apply. In that case try something like 4000 or more. This is because the CUDA</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># pattern matcher scans many packets in parallel.</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">max-pending-packets: 8192</FONT></CODE></PRE><P>
 			The <FONT FACE="DejaVu Sans Mono, monospace">runmode</FONT>
 			configuration setting selects which runmode, <FONT FACE="DejaVu Sans Mono, monospace">workers</FONT>
 			or <FONT FACE="DejaVu Sans Mono, monospace">auto</FONT> is chosen
-			as described above.  A typical configuration will likely choose
-			the <FONT FACE="DejaVu Sans Mono, monospace">workers</FONT>
+			as described above. A typical configuration will likely choose the
+			<FONT FACE="DejaVu Sans Mono, monospace">workers</FONT> runmode.</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Runmode custom mode the engine should run in.  Please check –list-runmodes</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># to get the runmode custom modes that can be used here for a particular runmode.</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">runmode: workers</FONT></CODE></PRE><P>
+			suricata.yaml contains two sections specific to Tilera.  The
+			<FONT FACE="DejaVu Sans Mono, monospace">mpipe:</FONT> section
+			controls configuration options and tunable parameters specific to
+			the mpipe packet classifier and packet distribution system.</P>
+			<P>The <FONT FACE="DejaVu Sans Mono, monospace">tile:</FONT>
+			section configures the layout of the suricata processing pipeline
+			when running in the Tilera <FONT FACE="DejaVu Sans Mono, monospace">auto</FONT>
 			runmode.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Runmode custom mode the engine should run in.  Please check –list-runmodes<BR># to get the runmode custom modes that can be used here for a particular runmode.<BR>runmode: workers</FONT></CODE></PRE><P>
-			<BR><BR>
-			</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Tilera mpipe configuration. for use on Tilera tilegx<BR>mpipe:<BR><BR>  # Load balancing mode &quot;static&quot; or &quot;dynamic&quot;.<BR> load-balance: dynamic<BR><BR> # Enable packet capture to pcie<BR> capture:<BR>   enabled: no<BR><BR> # List of interfaces we will listen on.<BR> inputs:<BR> - interface: xgbe1<BR> - interface: xgbe2<BR> - interface: xgbe3<BR> - interface: xgbe4<BR><BR>  # packet size scale factors<BR>  stack:<BR>    size128: 2/16<BR>    size256: 4/16<BR>    size512: 0/16<BR>    size1024: 0/16<BR>    size1664: 9/16<BR>    size4096: 0/16<BR>    size10386: 1/16<BR>    size16384: 0/16<BR><BR>  # number of queues to poll<BR>  poll: 2<BR><BR># Tilera runmode configuration. for use on Tilera tilepro and tilegx<BR>tile:<BR><BR>  # Number of parallel processing pipelines<BR>  pipelines: 6<BR><BR>  # Number of detect threads per pipeline<BR>  detect-per-pipeline: 3<BR><BR>  # Inter-tile queueing method (&quot;simple&quot; or &quot;tmc&quot;)<BR>  queue: simple<BR><BR>  mica-memcpy: no</FONT></CODE></PRE><H2 CLASS="western">
+			<P>A typical suricata.yaml will contain something similar to the
+			following:</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Tilera mpipe configuration. for use on Tilera tilegx</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">mpipe:</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Load balancing mode &quot;static&quot; or &quot;dynamic&quot;.</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">load-balance: dynamic</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Enable packet capture to pcie</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">capture:</FONT></CODE>
+<CODE CLASS="western">   </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">enabled: no</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># List of interfaces we will listen on.</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">inputs:</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe1</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe2</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe3</FONT></CODE>
+<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe4</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># packet size scale factors</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">stack:</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size128: 2/16</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size256: 4/16</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size512: 0/16</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size1024: 0/16</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size1664: 9/16</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size4096: 0/16</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size10386: 1/16</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size16384: 0/16</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># number of queues to poll</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">poll: 2</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Tilera runmode configuration. for use on Tilera tilepro and tilegx</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">tile:</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Number of parallel processing pipelines</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">pipelines: 6</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Number of detect threads per pipeline</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">detect-per-pipeline: 3</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Inter-tile queueing method (&quot;simple&quot; or &quot;tmc&quot;)</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">queue: simple</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">mica-memcpy: no</FONT></CODE></PRE><H2 CLASS="western">
 			Suricata Release 1.4 Features On Tilera</H2>
 			<H3 CLASS="western">IPS and TAP Support</H3>
 			<P><BR><BR>
 			</P>
-			<P><BR><BR>
-			</P>
-			<P><BR><BR>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Tilera mpipe configuration. for use on Tilera tilegx</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">mpipe:</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"></FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># Load balancing mode &quot;static&quot; or &quot;dynamic&quot;.</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">load-balance: dynamic</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"></FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># List of interfaces we will listen on.</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">inputs:</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe2</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">copy-mode: ips</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">copy-iface: xgbe4</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe4</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">copy-mode: ips</FONT></CODE>
+<CODE CLASS="western">    </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">copy-iface: xgbe2</FONT></CODE>
+<CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"></FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># number of queues to poll</FONT></CODE>
+<CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">poll: 2</FONT></CODE></PRE><P>
+			<BR><BR>
 			</P>
 		</DIV>
 	</DIV>
