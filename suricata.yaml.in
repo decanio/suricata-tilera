@@ -645,18 +645,36 @@ pcap:
 
 # Tilera mpipe configuration. for use on Tilera tilegx
 mpipe:
-
   # Load balancing mode "static" or "dynamic".
   load-balance: dynamic
 
   # Enable packet capture to pcie
   capture:
-      enabled: no
+    enabled: no
+
+  # Timestamp option "linux" or "mpipe".
+  timestamp: linux
 
   # List of interfaces we will listen on.
   inputs:
+  - interface: xgbe1
+  - interface: xgbe2
   - interface: xgbe3
   - interface: xgbe4
+
+  # packet size scale factors
+  stack:
+    size128: 2/16
+    size256: 4/16
+    size512: 0/16
+    size1024: 0/16
+    size1664: 9/16
+    size4096: 0/16
+    size10386: 1/16
+    size16384: 0/16
+
+  # number of queues to poll
+  poll: 2
 
 # Tilera runmode configuration. for use on Tilera tilepro and tilegx
 tile:
