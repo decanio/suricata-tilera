@@ -181,7 +181,9 @@ static void *TmThreadsThreadWrap(void *td)
     extern int mica_memcpy_enabled;
     extern void *tile_packet_page;
     extern unsigned long tile_vhuge_size;
-    ThreadVars *tv = TmCloneThreadVars((ThreadVars *)td);
+    ThreadVars *tv = (ThreadVars *)td;
+    TmThreadAppend(tv, tv->type);
+    tv = TmCloneThreadVars((ThreadVars *)td);
     if (mica_memcpy_enabled) {
         result = gxio_mica_init(&tv->mica_cb, GXIO_MICA_ACCEL_CRYPTO, 0);
         VERIFY(result, "gxio_mica_init");
@@ -1981,9 +1983,10 @@ TmEcode TmThreadSpawn(ThreadVars *tv)
      * or the tilera startup barrier.  Will try to find a way to put this back.
      */
     TmThreadWaitForFlag(tv, THV_INIT_DONE | THV_RUNNING_DONE);
-#endif
 
     TmThreadAppend(tv, tv->type);
+#endif
+
 
     return TM_ECODE_OK;
 }
