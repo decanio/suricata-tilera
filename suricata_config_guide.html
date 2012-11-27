@@ -7,7 +7,7 @@
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
 	<META NAME="CREATED" CONTENT="20120102;16542200">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
-	<META NAME="CHANGED" CONTENT="20121127;14181300">
+	<META NAME="CHANGED" CONTENT="20121127;14312800">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
@@ -253,17 +253,12 @@
 			timestamps are taken from the tilegx mpipe hardware timestamp
 			generator.  The mpipe hardware timestamp generator can be
 			synchronized using IEEE 1588 Precision Time Protocol.</P>
-			<H4 CLASS="western">Inputs</H4>
+			<H4 CLASS="western">inputs</H4>
 			<P>The <FONT FACE="DejaVu Sans Mono, monospace">inputs</FONT>
 			configuration section within the <FONT FACE="DejaVu Sans Mono, monospace">mpipe</FONT>
 			section sets the list of one or more interfaces from which
 			suricata will process arriving packets.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># List of interfaces we will listen on.</FONT></CODE>
-<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">inputs:</FONT></CODE>
-<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe1</FONT></CODE>
-<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe2</FONT></CODE>
-<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe3</FONT></CODE>
-<CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe4</FONT></CODE></PRE><P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># List of interfaces we will listen on.<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">Inputs:<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe1<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe2<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe3<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">- interface: xgbe4</FONT></CODE></PRE><P>
 			Valid 1 Gigabit Ethernet  interfaces are <I>gbe1</I>, <I>gbe2</I>,
 			<I>gbe3</I> and <I>gbe4</I>.  Valid 10 Gigabit Ethernet interfaces
 			are <I>xgbe1</I>, <I>xgbe2</I>, <I>xgbe3</I> and <I>xgbe4</I>.</P>
@@ -271,12 +266,31 @@
 			available 10 Gigabit Ethernet interfaces.  However, fewer
 			interfaces may be specified.   Also a combination of 1 and 10
 			Gigabit Ethernet interfaces may be listed.</P>
+			<H4 CLASS="western">stack</H4>
+			<P>The <FONT FACE="DejaVu Sans Mono, monospace">stack</FONT>
+			configuration section within the <FONT FACE="DejaVu Sans Mono, monospace">mpipe</FONT>
+			section configures the amount of memory available for use as
+			packet buffers of each of the individual packet sizes supported by
+			mpipe. sets the list of one or more interfaces from which suricata
+			will process arriving packets.  See Section 6.2.2 of the <B>Tilera
+			Tile Processor and I/O Device Guide, UG404</B> for a description
+			of the mpipe packet buffer management capabilities.</P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># packet size scale factors<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">stack:<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size128: 2/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size256: 4/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size512: 0/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size1024: 0/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size1664: 9/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size4096: 0/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size10386: 1/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size16384: 0/16</FONT></CODE></PRE><P>
+			The <FONT FACE="DejaVu Sans Mono, monospace">stack</FONT> section
+			configures the amount of memory allocated to each buffer size. 
+			The size parameter is expresses as a fraction of available packet
+			buffer memory.  For example, in the configuration above 9/16ths of
+			the available memory will be utilized by packets up to 1664 bytes
+			in length.</P>
 			<H3 CLASS="western">Suricata.yaml tile Configuration Section</H3>
 			<P>The <FONT FACE="DejaVu Sans Mono, monospace">tile</FONT>
 			section contained in the suricata.yaml file controls suricata's
 			pipeline configuration when Suricata is running in the “<I>auto</I>”
 			runmode.  When suricata is running in “<I>workers</I>” runmode
 			this contents of this section has no effect.</P>
+			<P>Eight different packet buffer sizes are available to mpipe
+			(128, 256, 512, 1024, 1664, 4096, 10368 and 16384 bytes),  
+			</P>
 			<H2 CLASS="western">Suricata Release 1.4 Features On Tilera</H2>
 			<H3 CLASS="western">IPS and TAP Support</H3>
 			<P>Suricata release 1.4 contains support for IPS and TAP
