@@ -7,7 +7,7 @@
 	<META NAME="AUTHOR" CONTENT="Tom DeCanio">
 	<META NAME="CREATED" CONTENT="20120102;16542200">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
-	<META NAME="CHANGED" CONTENT="20121127;14312800">
+	<META NAME="CHANGED" CONTENT="20121127;14321400">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
 	<META NAME="CHANGEDBY" CONTENT="Tom DeCanio">
@@ -275,7 +275,7 @@
 			will process arriving packets.  See Section 6.2.2 of the <B>Tilera
 			Tile Processor and I/O Device Guide, UG404</B> for a description
 			of the mpipe packet buffer management capabilities.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># packet size scale factors<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">stack:<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size128: 2/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size256: 4/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size512: 0/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size1024: 0/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size1664: 9/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size4096: 0/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size10386: 1/16<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size16384: 0/16</FONT></CODE></PRE><P>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt"># packet size scale factors<BR></FONT></CODE><CODE CLASS="western"> </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">stack:<BR></FONT></CODE><CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size128: 2/16<BR></FONT></CODE><CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size256: 4/16<BR></FONT></CODE><CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size512: 0/16<BR></FONT></CODE><CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size1024: 0/16<BR></FONT></CODE><CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size1664: 9/16<BR></FONT></CODE><CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size4096: 0/16<BR></FONT></CODE><CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size10386: 1/16<BR></FONT></CODE><CODE CLASS="western">  </CODE><CODE CLASS="western"><FONT SIZE=2 STYLE="font-size: 9pt">size16384: 0/16</FONT></CODE></PRE><P>
 			The <FONT FACE="DejaVu Sans Mono, monospace">stack</FONT> section
 			configures the amount of memory allocated to each buffer size. 
 			The size parameter is expresses as a fraction of available packet
