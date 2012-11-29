@@ -23,11 +23,6 @@
  * Signature ordering part of the detection engine.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <pcre.h>
-
 #include "suricata-common.h"
 #include "detect.h"
 #include "detect-flowbits.h"
@@ -177,7 +172,7 @@ static inline int SCSigGetFlowvarType(Signature *sig)
 
     while (sm != NULL) {
         pd = (DetectPcreData *)sm->ctx;
-        if (sm->type == DETECT_PCRE && pd->flags & DETECT_PCRE_CAPTURE_FLOW) {
+        if (sm->type == DETECT_PCRE && (pd->flags & DETECT_PCRE_CAPTURE_FLOW)) {
             type = DETECT_FLOWVAR_TYPE_SET;
             return type;
         }
@@ -222,7 +217,7 @@ static inline int SCSigGetPktvarType(Signature *sig)
 
     while (sm != NULL) {
         pd = (DetectPcreData *)sm->ctx;
-        if (sm->type == DETECT_PCRE && pd->flags & DETECT_PCRE_CAPTURE_PKT) {
+        if (sm->type == DETECT_PCRE && (pd->flags & DETECT_PCRE_CAPTURE_PKT)) {
             type = DETECT_PKTVAR_TYPE_SET;
             return type;
         }

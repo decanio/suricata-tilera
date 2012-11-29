@@ -24,12 +24,6 @@
  * Pcap packet logging module.
  */
 
-#if LIBPCAP_VERSION_MAJOR == 1
-#include <pcap/pcap.h>
-#else
-#include <pcap.h>
-#endif
-
 #include "suricata-common.h"
 #include "debug.h"
 #include "detect.h"
@@ -250,7 +244,7 @@ TmEcode PcapLog (ThreadVars *t, Packet *p, void *data, PacketQueue *pq,
 
     PcapLogData *pl = (PcapLogData *)data;
 
-    if (p->flags & PKT_PSEUDO_STREAM_END ||
+    if ((p->flags & PKT_PSEUDO_STREAM_END) ||
         ((p->flags & PKT_STREAM_NOPCAPLOG) &&
          (pl->use_stream_depth == USE_STREAM_DEPTH_ENABLED)) ||
         (IS_TUNNEL_PKT(p) && !IS_TUNNEL_ROOT_PKT(p)))

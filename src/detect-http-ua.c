@@ -53,7 +53,6 @@
 
 #include "app-layer.h"
 
-#include <htp/htp.h>
 #include "app-layer-htp.h"
 #include "stream-tcp.h"
 #include "detect-http-ua.h"
@@ -68,6 +67,8 @@ void DetectHttpUAFree(void *);
 void DetectHttpUARegister(void)
 {
     sigmatch_table[DETECT_AL_HTTP_USER_AGENT].name = "http_user_agent";
+    sigmatch_table[DETECT_AL_HTTP_USER_AGENT].desc = "content modifier to match only on the HTTP User-Agent header";
+    sigmatch_table[DETECT_AL_HTTP_USER_AGENT].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/HTTP-keywords#http_user_agent";
     sigmatch_table[DETECT_AL_HTTP_USER_AGENT].Match = NULL;
     sigmatch_table[DETECT_AL_HTTP_USER_AGENT].AppLayerMatch = NULL;
     sigmatch_table[DETECT_AL_HTTP_USER_AGENT].Setup = DetectHttpUASetup;
@@ -136,7 +137,7 @@ int DetectHttpUASetup(DetectEngineCtx *de_ctx, Signature *s, char *arg)
         goto error;
     }
 
-    if (cd->flags & DETECT_CONTENT_WITHIN || cd->flags & DETECT_CONTENT_DISTANCE) {
+    if ((cd->flags & DETECT_CONTENT_WITHIN) || (cd->flags & DETECT_CONTENT_DISTANCE)) {
         SigMatch *pm =  SigMatchGetLastSMFromLists(s, 4,
                                                    DETECT_CONTENT, sm->prev,
                                                    DETECT_PCRE, sm->prev);

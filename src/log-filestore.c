@@ -166,6 +166,30 @@ static void LogFilestoreMetaGetReferer(FILE *fp, Packet *p, File *ff) {
     fprintf(fp, "<unknown>");
 }
 
+static void LogFilestoreMetaGetUserAgent(FILE *fp, Packet *p, File *ff) {
+    HtpState *htp_state = (HtpState *)p->flow->alstate;
+    if (htp_state != NULL) {
+        htp_tx_t *tx = list_get(htp_state->connp->conn->transactions, ff->txid);
+        if (tx != NULL) {
+            table_t *headers;
+            headers = tx->request_headers;
+            htp_header_t *h = NULL;
+
+            table_iterator_reset(headers);
+            while (table_iterator_next(headers, (void **)&h) != NULL) {
+                if (bstr_len(h->name) >= 10 &&
+                        SCMemcmpLowercase((uint8_t *)"user-agent", (uint8_t *)bstr_ptr(h->name), bstr_len(h->name)) == 0) {
+                    PrintRawUriFp(fp, (uint8_t *)bstr_ptr(h->value),
+                        bstr_len(h->value));
+                    return;
+                }
+            }
+        }
+    }
+
+    fprintf(fp, "<unknown>");
+}
+
 static void LogFilestoreLogCreateMetaFile(Packet *p, File *ff, char *filename, int ipver) {
     char metafilename[PATH_MAX] = "";
     snprintf(metafilename, sizeof(metafilename), "%s.meta", filename);
@@ -214,6 +238,9 @@ static void LogFilestoreLogCreateMetaFile(Packet *p, File *ff, char *filename, i
         fprintf(fp, "\n");
         fprintf(fp, "HTTP REFERER:      ");
         LogFilestoreMetaGetReferer(fp, p, ff);
+        fprintf(fp, "\n");
+        fprintf(fp, "HTTP USER AGENT:   ");
+        LogFilestoreMetaGetUserAgent(fp, p, ff);
         fprintf(fp, "\n");
         fprintf(fp, "FILENAME:          ");
         PrintRawUriFp(fp, ff->name, ff->name_len);
@@ -440,10 +467,21 @@ TmEcode LogFilestoreLogThreadInit(ThreadVars *t, void *initdata, void **data)
 
     struct stat stat_buf;
     if (stat(g_logfile_base_dir, &stat_buf) != 0) {
-        SCLogError(SC_ERR_LOGDIR_CONFIG, "The file drop directory \"%s\" "
-                "supplied doesn't exist. Shutting down the engine",
-                g_logfile_base_dir);
-        exit(EXIT_FAILURE);
+        int ret;
+        ret = mkdir(g_logfile_base_dir, S_IRWXU|S_IXGRP|S_IRGRP);
+        if (ret != 0) {
+            int err = errno;
+            if (err != EEXIST) {
+                SCLogError(SC_ERR_LOGDIR_CONFIG,
+                        "Cannot create file drop directory %s: %s",
+                        g_logfile_base_dir, strerror(err));
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            SCLogInfo("Created file drop directory %s",
+                    g_logfile_base_dir);
+        }
+
     }
 
     *data = (void *)aft;

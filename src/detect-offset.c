@@ -43,6 +43,8 @@ static int DetectOffsetSetup (DetectEngineCtx *, Signature *, char *);
 
 void DetectOffsetRegister (void) {
     sigmatch_table[DETECT_OFFSET].name = "offset";
+    sigmatch_table[DETECT_OFFSET].desc = "designate from which byte in the payload will be checked to find a match";
+    sigmatch_table[DETECT_OFFSET].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/Payload_keywords#Offset";
     sigmatch_table[DETECT_OFFSET].Match = NULL;
     sigmatch_table[DETECT_OFFSET].Setup = DetectOffsetSetup;
     sigmatch_table[DETECT_OFFSET].Free  = NULL;
@@ -136,7 +138,7 @@ int DetectOffsetSetup (DetectEngineCtx *de_ctx, Signature *s, char *offsetstr)
                 }
             }
 
-            if (cd->flags & DETECT_CONTENT_WITHIN || cd->flags & DETECT_CONTENT_DISTANCE) {
+            if ((cd->flags & DETECT_CONTENT_WITHIN) || (cd->flags & DETECT_CONTENT_DISTANCE)) {
                 SCLogError(SC_ERR_INVALID_SIGNATURE, "can't use a relative keyword "
                                "with a non-relative keyword for the same content." );
                 goto error;
@@ -147,7 +149,7 @@ int DetectOffsetSetup (DetectEngineCtx *de_ctx, Signature *s, char *offsetstr)
                 goto error;
             }
 
-            if (str[0] != '-' && isalpha(str[0])) {
+            if (str[0] != '-' && isalpha((unsigned char)str[0])) {
                 SigMatch *bed_sm =
                     DetectByteExtractRetrieveSMVar(str, s,
                                                    SigMatchListSMBelongsTo(s, pm));

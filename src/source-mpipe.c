@@ -25,6 +25,7 @@
 
 #include "suricata-common.h"
 #include "suricata.h"
+#include "host.h"
 #include "decode.h"
 #include "packet-queue.h"
 #include "threads.h"
@@ -94,7 +95,7 @@ Packet *empty_p = NULL;
 /*
  * Borrowed from pcap.h
  */
-struct pcap_pkthdr {
+struct mpipe_pcap_pkthdr {
         //struct timeval ts;      /* time stamp */
         uint32_t ts_secs;    /* time stamp */
         uint32_t ts_nsecs;   /* time stamp */
@@ -774,12 +775,12 @@ static TmEcode ReceiveMpipeCapturePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
                         if (likely(!idesc->be)) {
                             unsigned char *pkt = gxio_mpipe_idesc_get_va(idesc);
                             uint32_t caplen;
-                            caplen = min(idesc->l2_size, 4096 - sizeof(struct pcap_pkthdr));
+                            caplen = min(idesc->l2_size, 4096 - sizeof(struct mpipe_pcap_pkthdr));
 
                             if (capture_mode == pcap) {
-                                struct pcap_pkthdr *pcap = 
-                                cmd[j].buffer = pkt-sizeof(struct pcap_pkthdr);
-                                cmd[j].size = caplen + sizeof(struct pcap_pkthdr);
+                                struct mpipe_pcap_pkthdr *pcap = 
+                                cmd[j].buffer = pkt-sizeof(struct mpipe_pcap_pkthdr);
+                                cmd[j].size = caplen + sizeof(struct mpipe_pcap_pkthdr);
                                 /* build pcap header from idesc */
                                 pcap->ts_secs = idesc->time_stamp_sec;
                                 pcap->ts_nsecs = idesc->time_stamp_ns;
@@ -1462,7 +1463,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
             if (capture_enabled == idesc)
                 headroom = sizeof(gxio_mpipe_idesc_t) + 2;
             else
-                headroom = sizeof(struct pcap_pkthdr) + 2;
+                headroom = sizeof(struct mpipe_pcap_pkthdr) + 2;
             gxio_mpipe_rules_set_headroom(&rules, headroom);
         }
         result = gxio_mpipe_rules_commit(&rules);

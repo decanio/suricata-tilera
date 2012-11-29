@@ -420,6 +420,7 @@ static void SCPerfReleaseOPCtx()
     }
 
     SCFree(sc_perf_op_ctx);
+    sc_perf_op_ctx = NULL;
 
     return;
 }
@@ -1231,8 +1232,6 @@ void SCPerfSpawnThreads(void)
     TmThreadSetCPUAffinity(tv_wakeup, 0);
 #endif
 
-    TmThreadSetCPU(tv_wakeup, MANAGEMENT_CPU_SET);
-
     if (TmThreadSpawn(tv_wakeup) != 0) {
         SCLogError(SC_ERR_THREAD_SPAWN, "TmThreadSpawn failed for "
                    "SCPerfWakeupThread");
@@ -1250,8 +1249,6 @@ void SCPerfSpawnThreads(void)
 #ifdef __tile__
     TmThreadSetCPUAffinity(tv_mgmt, 0);
 #endif
-
-    TmThreadSetCPU(tv_mgmt, MANAGEMENT_CPU_SET);
 
     if (TmThreadSpawn(tv_mgmt) != 0) {
         SCLogError(SC_ERR_THREAD_SPAWN, "TmThreadSpawn failed for "

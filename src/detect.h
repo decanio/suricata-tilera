@@ -546,6 +546,9 @@ typedef struct DetectEngineCtx_ {
     Signature *sig_list;
     uint32_t sig_cnt;
 
+    /* version of the srep data */
+    uint32_t srep_version;
+
     Signature **sig_array;
     uint32_t sig_array_size; /* size in bytes */
     uint32_t sig_array_len;  /* size in array members */
@@ -861,6 +864,9 @@ typedef struct SigTableElmt_ {
 
     uint8_t flags;
     char *name;
+    char *desc;
+    char *url;
+
 } SigTableElmt;
 
 #define SIG_GROUP_HEAD_MPM_COPY         (1)
@@ -972,13 +978,15 @@ typedef struct SigGroupHead_ {
 } SigGroupHead;
 
 /** sigmatch has no options, so the parser shouldn't expect any */
-#define SIGMATCH_NOOPT          0x01
+#define SIGMATCH_NOOPT          (1 << 0)
 /** sigmatch is compatible with a ip only rule */
-#define SIGMATCH_IPONLY_COMPAT  0x02
+#define SIGMATCH_IPONLY_COMPAT  (1 << 1)
 /** sigmatch is compatible with a decode event only rule */
-#define SIGMATCH_DEONLY_COMPAT  0x04
+#define SIGMATCH_DEONLY_COMPAT  (1 << 2)
 /**< Flag to indicate that the signature inspects the packet payload */
-#define SIGMATCH_PAYLOAD        0x08
+#define SIGMATCH_PAYLOAD        (1 << 3)
+/**< Flag to indicate that the signature is not built-in */
+#define SIGMATCH_NOT_BUILT      (1 << 4)
 
 /** Remember to add the options in SignatureIsIPOnly() at detect.c otherwise it wont be part of a signature group */
 
@@ -1070,6 +1078,7 @@ enum {
     DETECT_AL_SSL_STATE,
     DETECT_BYTE_EXTRACT,
     DETECT_FILE_DATA,
+    DETECT_PKT_DATA,
     DETECT_AL_APP_LAYER_EVENT,
 
     DETECT_DCE_IFACE,
@@ -1090,6 +1099,7 @@ enum {
 
     DETECT_L3PROTO,
     DETECT_LUAJIT,
+    DETECT_IPREP,
 
     /* make sure this stays last */
     DETECT_TBLSIZE,
@@ -1114,7 +1124,7 @@ void SigAddressPrepareBidirectionals (DetectEngineCtx *);
 
 char *DetectLoadCompleteSigPath(char *sig_file);
 int SigLoadSignatures (DetectEngineCtx *, char *, int);
-void SigTableList(void);
+void SigTableList(const char *keyword);
 void SigTableSetup(void);
 int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx,
                        DetectEngineThreadCtx *det_ctx, Packet *p);

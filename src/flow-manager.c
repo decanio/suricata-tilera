@@ -144,7 +144,7 @@ static inline int FlowGetFlowState(Flow *f) {
     if (flow_proto[f->protomap].GetProtoState != NULL) {
         return flow_proto[f->protomap].GetProtoState(f->protoctx);
     } else {
-        if (f->flags & FLOW_TO_SRC_SEEN && f->flags & FLOW_TO_DST_SEEN)
+        if ((f->flags & FLOW_TO_SRC_SEEN) && (f->flags & FLOW_TO_DST_SEEN))
             return FLOW_STATE_ESTABLISHED;
         else
             return FLOW_STATE_NEW;
@@ -563,6 +563,7 @@ void *FlowManagerThread(void *td)
 
     TmThreadsSetFlag(th_v, THV_CLOSED);
     pthread_exit((void *) 0);
+    return NULL;
 }
 
 /** \brief spawn the flow manager thread */
@@ -571,6 +572,7 @@ void FlowManagerThreadSpawn()
     ThreadVars *tv_flowmgr = NULL;
 
     SCCondInit(&flow_manager_cond, NULL);
+    SCMutexInit(&flow_manager_mutex, NULL);
 
     tv_flowmgr = TmThreadCreateMgmtThread("FlowManagerThread",
                                           FlowManagerThread, 0);

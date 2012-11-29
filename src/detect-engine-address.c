@@ -644,7 +644,7 @@ int DetectAddressParseString(DetectAddress *dd, char *str)
                 /* 1.2.3.4/24 format */
 
                 for (u = 0; u < strlen(mask); u++) {
-                    if(!isdigit(mask[u]))
+                    if(!isdigit((unsigned char)mask[u]))
                         goto error;
                 }
 
@@ -1478,7 +1478,7 @@ int DetectAddressCmp(DetectAddress *a, DetectAddress *b)
         return ADDRESS_ER;
 
     /* check any */
-    if (a->flags & ADDRESS_FLAG_ANY && b->flags & ADDRESS_FLAG_ANY)
+    if ((a->flags & ADDRESS_FLAG_ANY) && (b->flags & ADDRESS_FLAG_ANY))
         return ADDRESS_EQ;
     else if (a->ip.family == AF_INET)
         return DetectAddressCmpIPv4(a, b);

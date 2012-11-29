@@ -31,6 +31,15 @@
 #include <tmc/spin.h>
 #endif
 
+#if HAVE_CONFIG_H
+#include <config.h>
+#endif
+
+/* need this for the _POSIX_SPIN_LOCKS define */
+#if HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
 #ifdef PROFILING
 #include "util-cpu.h"
 #include "util-profiling-locks.h"
@@ -368,23 +377,26 @@ extern __thread uint64_t mutex_lock_cnt;
 #endif
 
 /** Spinlocks */
+#if 0
 #ifdef __tile__
 #define SCSpinlock               tmc_spin_queued_mutex_t
 #else
 #define SCSpinlock               pthread_spinlock_t
 #endif
+#endif
 
 /** If posix spin not supported, use mutex */
 #if ((_POSIX_SPIN_LOCKS - 200112L) < 0L) || defined HELGRIND
-#define pthread_spinlock_t                        pthread_mutex_t
-#define pthread_spin_init(target,arg)             SCMutexInit(target, NULL)
-#define pthread_spin_lock(spin)                   SCMutexLock(spin)
-#define pthread_spin_trylock(spin)                SCMutexTrylock(spin)
-#define pthread_spin_unlock(spin)                 SCMutexUnlock(spin)
-#define pthread_spin_destroy(spin)                SCMutexDestroy(spin)
-#endif /* End Spin not supported */
+#define SCSpinlock                              SCMutex
+#define SCSpinLock(spin)                        SCMutexLock((spin))
+#define SCSpinTrylock(spin)                     SCMutexTrylock((spin))
+#define SCSpinUnlock(spin)                      SCMutexUnlock((spin))
+#define SCSpinInit(spin, spin_attr)             SCMutexInit((spin), NULL)
+#define SCSpinDestroy(spin)                     SCMutexDestroy((spin))
 
-#ifdef DBG_THREADS
+#elif defined DBG_THREADS
+#define SCSpinlock                              pthread_spinlock_t
+
 #define SCSpinLock_dbg(spin) ({ \
     printf("%16s(%s:%d): (thread:%"PRIuMAX") locking spin %p\n", __FUNCTION__, __FILE__, __LINE__, (uintmax_t)pthread_self(), spin); \
     int ret = pthread_spin_lock(spin); \
@@ -479,7 +491,9 @@ extern __thread uint64_t mutex_lock_cnt;
 #define SCSpinUnlock                            SCSpinUnlock_dbg
 #define SCSpinInit                              SCSpinInit_dbg
 #define SCSpinDestroy                           SCSpinDestroy_dbg
+
 #elif defined PROFILE_LOCKING
+#define SCSpinlock                              pthread_spinlock_t
 
 extern __thread uint64_t spin_lock_contention;
 extern __thread uint64_t spin_lock_wait_ticks;
@@ -511,26 +525,31 @@ extern __thread uint64_t spin_lock_cnt;
     retl; \
 })
 
-#define SCSpinLock(mut) SCSpinLock_profile(mut)
+#define SCSpinLock(mut)                         SCSpinLock_profile(mut)
 #define SCSpinTrylock(spin)                     pthread_spin_trylock(spin)
 #define SCSpinUnlock(spin)                      pthread_spin_unlock(spin)
 #define SCSpinInit(spin, spin_attr)             pthread_spin_init(spin, spin_attr)
 #define SCSpinDestroy(spin)                     pthread_spin_destroy(spin)
 
 #else /* if no dbg threads defined... */
+
 #ifdef __tile__
+#define SCSpinlock                              tmc_spin_queued_mutex_t
 #define SCSpinLock(spin)                        tmc_spin_queued_mutex_lock(spin)
 #define SCSpinTrylock(spin)                     tmc_spin_queued_mutex_trylock(spin)
 #define SCSpinUnlock(spin)                      tmc_spin_queued_mutex_unlock(spin)
 #define SCSpinInit(spin, spin_attr)             tmc_spin_queued_mutex_init(spin)
 #define SCSpinDestroy(spin)                     
 #else
+#define SCSpinlock                              pthread_spinlock_t
+#define SCSpinlock                              pthread_spinlock_t
 #define SCSpinLock(spin)                        pthread_spin_lock(spin)
 #define SCSpinTrylock(spin)                     pthread_spin_trylock(spin)
 #define SCSpinUnlock(spin)                      pthread_spin_unlock(spin)
 #define SCSpinInit(spin, spin_attr)             pthread_spin_init(spin, spin_attr)
 #define SCSpinDestroy(spin)                     pthread_spin_destroy(spin)
 #endif /* __tile__ */
+
 #endif /* DBG_THREADS */
 
 /*

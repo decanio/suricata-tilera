@@ -51,6 +51,8 @@ void DetectContentRegisterTests(void);
 
 void DetectContentRegister (void) {
     sigmatch_table[DETECT_CONTENT].name = "content";
+    sigmatch_table[DETECT_CONTENT].desc = "match on payload content";
+    sigmatch_table[DETECT_CONTENT].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/Payload_keywords#Content";
     sigmatch_table[DETECT_CONTENT].Match = NULL;
     sigmatch_table[DETECT_CONTENT].Setup = DetectContentSetup;
     sigmatch_table[DETECT_CONTENT].Free  = DetectContentFree;
@@ -77,7 +79,7 @@ int DetectContentDataParse(char *keyword, char *contentstr, char** pstr, uint16_
     }
 
     /* skip the first spaces */
-    while (pos < slen && isspace(contentstr[pos]))
+    while (pos < slen && isspace((unsigned char)contentstr[pos]))
         pos++;
 
     if (contentstr[pos] == '!') {
@@ -135,7 +137,7 @@ int DetectContentDataParse(char *keyword, char *contentstr, char** pstr, uint16_
                 escape = 1;
             } else {
                 if (bin) {
-                    if (isdigit(str[i]) ||
+                    if (isdigit((unsigned char)str[i]) ||
                             str[i] == 'A' || str[i] == 'a' ||
                             str[i] == 'B' || str[i] == 'b' ||
                             str[i] == 'C' || str[i] == 'c' ||
@@ -218,6 +220,13 @@ DetectContentData *DetectContentParse (char *contentstr)
 
     ret = DetectContentDataParse("content", contentstr, &str, &len, &flags);
     if (ret == -1) {
+        return NULL;
+    }
+    if (len > 255) {
+        SCLogError(SC_ERR_NOT_SUPPORTED, "Currently we don't support content "
+                   "length greater than 255.  Please split the pattern, if "
+                   "length > 255.  The length of the content after "
+                   "normalization is \"%"PRIu16"\".", len);
         return NULL;
     }
 
@@ -2064,6 +2073,122 @@ end:
     return result;
 }
 
+int DetectContentParseTest41(void)
+{
+    int result = 1;
+    DetectContentData *cd = NULL;
+    int patlen = 257;
+    char *teststring = SCMalloc(sizeof(char) * (patlen + 1));
+    if (teststring == NULL)
+        return 0;
+    int idx = 0;
+    teststring[idx++] = '\"';
+    for (int i = 0; i < (patlen - 2); idx++, i++) {
+        teststring[idx] = 'a';
+    }
+    teststring[idx++] = '\"';
+    teststring[idx++] = '\0';
+
+    cd = DetectContentParse(teststring);
+    if (cd == NULL) {
+        SCLogDebug("expected not NULL");
+        result = 0;
+    }
+
+    SCFree(teststring);
+    DetectContentFree(cd);
+    return result;
+}
+
+int DetectContentParseTest42(void)
+{
+    int result = 1;
+    DetectContentData *cd = NULL;
+    int patlen = 258;
+    char *teststring = SCMalloc(sizeof(char) * (patlen + 1));
+    if (teststring == NULL)
+        return 0;
+    int idx = 0;
+    teststring[idx++] = '\"';
+    for (int i = 0; i < (patlen - 2); idx++, i++) {
+        teststring[idx] = 'a';
+    }
+    teststring[idx++] = '\"';
+    teststring[idx++] = '\0';
+
+    cd = DetectContentParse(teststring);
+    if (cd != NULL) {
+        SCLogDebug("expected NULL got %p: ", cd);
+        result = 0;
+    }
+
+    SCFree(teststring);
+    DetectContentFree(cd);
+    return result;
+}
+
+int DetectContentParseTest43(void)
+{
+    int result = 1;
+    DetectContentData *cd = NULL;
+    int patlen = 260;
+    char *teststring = SCMalloc(sizeof(char) * (patlen + 1));
+    if (teststring == NULL)
+        return 0;
+    int idx = 0;
+    teststring[idx++] = '\"';
+    teststring[idx++] = '|';
+    teststring[idx++] = '4';
+    teststring[idx++] = '6';
+    teststring[idx++] = '|';
+    for (int i = 0; i < (patlen - 6); idx++, i++) {
+        teststring[idx] = 'a';
+    }
+    teststring[idx++] = '\"';
+    teststring[idx++] = '\0';
+
+    cd = DetectContentParse(teststring);
+    if (cd == NULL) {
+        SCLogDebug("expected not NULL");
+        result = 0;
+    }
+
+    SCFree(teststring);
+    DetectContentFree(cd);
+    return result;
+}
+
+int DetectContentParseTest44(void)
+{
+    int result = 1;
+    DetectContentData *cd = NULL;
+    int patlen = 261;
+    char *teststring = SCMalloc(sizeof(char) * (patlen + 1));
+    if (teststring == NULL)
+        return 0;
+    int idx = 0;
+    teststring[idx++] = '\"';
+    teststring[idx++] = '|';
+    teststring[idx++] = '4';
+    teststring[idx++] = '6';
+    teststring[idx++] = '|';
+    for (int i = 0; i < (patlen - 6); idx++, i++) {
+        teststring[idx] = 'a';
+    }
+    teststring[idx++] = '\"';
+    teststring[idx++] = '\0';
+
+    cd = DetectContentParse(teststring);
+    if (cd != NULL) {
+        SCLogDebug("expected NULL got %p: ", cd);
+        result = 0;
+    }
+
+    SCFree(teststring);
+    DetectContentFree(cd);
+    return result;
+}
+
 static int SigTestNegativeTestContent(char *rule, uint8_t *buf)
 {
     uint16_t buflen = strlen((char *)buf);
@@ -2488,6 +2613,10 @@ void DetectContentRegisterTests(void)
     UtRegisterTest("DetectContentParseTest38", DetectContentParseTest38, 1);
     UtRegisterTest("DetectContentParseTest39", DetectContentParseTest39, 1);
     UtRegisterTest("DetectContentParseTest40", DetectContentParseTest40, 1);
+    UtRegisterTest("DetectContentParseTest41", DetectContentParseTest41, 1);
+    UtRegisterTest("DetectContentParseTest42", DetectContentParseTest42, 1);
+    UtRegisterTest("DetectContentParseTest43", DetectContentParseTest43, 1);
+    UtRegisterTest("DetectContentParseTest44", DetectContentParseTest44, 1);
 
     /* The reals */
     UtRegisterTest("DetectContentLongPatternMatchTest01", DetectContentLongPatternMatchTest01, 1);

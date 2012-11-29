@@ -56,7 +56,6 @@
 
 #include "app-layer.h"
 
-#include <htp/htp.h>
 #include "app-layer-htp.h"
 #include "detect-http-stat-code.h"
 #include "stream-tcp-private.h"
@@ -74,6 +73,8 @@ void DetectHttpStatCodeFree(void *);
  */
 void DetectHttpStatCodeRegister (void) {
     sigmatch_table[DETECT_AL_HTTP_STAT_CODE].name = "http_stat_code";
+    sigmatch_table[DETECT_AL_HTTP_STAT_CODE].desc = "content modifier to match only on HTTP stat-code-buffer";
+    sigmatch_table[DETECT_AL_HTTP_STAT_CODE].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/HTTP-keywords#http_stat_code";
     sigmatch_table[DETECT_AL_HTTP_STAT_CODE].Match = NULL;
     sigmatch_table[DETECT_AL_HTTP_STAT_CODE].AppLayerMatch = NULL;
     sigmatch_table[DETECT_AL_HTTP_STAT_CODE].alproto = ALPROTO_HTTP;
@@ -132,7 +133,7 @@ static int DetectHttpStatCodeSetup (DetectEngineCtx *de_ctx, Signature *s, char 
         goto error;
     }
 
-    if (cd->flags & DETECT_CONTENT_WITHIN || cd->flags & DETECT_CONTENT_DISTANCE) {
+    if ((cd->flags & DETECT_CONTENT_WITHIN) || (cd->flags & DETECT_CONTENT_DISTANCE)) {
         SigMatch *pm =  SigMatchGetLastSMFromLists(s, 4,
                                                    DETECT_CONTENT, sm->prev,
                                                    DETECT_PCRE, sm->prev);

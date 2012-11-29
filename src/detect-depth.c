@@ -44,6 +44,8 @@ static int DetectDepthSetup (DetectEngineCtx *, Signature *, char *);
 
 void DetectDepthRegister (void) {
     sigmatch_table[DETECT_DEPTH].name = "depth";
+    sigmatch_table[DETECT_DEPTH].desc = "designate how many bytes from the beginning of the payload will be checked";
+    sigmatch_table[DETECT_DEPTH].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/Payload_keywords#Depth";
     sigmatch_table[DETECT_DEPTH].Match = NULL;
     sigmatch_table[DETECT_DEPTH].Setup = DetectDepthSetup;
     sigmatch_table[DETECT_DEPTH].Free  = NULL;
@@ -137,7 +139,7 @@ static int DetectDepthSetup (DetectEngineCtx *de_ctx, Signature *s, char *depths
                 }
             }
 
-            if (cd->flags & DETECT_CONTENT_WITHIN || cd->flags & DETECT_CONTENT_DISTANCE) {
+            if ((cd->flags & DETECT_CONTENT_WITHIN) || (cd->flags & DETECT_CONTENT_DISTANCE)) {
                 SCLogError(SC_ERR_INVALID_SIGNATURE, "can't use a relative keyword "
                                "with a non-relative keyword for the same content." );
                 goto error;
@@ -148,7 +150,7 @@ static int DetectDepthSetup (DetectEngineCtx *de_ctx, Signature *s, char *depths
                 goto error;
             }
 
-            if (str[0] != '-' && isalpha(str[0])) {
+            if (str[0] != '-' && isalpha((unsigned char)str[0])) {
                 SigMatch *bed_sm =
                     DetectByteExtractRetrieveSMVar(str, s,
                                                    SigMatchListSMBelongsTo(s, pm));

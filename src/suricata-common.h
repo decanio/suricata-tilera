@@ -36,18 +36,57 @@
 #define _GNU_SOURCE
 #define __USE_GNU
 
+#if HAVE_CONFIG_H
+#include <config.h>
+#endif
+
+#if HAVE_STDIO_H
 #include <stdio.h>
+#endif
+
+#if HAVE_STDINT_h
 #include <stdint.h>
+#endif
+
+#if HAVE_STDARG_H
 #include <stdarg.h>
+#endif
+
+#ifdef HAVE_STDLIB_H
 #include <stdlib.h>
+#endif
+
+#if HAVE_ERRNO_H
 #include <errno.h>
+#endif
+
+#if HAVE_UNISTD_H
 #include <unistd.h>
+#endif
+
+#if HAVE_INTTYPES_H
 #include <inttypes.h>
+#endif
+
+#if HAVE_LIMITS_H
 #include <limits.h>
+#endif
+
+#if HAVE_CTYPE_H
 #include <ctype.h>
+#endif
+
+#if HAVE_STRING_H
 #include <string.h>
+#endif
+
+#if HAVE_FCNTL_H
 #include <fcntl.h>
+#endif
+
+#ifdef HAVE_TIME_H
 #include <time.h>
+#endif
 
 #if HAVE_SYS_SYSCALL_H
 #include <sys/syscall.h>
@@ -57,14 +96,15 @@
 #include <syscall.h>
 #endif
 
+#if HAVE_SYS_TYPES_H
 #include <sys/types.h> /* for gettid(2) */
+#endif
+
+#if HAVE_SCHED_H
 #include <sched.h>     /* for sched_setaffinity(2) */
+#endif
 
 #include <pcre.h>
-
-#if HAVE_CONFIG_H
-#include <config.h>
-#endif
 
 #ifdef HAVE_SYSLOG_H
 #include <syslog.h>
@@ -79,7 +119,9 @@
 #include "win32-service.h"
 #endif /* OS_WIN32 */
 
+#if HAVE_SYS_TIME_H
 #include <sys/time.h>
+#endif
 
 #if HAVE_POLL_H
 #include <poll.h>
@@ -93,13 +135,17 @@
 #include <signal.h>
 #endif
 
+#if HAVE_SYS_TYPES_H
 #include <sys/types.h>
+#endif
 
 #if HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
 #endif
 
+#if HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 
 #if HAVE_NETINET_IN_H
 #include <netinet/in.h>
@@ -113,6 +159,24 @@
 #include <netdb.h>
 #endif
 
+#ifdef HAVE_PCAP_H
+#include <pcap.h>
+#endif
+
+#ifdef HAVE_PCAP_PCAP_H
+#include <pcap/pcap.h>
+#endif
+
+#ifdef HAVE_PCAP_BPF_H
+#include <pcap/bpf.h>
+#endif
+
+#if __CYGWIN__
+#if !defined _X86_ && !defined __x86_64
+#define _X86_
+#endif
+#endif
+
 #ifdef HAVE_WINDOWS_H
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0501
@@ -120,16 +184,25 @@
 #include <windows.h>
 #endif
 
+#ifdef HAVE_W32API_WINBASE_H
+#include <w32api/winbase.h>
+#endif
+
+#if !__CYGWIN__
 #ifdef HAVE_WINSOCK2_H
 #include <winsock2.h>
 #endif
-
 #ifdef HAVE_WS2TCPIP_H
 #include <ws2tcpip.h>
 #endif
+#endif /* !__CYGWIN__ */
 
+#ifdef HAVE_ASSERT_H
 #include <assert.h>
 #define BUG_ON(x) assert(!(x))
+#else
+#define BUG_ON(x)
+#endif
 
 /* we need this to stringify the defines which are supplied at compiletime see:
    http://gcc.gnu.org/onlinedocs/gcc-3.4.1/cpp/Stringification.html#Stringification */

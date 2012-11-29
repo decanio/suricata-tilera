@@ -51,6 +51,8 @@ void DetectDistanceRegisterTests(void);
 
 void DetectDistanceRegister (void) {
     sigmatch_table[DETECT_DISTANCE].name = "distance";
+    sigmatch_table[DETECT_DISTANCE].desc = "indicates a relation between this content keyword and the content preceding it";
+    sigmatch_table[DETECT_DISTANCE].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/Payload_keywords#Distance";
     sigmatch_table[DETECT_DISTANCE].Match = NULL;
     sigmatch_table[DETECT_DISTANCE].Setup = DetectDistanceSetup;
     sigmatch_table[DETECT_DISTANCE].Free  = NULL;
@@ -211,7 +213,7 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 }
             }
 
-            if (cd->flags & DETECT_CONTENT_DEPTH || cd->flags & DETECT_CONTENT_OFFSET) {
+            if ((cd->flags & DETECT_CONTENT_DEPTH) || (cd->flags & DETECT_CONTENT_OFFSET)) {
                 SCLogError(SC_ERR_INVALID_SIGNATURE, "can't use a relative keyword "
                                "with a non-relative keyword for the same content." );
                 goto error;
@@ -222,7 +224,7 @@ static int DetectDistanceSetup (DetectEngineCtx *de_ctx, Signature *s,
                 goto error;
             }
 
-            if (str[0] != '-' && isalpha(str[0])) {
+            if (str[0] != '-' && isalpha((unsigned char)str[0])) {
                 SigMatch *bed_sm =
                     DetectByteExtractRetrieveSMVar(str, s,
                                                    SigMatchListSMBelongsTo(s, pm));

@@ -53,7 +53,9 @@ int SCPidfileCreate(const char *pidfile)
 
     pidfd = open(pidfile, O_CREAT | O_TRUNC | O_NOFOLLOW | O_WRONLY, 0644);
     if (pidfd < 0) {
-        SCLogError(SC_ERR_PIDFILE_OPEN, "unable to set pidfile: %s", strerror(errno));
+        SCLogError(SC_ERR_PIDFILE_OPEN, "unable to set pidfile '%s': %s",
+                   pidfile,
+                   strerror(errno));
         SCReturnInt(-1);
     }
 
@@ -85,3 +87,40 @@ void SCPidfileRemove(const char *pid_filename) {
     }
 }
 
+/**
+ * \brief Check a pid file (used at the startup)
+ *        This commonly needed by the init scripts
+ *
+ * \param pointer to the name of the pid file to write (optarg)
+ *
+ * \retval 0 if succes
+ * \retval -1 on failure
+ */
+int SCPidfileTestRunning(const char *pid_filename)
+{
+    if (access(pid_filename, F_OK) == 0) {
+        /* Check if the existing process is still alive. */
+        pid_t pidv;
+        FILE *pf;
+
+        pf = fopen(pid_filename, "r");
+        if (pf == NULL) {
+            SCLogError(SC_ERR_INITIALIZATION,
+                    "pid file '%s' exists and can not be read. Aborting!",
+                    pid_filename);
+            return -1;
+        }
+
+        if (fscanf(pf, "%d", &pidv) == 1 && kill(pidv, 0) == 0) {
+            fclose(pf);
+            SCLogError(SC_ERR_INITIALIZATION,
+                    "pid file '%s' exists. Is Suricata already running? Aborting!",
+                    pid_filename);
+            return -1;
+        }
+
+        if (pf != NULL)
+            fclose(pf);
+    }
+    return 0;
+}

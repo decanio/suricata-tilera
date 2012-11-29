@@ -124,6 +124,8 @@ static const char *RunModeTranslateModeToName(int runmode)
 	    return "MPIPE";
         case RUNMODE_AFP_DEV:
             return "AF_PACKET_DEV";
+        case RUNMODE_UNIX_SOCKET:
+            return "UNIX_SOCKET";
         default:
             SCLogError(SC_ERR_UNKNOWN_RUN_MODE, "Unknown runtime mode. Aborting");
             exit(EXIT_FAILURE);
@@ -185,6 +187,7 @@ void RunModeRegisterRunModes(void)
     RunModeErfDagRegister();
     RunModeNapatechRegister();
     RunModeIdsAFPRegister();
+    RunModeUnixSocketRegister();
 #ifdef UNITTESTS
     UtRunModeRegister();
 #endif
@@ -283,6 +286,9 @@ void RunModeDispatch(int runmode, const char *custom_mode, DetectEngineCtx *de_c
                 break;
             case RUNMODE_AFP_DEV:
                 custom_mode = RunModeAFPGetDefaultMode();
+                break;
+            case RUNMODE_UNIX_SOCKET:
+                custom_mode = RunModeUnixSocketGetDefaultMode();
                 break;
             default:
                 SCLogError(SC_ERR_UNKNOWN_RUN_MODE, "Unknown runtime mode. Aborting");

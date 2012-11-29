@@ -32,9 +32,19 @@
 #
 #autofp-scheduler: active-packets
 
+# Run suricata as user and group.
+#run-as:
+#  user: suri
+#  group: suri
+
 # Default pid file.
 # Will use this file if no --pidfile in command options.
 #pid-file: /var/run/suricata.pid
+
+# Daemon working directory
+# Suricata will change directory to this one if provided
+# Default: "/"
+#daemon-directory: "/"
 
 # Preallocated size for packet. Default is 1514 which is the classical
 # size for pcap on ethernet. You should adjust this value to the highest
@@ -45,6 +55,15 @@
 # placed here if its not specified with a full path name.  This can be
 # overridden with the -l command line parameter.
 default-log-dir: @e_logdir@
+
+# Unix command socket can be used to pass commands to suricata.
+# An external tool can then connect to get information from suricata
+# or trigger some modifications of the engine. Set enabled to yes
+# to activate the feature. You can use the filename variable to set
+# the file name of the socket.
+unix-command:
+  enabled: no
+  #filename: custom.socket
 
 # Configure the type of alert (and other) logging you would like.
 outputs:
@@ -534,7 +553,7 @@ flow-timeouts:
     emergency-new: 10
     emergency-established: 100
 
-# Stream engine settings. Here the TCP stream tracking and reaasembly
+# Stream engine settings. Here the TCP stream tracking and reassembly
 # engine is configured.
 #
 # stream:
@@ -672,6 +691,11 @@ pcap:
     #  checksum off-loading is used. (default)
     # Warning: 'checksum-validation' must be set to yes to have any validation
     #checksum-checks: auto
+    # With some accelerator cards using a modified libpcap (like myricom), you
+    # may want to have the same number of capture threads as the number of capture
+    # rings. In this case, set up the threads variable to N to start N threads
+    # listening on the same interface.
+    #threads: 16
 
 # Tilera mpipe configuration. for use on Tilera tilegx
 mpipe:
@@ -842,6 +866,11 @@ action-order:
   - reject
   - alert
 
+# IP Reputation
+#reputation-categories-file: @e_sysconfdir@iprep/categories.txt
+#default-reputation-path: @e_sysconfdir@iprep
+#reputation-files:
+# - reputation.list
 
 # Host specific policies for defragmentation and TCP stream
 # reassembly.  The host OS lookup is done using a radix tree, just

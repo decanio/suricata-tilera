@@ -62,6 +62,8 @@ static void DetectFileextFree(void *);
  */
 void DetectFileextRegister(void) {
     sigmatch_table[DETECT_FILEEXT].name = "fileext";
+    sigmatch_table[DETECT_FILEEXT].desc = "match on the extension of a file name";
+    sigmatch_table[DETECT_FILEEXT].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/File-keywords#fileext";
     sigmatch_table[DETECT_FILEEXT].FileMatch = DetectFileextMatch;
     sigmatch_table[DETECT_FILEEXT].alproto = ALPROTO_HTTP;
     sigmatch_table[DETECT_FILEEXT].Setup = DetectFileextSetup;
@@ -117,7 +119,7 @@ static int DetectFileextMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx,
         }
     }
 
-    if (ret == 0 && fileext->flags & DETECT_CONTENT_NEGATED) {
+    if (ret == 0 && (fileext->flags & DETECT_CONTENT_NEGATED)) {
         SCLogDebug("negated match");
         ret = 1;
     }

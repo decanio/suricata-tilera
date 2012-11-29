@@ -55,7 +55,6 @@
 
 #include "app-layer.h"
 
-#include <htp/htp.h>
 #include "app-layer-htp.h"
 #include "detect-http-cookie.h"
 #include "stream-tcp.h"
@@ -69,6 +68,8 @@ void DetectHttpCookieFree(void *);
  */
 void DetectHttpCookieRegister (void) {
     sigmatch_table[DETECT_AL_HTTP_COOKIE].name = "http_cookie";
+    sigmatch_table[DETECT_AL_HTTP_COOKIE].desc = "content modifier to match only on the HTTP cookie-buffer";
+    sigmatch_table[DETECT_AL_HTTP_COOKIE].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/HTTP-keywords#http_cookie";
     sigmatch_table[DETECT_AL_HTTP_COOKIE].Match = NULL;
     sigmatch_table[DETECT_AL_HTTP_COOKIE].AppLayerMatch = NULL;
     sigmatch_table[DETECT_AL_HTTP_COOKIE].alproto = ALPROTO_HTTP;
@@ -146,7 +147,7 @@ static int DetectHttpCookieSetup (DetectEngineCtx *de_ctx, Signature *s, char *s
         goto error;
     }
 
-    if (cd->flags & DETECT_CONTENT_WITHIN || cd->flags & DETECT_CONTENT_DISTANCE) {
+    if ((cd->flags & DETECT_CONTENT_WITHIN) || (cd->flags & DETECT_CONTENT_DISTANCE)) {
         SigMatch *pm =  SigMatchGetLastSMFromLists(s, 4,
                                                    DETECT_CONTENT, sm->prev,
                                                    DETECT_PCRE, sm->prev);

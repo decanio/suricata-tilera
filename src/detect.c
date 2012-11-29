@@ -138,10 +138,12 @@
 #include "detect-engine-hua.h"
 #include "detect-byte-extract.h"
 #include "detect-file-data.h"
+#include "detect-pkt-data.h"
 #include "detect-replace.h"
 #include "detect-tos.h"
 #include "detect-app-layer-event.h"
 #include "detect-luajit.h"
+#include "detect-iprep.h"
 
 #include "util-rule-vars.h"
 
@@ -302,7 +304,7 @@ int DetectLoadSigFile(DetectEngineCtx *de_ctx, char *sig_file, int *sigs_tot) {
             continue;
 
         /* Check for multiline rules. */
-        while (len > 0 && isspace(line[--len]));
+        while (len > 0 && isspace((unsigned char)line[--len]));
         if (line[len] == '\\') {
             multiline++;
             offset = len;
@@ -343,6 +345,10 @@ int DetectLoadSigFile(DetectEngineCtx *de_ctx, char *sig_file, int *sigs_tot) {
         } else {
             SCLogError(SC_ERR_INVALID_SIGNATURE, "error parsing signature \"%s\" from "
                  "file %s at line %"PRId32"", line, sig_file, lineno - multiline);
+
+            if (rule_engine_analysis_set) {
+                EngineAnalysisRulesFailure(line, sig_file, lineno - multiline);
+            }
             if (de_ctx->failure_fatal == 1) {
                 exit(EXIT_FAILURE);
             }
@@ -859,7 +865,7 @@ static StreamMsg *SigMatchSignaturesGetSmsg(Flow *f, Packet *p, uint8_t flags) {
         TcpSession *ssn = (TcpSession *)f->protoctx;
 
         /* at stream eof, or in inline mode, inspect all smsg's */
-        if (flags & STREAM_EOF || StreamTcpInlineMode()) {
+        if ((flags & STREAM_EOF) || StreamTcpInlineMode()) {
             if (p->flowflags & FLOW_PKT_TOSERVER) {
                 smsg = ssn->toserver_smsg_head;
                 /* deref from the ssn */
@@ -958,7 +964,7 @@ static inline void DetectMpmPrefilter(DetectEngineCtx *de_ctx,
 
             *sms_runflags |= SMS_USED_PM;
         }
-        if (!(p->flags & PKT_STREAM_ADD) && det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_STREAM) {
+        if (!(p->flags & PKT_STREAM_ADD) && (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_STREAM)) {
             *sms_runflags |= SMS_USED_PM;
             PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_PKT_STREAM);
             PacketPatternSearchWithStreamCtx(det_ctx, p);
@@ -969,7 +975,7 @@ static inline void DetectMpmPrefilter(DetectEngineCtx *de_ctx,
     /* have a look at the reassembled stream (if any) */
     if (p->flowflags & FLOW_PKT_ESTABLISHED) {
         SCLogDebug("p->flowflags & FLOW_PKT_ESTABLISHED");
-        if (smsg != NULL && det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_STREAM) {
+        if (smsg != NULL && (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_STREAM)) {
             PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_STREAM);
             StreamPatternSearch(det_ctx, p, smsg, flags);
             PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_STREAM);
@@ -1008,7 +1014,7 @@ static inline void DetectMpmPrefilter(DetectEngineCtx *de_ctx,
                     PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HUAD);
                 }
             } else { /* implied FLOW_PKT_TOCLIENT */
-                if (p->flowflags & FLOW_PKT_TOCLIENT && det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSBD) {
+                if ((p->flowflags & FLOW_PKT_TOCLIENT) && (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSBD)) {
                     PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HSBD);
                     DetectEngineRunHttpServerBodyMpm(de_ctx, det_ctx, p->flow, alstate, flags);
                     PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HSBD);
@@ -1198,10 +1204,10 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
              * the sgh for icmp error packets part of the same stream. */
             if (IP_GET_IPPROTO(p) == p->flow->proto) { /* filter out icmp */
                 PACKET_PROFILING_DETECT_START(p, PROF_DETECT_GETSGH);
-                if (p->flowflags & FLOW_PKT_TOSERVER && p->flow->flags & FLOW_SGH_TOSERVER) {
+                if ((p->flowflags & FLOW_PKT_TOSERVER) && (p->flow->flags & FLOW_SGH_TOSERVER)) {
                     det_ctx->sgh = p->flow->sgh_toserver;
                     sms_runflags |= SMS_USE_FLOW_SGH;
-                } else if (p->flowflags & FLOW_PKT_TOCLIENT && p->flow->flags & FLOW_SGH_TOCLIENT) {
+                } else if ((p->flowflags & FLOW_PKT_TOCLIENT) && (p->flow->flags & FLOW_SGH_TOCLIENT)) {
                     det_ctx->sgh = p->flow->sgh_toclient;
                     sms_runflags |= SMS_USE_FLOW_SGH;
                 }
@@ -1221,9 +1227,9 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
             /* Retrieve the app layer state and protocol and the tcp reassembled
              * stream chunks. */
-            if ((p->proto == IPPROTO_TCP && p->flags & PKT_STREAM_EST) ||
-                (p->proto == IPPROTO_UDP && p->flowflags & FLOW_PKT_ESTABLISHED) ||
-                (p->proto == IPPROTO_SCTP && p->flowflags & FLOW_PKT_ESTABLISHED))
+            if ((p->proto == IPPROTO_TCP && (p->flags & PKT_STREAM_EST)) ||
+                (p->proto == IPPROTO_UDP && (p->flowflags & FLOW_PKT_ESTABLISHED)) ||
+                (p->proto == IPPROTO_SCTP && (p->flowflags & FLOW_PKT_ESTABLISHED)))
             {
                 alstate = AppLayerGetProtoStateFromPacket(p);
                 alproto = AppLayerGetProtoFromPacket(p);
@@ -1269,8 +1275,8 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
             PACKET_PROFILING_DETECT_END(p, PROF_DETECT_STATEFUL);
         }
 
-        if ((p->flowflags & FLOW_PKT_TOSERVER && !(p->flowflags & FLOW_PKT_TOSERVER_IPONLY_SET)) ||
-            (p->flowflags & FLOW_PKT_TOCLIENT && !(p->flowflags & FLOW_PKT_TOCLIENT_IPONLY_SET)))
+        if (((p->flowflags & FLOW_PKT_TOSERVER) && !(p->flowflags & FLOW_PKT_TOSERVER_IPONLY_SET)) ||
+            ((p->flowflags & FLOW_PKT_TOCLIENT) && !(p->flowflags & FLOW_PKT_TOCLIENT_IPONLY_SET)))
         {
             SCLogDebug("testing against \"ip-only\" signatures");
 
@@ -1282,9 +1288,9 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
              * done in the FlowSetIPOnlyFlag function. */
             FlowSetIPOnlyFlag(p->flow, p->flowflags & FLOW_PKT_TOSERVER ? 1 : 0);
 
-        } else if ((p->flowflags & FLOW_PKT_TOSERVER &&
+        } else if (((p->flowflags & FLOW_PKT_TOSERVER) &&
                    (p->flow->flags & FLOW_TOSERVER_IPONLY_SET)) ||
-                   (p->flowflags & FLOW_PKT_TOCLIENT &&
+                   ((p->flowflags & FLOW_PKT_TOCLIENT) &&
                    (p->flow->flags & FLOW_TOCLIENT_IPONLY_SET)))
         {
             /* Get the result of the first IPOnlyMatch() */
@@ -1344,7 +1350,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
     PACKET_PROFILING_DETECT_START(p, PROF_DETECT_STATEFUL);
     /* stateful app layer detection */
-    if (p->flags & PKT_HAS_FLOW && alstate != NULL) {
+    if ((p->flags & PKT_HAS_FLOW) && alstate != NULL) {
         /* initialize to 0 (DE_STATE_MATCH_NOSTATE) */
         memset(det_ctx->de_state_sig_array, 0x00, det_ctx->de_state_sig_array_len);
 
@@ -1382,7 +1388,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
         /* check if this signature has a requirement for flowvars of some type
          * and if so, if we actually have any in the flow. If not, the sig
          * can't match and we skip it. */
-        if (p->flags & PKT_HAS_FLOW && s->flags & SIG_FLAG_REQUIRE_FLOWVAR) {
+        if ((p->flags & PKT_HAS_FLOW) && (s->flags & SIG_FLAG_REQUIRE_FLOWVAR)) {
             FLOWLOCK_RDLOCK(p->flow);
             int m  = p->flow->flowvar ? 1 : 0;
             FLOWLOCK_UNLOCK(p->flow);
@@ -1493,7 +1499,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                     }
 
                     if (sms_runflags & SMS_USED_PM) {
-                        if (s->flags & SIG_FLAG_MPM_PACKET && !(s->flags & SIG_FLAG_MPM_PACKET_NEG) &&
+                        if ((s->flags & SIG_FLAG_MPM_PACKET) && !(s->flags & SIG_FLAG_MPM_PACKET_NEG) &&
                             !(det_ctx->pmq.pattern_id_bitarray[(s->mpm_pattern_id_div_8)] &
                               s->mpm_pattern_id_mod_8)) {
                             goto next;
@@ -1509,7 +1515,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                 }
             } else {
                 if (sms_runflags & SMS_USED_PM) {
-                    if (s->flags & SIG_FLAG_MPM_PACKET && !(s->flags & SIG_FLAG_MPM_PACKET_NEG) &&
+                    if ((s->flags & SIG_FLAG_MPM_PACKET) && !(s->flags & SIG_FLAG_MPM_PACKET_NEG) &&
                         !(det_ctx->pmq.pattern_id_bitarray[(s->mpm_pattern_id_div_8)] &
                           s->mpm_pattern_id_mod_8)) {
                         goto next;
@@ -1657,7 +1663,7 @@ end:
         }
 
         if (!(sms_runflags & SMS_USE_FLOW_SGH)) {
-            if (p->flowflags & FLOW_PKT_TOSERVER && !(p->flow->flags & FLOW_SGH_TOSERVER)) {
+            if ((p->flowflags & FLOW_PKT_TOSERVER) && !(p->flow->flags & FLOW_SGH_TOSERVER)) {
                 /* first time we see this toserver sgh, store it */
                 p->flow->sgh_toserver = det_ctx->sgh;
                 p->flow->flags |= FLOW_SGH_TOSERVER;
@@ -1690,7 +1696,7 @@ end:
                     SCLogDebug("disabling filesize for flow");
                     FileDisableFilesize(p->flow, STREAM_TOSERVER);
                 }
-            } else if (p->flowflags & FLOW_PKT_TOCLIENT && !(p->flow->flags & FLOW_SGH_TOCLIENT)) {
+            } else if ((p->flowflags & FLOW_PKT_TOCLIENT) && !(p->flow->flags & FLOW_SGH_TOCLIENT)) {
                 p->flow->sgh_toclient = det_ctx->sgh;
                 p->flow->flags |= FLOW_SGH_TOCLIENT;
 
@@ -1750,7 +1756,7 @@ TmEcode Detect(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQue
     DEBUG_VALIDATE_PACKET(p);
 
     /* No need to perform any detection on this packet, if the the given flag is set.*/
-    if (p->flags & PKT_NOPACKET_INSPECTION || p->action & ACTION_DROP)
+    if ((p->flags & PKT_NOPACKET_INSPECTION) || (p->action & ACTION_DROP))
         return 0;
 
     DetectEngineThreadCtx *det_ctx = (DetectEngineThreadCtx *)data;
@@ -1960,6 +1966,22 @@ int SignatureIsIPOnly(DetectEngineCtx *de_ctx, Signature *s) {
 
     if (s->sm_lists[DETECT_SM_LIST_AMATCH] != NULL)
         return 0;
+
+    IPOnlyCIDRItem *cidr_item;
+    cidr_item = s->CidrSrc;
+    while (cidr_item != NULL) {
+        if (cidr_item->negated)
+            return 0;
+
+        cidr_item = cidr_item->next;
+    }
+    cidr_item = s->CidrDst;
+    while (cidr_item != NULL) {
+        if (cidr_item->negated)
+            return 0;
+
+        cidr_item = cidr_item->next;
+    }
 
     SigMatch *sm = s->sm_lists[DETECT_SM_LIST_MATCH];
     if (sm == NULL)
@@ -2298,8 +2320,8 @@ static int SignatureCreateMask(Signature *s) {
         }
     }
 
-    if (s->mask & SIG_MASK_REQUIRE_DCE_STATE ||
-        s->mask & SIG_MASK_REQUIRE_HTTP_STATE)
+    if ((s->mask & SIG_MASK_REQUIRE_DCE_STATE) ||
+        (s->mask & SIG_MASK_REQUIRE_HTTP_STATE))
     {
         s->mask |= SIG_MASK_REQUIRE_FLOW;
         SCLogDebug("sig requires flow");
@@ -4566,17 +4588,110 @@ int SigGroupCleanup (DetectEngineCtx *de_ctx) {
     return 0;
 }
 
-void SigTableList(void)
+static inline void PrintFeatureList(int flags, char sep)
+{
+    int prev = 0;
+    if (flags & SIGMATCH_NOOPT) {
+        printf("No option");
+        prev = 1;
+    }
+    if (flags & SIGMATCH_IPONLY_COMPAT) {
+        if (prev == 1)
+            printf("%c", sep);
+        printf("compatible with IP only rule");
+        prev = 1;
+    }
+    if (flags & SIGMATCH_DEONLY_COMPAT) {
+        if (prev == 1)
+            printf("%c", sep);
+        printf("compatible with decoder event only rule");
+        prev = 1;
+    }
+    if (flags & SIGMATCH_PAYLOAD) {
+        if (prev == 1)
+            printf("%c", sep);
+        printf("payload inspecting keyword");
+        prev = 1;
+    }
+    if (prev == 0) {
+        printf("none");
+    }
+}
+
+static inline void SigMultilinePrint(int i, char *prefix)
+{
+    if (sigmatch_table[i].desc) {
+        printf("%sDescription: %s\n", prefix, sigmatch_table[i].desc);
+    }
+    printf("%sProtocol: %s\n", prefix,
+            AppLayerGetProtoString(sigmatch_table[i].alproto));
+    printf("%sFeatures: ", prefix);
+    PrintFeatureList(sigmatch_table[i].flags, ',');
+    if (sigmatch_table[i].url) {
+        printf("\n%sDocumentation: %s", prefix, sigmatch_table[i].url);
+    }
+    printf("\n");
+}
+
+void SigTableList(const char *keyword)
 {
     size_t size = sizeof(sigmatch_table) / sizeof(SigTableElmt);
 
     size_t i;
-    printf("=====Supported keywords=====\n");
-    for (i = 0; i < size; i++) {
-        if (sigmatch_table[i].name != NULL)
-            printf("- %s\n", sigmatch_table[i].name);
-    }
 
+    if (keyword == NULL) {
+        printf("=====Supported keywords=====\n");
+        for (i = 0; i < size; i++) {
+            if (sigmatch_table[i].name != NULL) {
+                if (sigmatch_table[i].flags & SIGMATCH_NOT_BUILT) {
+                    printf("- %s (not built-in)\n", sigmatch_table[i].name);
+                } else {
+                    printf("- %s\n", sigmatch_table[i].name);
+                }
+            }
+        }
+    } else if (!strcmp("csv", keyword)) {
+        printf("name;description;app layer;features;documentation\n");
+        for (i = 0; i < size; i++) {
+            if (sigmatch_table[i].name != NULL) {
+                if (sigmatch_table[i].flags & SIGMATCH_NOT_BUILT) {
+                    continue;
+                }
+                printf("%s;", sigmatch_table[i].name);
+                if (sigmatch_table[i].desc) {
+                    printf("%s", sigmatch_table[i].desc);
+                }
+                /* Build feature */
+                printf(";%s;",
+                       AppLayerGetProtoString(sigmatch_table[i].alproto));
+                PrintFeatureList(sigmatch_table[i].flags, ':');
+                printf(";");
+                if (sigmatch_table[i].url) {
+                    printf("%s", sigmatch_table[i].url);
+                }
+                printf(";");
+                printf("\n");
+            }
+        }
+    } else if (!strcmp("all", keyword)) {
+        for (i = 0; i < size; i++) {
+            printf("%s:\n", sigmatch_table[i].name);
+            SigMultilinePrint(i, "\t");
+        }
+    } else {
+        for (i = 0; i < size; i++) {
+            if ((sigmatch_table[i].name != NULL) &&
+                !strcmp(sigmatch_table[i].name, keyword)) {
+                printf("= %s =\n", sigmatch_table[i].name);
+                if (sigmatch_table[i].flags & SIGMATCH_NOT_BUILT) {
+                    printf("Not built-in\n");
+                    return;
+                }
+                SigMultilinePrint(i, "");
+                return;
+            }
+        }
+    }
     return;
 }
 
@@ -4661,6 +4776,7 @@ void SigTableSetup(void) {
     DetectSslVersionRegister();
     DetectByteExtractRegister();
     DetectFiledataRegister();
+    DetectPktDataRegister();
     DetectFilenameRegister();
     DetectFileextRegister();
     DetectFilestoreRegister();
@@ -4670,6 +4786,7 @@ void SigTableSetup(void) {
     DetectAppLayerEventRegister();
     DetectHttpUARegister();
     DetectLuajitRegister();
+    DetectIPRepRegister();
 
     uint8_t i = 0;
     for (i = 0; i < DETECT_TBLSIZE; i++) {

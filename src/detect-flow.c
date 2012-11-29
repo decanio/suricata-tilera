@@ -58,6 +58,8 @@ void DetectFlowFree(void *);
  */
 void DetectFlowRegister (void) {
     sigmatch_table[DETECT_FLOW].name = "flow";
+    sigmatch_table[DETECT_FLOW].desc = "match on direction and state of the flow";
+    sigmatch_table[DETECT_FLOW].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/Flow-keywords#Flow";
     sigmatch_table[DETECT_FLOW].Match = DetectFlowMatch;
     sigmatch_table[DETECT_FLOW].Setup = DetectFlowSetup;
     sigmatch_table[DETECT_FLOW].Free  = DetectFlowFree;
@@ -125,13 +127,13 @@ int DetectFlowMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx, Packet *p, S
     uint8_t cnt = 0;
     DetectFlowData *fd = (DetectFlowData *)m->ctx;
 
-    if (fd->flags & FLOW_PKT_TOSERVER && p->flowflags & FLOW_PKT_TOSERVER) {
+    if ((fd->flags & FLOW_PKT_TOSERVER) && (p->flowflags & FLOW_PKT_TOSERVER)) {
         cnt++;
-    } else if (fd->flags & FLOW_PKT_TOCLIENT && p->flowflags & FLOW_PKT_TOCLIENT) {
+    } else if ((fd->flags & FLOW_PKT_TOCLIENT) && (p->flowflags & FLOW_PKT_TOCLIENT)) {
         cnt++;
     }
 
-    if (fd->flags & FLOW_PKT_ESTABLISHED && p->flowflags & FLOW_PKT_ESTABLISHED) {
+    if ((fd->flags & FLOW_PKT_ESTABLISHED) && (p->flowflags & FLOW_PKT_ESTABLISHED)) {
         cnt++;
     } else if (fd->flags & FLOW_PKT_STATELESS) {
         cnt++;

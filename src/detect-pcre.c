@@ -57,7 +57,6 @@
 #include "app-layer-parser.h"
 #include "app-layer-htp.h"
 
-#include <htp/htp.h>
 #include "stream.h"
 
 
@@ -84,6 +83,8 @@ void DetectPcreRegisterTests(void);
 
 void DetectPcreRegister (void) {
     sigmatch_table[DETECT_PCRE].name = "pcre";
+    sigmatch_table[DETECT_PCRE].desc = "match on regular expression";
+    sigmatch_table[DETECT_PCRE].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/HTTP-keywords#Pcre-Perl-Compatible-Regular-Expressions";
     sigmatch_table[DETECT_PCRE].Match = NULL;
     sigmatch_table[DETECT_PCRE].AppLayerMatch = NULL;
     sigmatch_table[DETECT_PCRE].alproto = ALPROTO_HTTP;
@@ -270,7 +271,7 @@ DetectPcreData *DetectPcreParse (DetectEngineCtx *de_ctx, char *regexstr)
     uint16_t pos = 0;
     uint8_t negate = 0;
 
-    while (pos < slen && isspace(regexstr[pos])) {
+    while (pos < slen && isspace((unsigned char)regexstr[pos])) {
         pos++;
     }
 
@@ -610,13 +611,13 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
     if (pd == NULL)
         goto error;
 
-    if (pd->flags & DETECT_PCRE_HTTP_CLIENT_BODY && s->init_flags & SIG_FLAG_INIT_FLOW
-        && s->flags & SIG_FLAG_TOCLIENT && !(s->flags & SIG_FLAG_TOSERVER)) {
+    if ((pd->flags & DETECT_PCRE_HTTP_CLIENT_BODY) && (s->init_flags & SIG_FLAG_INIT_FLOW)
+        && (s->flags & SIG_FLAG_TOCLIENT) && !(s->flags & SIG_FLAG_TOSERVER)) {
         SCLogError(SC_ERR_CONFLICTING_RULE_KEYWORDS, "Can't use pcre /P with flow:from_server or flow:to_client");
         goto error;
     }
-    if ((pd->flags & DETECT_PCRE_URI || pd->flags & DETECT_PCRE_HTTP_RAW_URI)
-        && s->init_flags & SIG_FLAG_INIT_FLOW && s->flags & SIG_FLAG_TOCLIENT && !(s->flags & SIG_FLAG_TOSERVER)) {
+    if (((pd->flags & DETECT_PCRE_URI) || (pd->flags & DETECT_PCRE_HTTP_RAW_URI))
+        && (s->init_flags & SIG_FLAG_INIT_FLOW) && (s->flags & SIG_FLAG_TOCLIENT) && !(s->flags & SIG_FLAG_TOSERVER)) {
         SCLogError(SC_ERR_CONFLICTING_RULE_KEYWORDS, "Can't use pcre /U or /I with flow:from_server or flow:to_client");
         goto error;
     }
@@ -753,7 +754,7 @@ static int DetectPcreSetup (DetectEngineCtx *de_ctx, Signature *s, char *regexst
 
         SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_HSCDMATCH);
     } else {
-        if (s->alproto == ALPROTO_DCERPC && pd->flags & DETECT_PCRE_RELATIVE) {
+        if (s->alproto == ALPROTO_DCERPC && (pd->flags & DETECT_PCRE_RELATIVE)) {
             SigMatch *pm = NULL;
             SigMatch *dm = NULL;
 

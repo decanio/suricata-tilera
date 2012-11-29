@@ -65,6 +65,8 @@ void DetectIsdataatFree(void *);
  */
 void DetectIsdataatRegister (void) {
     sigmatch_table[DETECT_ISDATAAT].name = "isdataat";
+    sigmatch_table[DETECT_ISDATAAT].desc = "check if there is still data at a specific part of the payload";
+    sigmatch_table[DETECT_ISDATAAT].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/Payload_keywords#Isadataat";
     sigmatch_table[DETECT_ISDATAAT].Match = DetectIsdataatMatch;
     sigmatch_table[DETECT_ISDATAAT].Setup = DetectIsdataatSetup;
     sigmatch_table[DETECT_ISDATAAT].Free  = DetectIsdataatFree;
@@ -182,7 +184,7 @@ DetectIsdataatData *DetectIsdataatParse (char *isdataatstr, char **offset)
         idad->flags = 0;
         idad->dataat = 0;
 
-        if (args[0][0] != '-' && isalpha(args[0][0])) {
+        if (args[0][0] != '-' && isalpha((unsigned char)args[0][0])) {
             if (offset == NULL) {
                 SCLogError(SC_ERR_INVALID_ARGUMENT, "isdataat supplied with "
                            "var name for offset.  \"offset\" argument supplied to "
@@ -265,7 +267,7 @@ int DetectIsdataatSetup (DetectEngineCtx *de_ctx, Signature *s, char *isdataatst
     sm->ctx = (void *)idad;
 
     if (s->alproto == ALPROTO_DCERPC &&
-        idad->flags & ISDATAAT_RELATIVE) {
+        (idad->flags & ISDATAAT_RELATIVE)) {
 
         pm = SigMatchGetLastSMFromLists(s, 6,
                 DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_PMATCH],

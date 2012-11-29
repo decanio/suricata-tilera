@@ -53,7 +53,6 @@
 
 #include "app-layer.h"
 
-#include <htp/htp.h>
 #include "app-layer-htp.h"
 #include "detect-http-client-body.h"
 #include "stream-tcp.h"
@@ -68,6 +67,8 @@ void DetectHttpClientBodyFree(void *);
 void DetectHttpClientBodyRegister(void)
 {
     sigmatch_table[DETECT_AL_HTTP_CLIENT_BODY].name = "http_client_body";
+    sigmatch_table[DETECT_AL_HTTP_CLIENT_BODY].desc = "content modifier to match only on HTTP request-body";
+    sigmatch_table[DETECT_AL_HTTP_CLIENT_BODY].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/HTTP-keywords#http_client_body";
     sigmatch_table[DETECT_AL_HTTP_CLIENT_BODY].Match = NULL;
     sigmatch_table[DETECT_AL_HTTP_CLIENT_BODY].AppLayerMatch = NULL;
     sigmatch_table[DETECT_AL_HTTP_CLIENT_BODY].Setup = DetectHttpClientBodySetup;
@@ -133,7 +134,7 @@ int DetectHttpClientBodySetup(DetectEngineCtx *de_ctx, Signature *s, char *arg)
         goto error;
     }
 
-    if (cd->flags & DETECT_CONTENT_WITHIN || cd->flags & DETECT_CONTENT_DISTANCE) {
+    if ((cd->flags & DETECT_CONTENT_WITHIN) || (cd->flags & DETECT_CONTENT_DISTANCE)) {
         SigMatch *pm =  SigMatchGetLastSMFromLists(s, 4,
                                                    DETECT_CONTENT, sm->prev,
                                                    DETECT_PCRE, sm->prev);

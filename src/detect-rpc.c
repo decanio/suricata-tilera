@@ -58,6 +58,8 @@ void DetectRpcFree(void *);
  */
 void DetectRpcRegister (void) {
     sigmatch_table[DETECT_RPC].name = "rpc";
+    sigmatch_table[DETECT_RPC].desc = "match RPC procedure numbers and RPC version";
+    sigmatch_table[DETECT_RPC].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/Payload_keywords#rpc";
     sigmatch_table[DETECT_RPC].Match = DetectRpcMatch;
     sigmatch_table[DETECT_RPC].Setup = DetectRpcSetup;
     sigmatch_table[DETECT_RPC].Free  = DetectRpcFree;
@@ -140,10 +142,10 @@ int DetectRpcMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx, Packet *p, Si
     if (ntohl(msg->prog) != rd->program)
         return 0;
 
-    if (rd->flags & DETECT_RPC_CHECK_VERSION && ntohl(msg->vers) != rd->program_version)
+    if ((rd->flags & DETECT_RPC_CHECK_VERSION) && ntohl(msg->vers) != rd->program_version)
         return 0;
 
-    if (rd->flags & DETECT_RPC_CHECK_PROCEDURE && ntohl(msg->proc) != rd->procedure)
+    if ((rd->flags & DETECT_RPC_CHECK_PROCEDURE) && ntohl(msg->proc) != rd->procedure)
         return 0;
 
     SCLogDebug("prog:%u pver:%u proc:%u matched", ntohl(msg->prog), ntohl(msg->vers), ntohl(msg->proc));

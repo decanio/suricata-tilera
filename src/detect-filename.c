@@ -61,6 +61,8 @@ static void DetectFilenameFree(void *);
  */
 void DetectFilenameRegister(void) {
     sigmatch_table[DETECT_FILENAME].name = "filename";
+    sigmatch_table[DETECT_FILENAME].desc = "match on the file name";
+    sigmatch_table[DETECT_FILENAME].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/File-keywords#filename";
     sigmatch_table[DETECT_FILENAME].FileMatch = DetectFilenameMatch;
     sigmatch_table[DETECT_FILENAME].alproto = ALPROTO_HTTP;
     sigmatch_table[DETECT_FILENAME].Setup = DetectFilenameSetup;
@@ -122,7 +124,7 @@ static int DetectFilenameMatch (ThreadVars *t, DetectEngineThreadCtx *det_ctx,
         }
     }
 
-    if (ret == 0 && filename->flags & DETECT_CONTENT_NEGATED) {
+    if (ret == 0 && (filename->flags & DETECT_CONTENT_NEGATED)) {
         SCLogDebug("negated match");
         ret = 1;
     }

@@ -533,6 +533,20 @@ uint16_t AppLayerGetProtoByName(const char *name)
     return ALPROTO_UNKNOWN;
 }
 
+const char *AppLayerGetProtoString(int proto)
+{
+
+    if ((proto >= ALPROTO_MAX) || (proto < 0)) {
+        return "Undefined";
+    }
+
+    if (al_proto_table[proto].name == NULL)  {
+        return "Unset";
+    } else {
+        return al_proto_table[proto].name;
+    }
+}
+
 /** \brief Description: register a parser.
  *
  * \param name full parser name, e.g. "http.request_line"
@@ -922,7 +936,7 @@ int AppLayerParse(void *local_data, Flow *f, uint8_t proto,
         }
     }
 
-    if (parser_idx == 0 || parser_state->flags & APP_LAYER_PARSER_DONE) {
+    if (parser_idx == 0 || (parser_state->flags & APP_LAYER_PARSER_DONE)) {
         SCLogDebug("no parser for protocol %" PRIu32 "", proto);
         SCReturnInt(0);
     }

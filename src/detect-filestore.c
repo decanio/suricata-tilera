@@ -68,6 +68,8 @@ static void DetectFilestoreFree(void *);
  */
 void DetectFilestoreRegister(void) {
     sigmatch_table[DETECT_FILESTORE].name = "filestore";
+    sigmatch_table[DETECT_FILESTORE].desc = "stores files to disk if the rule matched";
+    sigmatch_table[DETECT_FILESTORE].url = "https://redmine.openinfosecfoundation.org/projects/suricata/wiki/File-keywords#filestore";
     sigmatch_table[DETECT_FILESTORE].FileMatch = DetectFilestoreMatch;
     sigmatch_table[DETECT_FILESTORE].alproto = ALPROTO_HTTP;
     sigmatch_table[DETECT_FILESTORE].Setup = DetectFilestoreSetup;
@@ -135,9 +137,9 @@ static int FilestorePostMatchWithOptions(Packet *p, Flow *f, DetectFilestoreData
         case FILESTORE_SCOPE_DEFAULT:
             if (rule_dir) {
                 this_file = 1;
-            } else if (p->flowflags & FLOW_PKT_TOCLIENT && toclient_dir) {
+            } else if ((p->flowflags & FLOW_PKT_TOCLIENT) && toclient_dir) {
                 this_file = 1;
-            } else if (p->flowflags & FLOW_PKT_TOSERVER && toserver_dir) {
+            } else if ((p->flowflags & FLOW_PKT_TOSERVER) && toserver_dir) {
                 this_file = 1;
             }
             break;
