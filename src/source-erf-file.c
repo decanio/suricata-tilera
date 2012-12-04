@@ -123,13 +123,25 @@ TmEcode ReceiveErfFileLoop(ThreadVars *tv, void *data, void *slot)
         /* Make sure we have at least one packet in the packet pool,
          * to prevent us from alloc'ing packets at line rate. */
         do {
+#ifdef __tile__
             packet_q_len = PacketPoolSize(0);
+#else
+            packet_q_len = PacketPoolSize();
+#endif
             if (unlikely(packet_q_len == 0)) {
+#ifdef __tile__
                 PacketPoolWait(0);
+#else
+                PacketPoolWait();
+#endif
             }
         } while (packet_q_len == 0);
 
+#ifdef __tile__
         p = PacketGetFromQueueOrAlloc(0);
+#else
+        p = PacketGetFromQueueOrAlloc();
+#endif
         if (unlikely(p == NULL)) {
             SCLogError(SC_ERR_MEM_ALLOC, "Failed to allocate a packet.");
             EngineStop();

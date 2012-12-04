@@ -56,7 +56,9 @@ typedef struct MpipePeer_
 /* per interface TAP/IPS configuration */
 typedef struct MpipePeerVars_
 {
+#ifdef __tilegx__
     gxio_mpipe_equeue_t *peer_equeue;
+#endif
     int copy_mode;
 } MpipePeerVars;
 
@@ -66,6 +68,7 @@ typedef struct MpipePacketVars_
     /* packetpool this was allocated from */   
     uint8_t pool;
 
+#ifdef __tilegx__
     /* TileGX mpipe stuff */
     struct {
         uint_reg_t channel : 5;
@@ -79,6 +82,7 @@ typedef struct MpipePacketVars_
     } idesc;
     int copy_mode;
     gxio_mpipe_equeue_t *peer_equeue;
+#endif
 } MpipePacketVars;
 
 void TmModuleReceiveMpipeRegister (void);

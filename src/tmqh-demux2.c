@@ -36,15 +36,22 @@
 #include <tmc/mem.h>
 #endif
 
+#ifdef __tile__
 Packet *TmqhInputDemux2(ThreadVars *t);
 void TmqhOutputDemux2(ThreadVars *t, Packet *p);
 void TmqhInputDemux2ShutdownHandler(ThreadVars *);
+#endif
 
 void TmqhDemux2Register (void) {
+    /*
+     * This is only used on Tilera, do nothing everywhere else
+     */
+#ifdef __tile__
     tmqh_table[TMQH_DEMUX2].name = "demux2";
     tmqh_table[TMQH_DEMUX2].InHandler = TmqhInputDemux2;
     tmqh_table[TMQH_DEMUX2].InShutdownHandler = TmqhInputDemux2ShutdownHandler;
     tmqh_table[TMQH_DEMUX2].OutHandler = TmqhOutputDemux2;
+#endif
 }
 
 #ifdef __tile__
@@ -55,7 +62,6 @@ cycle_pause(unsigned int delay)
   while (get_cycle_count_low() - start < delay)
     ;
 }
-#endif
 
 Packet *TmqhInputDemux2(ThreadVars *t)
 {
@@ -215,3 +221,5 @@ void TmqhOutputDemux2OnQ(SCDQDataQueue *q, SCDQGenericQData *data)
 
     return;
 }
+
+#endif

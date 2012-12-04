@@ -31,8 +31,8 @@
 
 #include "tm-queuehandlers.h"
 #include "tmqh-simple.h"
-#ifdef __tile__
 #include "tmqh-demux2.h"
+#ifdef __tile__
 #include "tmqh-tmcqueue.h"
 #endif
 #include "tmqh-nfq.h"
