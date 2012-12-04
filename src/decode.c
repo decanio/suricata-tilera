@@ -265,7 +265,11 @@ Packet *PacketDefragPktSetup(Packet *parent, uint8_t *pkt, uint16_t len, uint8_t
     SCEnter();
 
     /* get us a packet */
+#ifdef __tile__
     Packet *p = PacketGetFromQueueOrAlloc(0);
+#else
+    Packet *p = PacketGetFromQueueOrAlloc();
+#endif
     if (p == NULL) {
         SCReturnPtr(NULL, "Packet");
     }
