@@ -961,7 +961,7 @@ typedef struct DecodeThreadVars_
  *  \brief Recycle a packet structure for reuse.
  *  \todo the mutex destroy & init is necessary because of the memset, reconsider
  */
-#if 1
+#ifdef __tile__
 #define PACKET_DO_RECYCLE(p) do {               \
         __insn_prefetch(&(p)->pktvar);		\
         __insn_prefetch(&(p)->alerts.cnt); \
@@ -1048,10 +1048,6 @@ typedef struct DecodeThreadVars_
     } while (0)
 #else
 #define PACKET_DO_RECYCLE(p) do {               \
-        /*if ((((unsigned long long)(p) & 63)) != 0)printf("unaligned %p\n", p);*/\
-        __insn_prefetch((&p->pktvar));		\
-        __insn_wh64((p));			\
-        __insn_wh64(&(((char *)(&p))[64]));	\
         CLEAR_ADDR(&(p)->src);                  \
         CLEAR_ADDR(&(p)->dst);                  \
         (p)->sp = 0;                            \
@@ -1082,8 +1078,8 @@ typedef struct DecodeThreadVars_
         if ((p)->udph != NULL) {                \
             CLEAR_UDP_PACKET((p));              \
         }                                       \
-        if ((p)->sctph != NULL) {                \
-            CLEAR_SCTP_PACKET((p));              \
+        if ((p)->sctph != NULL) {               \
+            CLEAR_SCTP_PACKET((p));             \
         }                                       \
         if ((p)->icmpv4h != NULL) {             \
             CLEAR_ICMPV4_PACKET((p));           \
@@ -1099,13 +1095,13 @@ typedef struct DecodeThreadVars_
         (p)->payload = NULL;                    \
         (p)->payload_len = 0;                   \
         (p)->pktlen = 0;                        \
-        if ((p)->alerts.cnt) (p)->alerts.cnt = 0; \
+        (p)->alerts.cnt = 0;                    \
         (p)->pcap_cnt = 0;                      \
         (p)->tunnel_rtv_cnt = 0;                \
         (p)->tunnel_tpr_cnt = 0;                \
         SCMutexDestroy(&(p)->tunnel_mutex);     \
         SCMutexInit(&(p)->tunnel_mutex, NULL);  \
-        if ((p)->events.cnt) (p)->events.cnt = 0; \
+        (p)->events.cnt = 0;                    \
         (p)->next = NULL;                       \
         (p)->prev = NULL;                       \
         (p)->root = NULL;                       \
@@ -1124,7 +1120,7 @@ typedef struct DecodeThreadVars_
     SCCondDestroy(&(p)->cuda_cond);             \
     SCMutexInit(&(p)->cuda_mutex, NULL);        \
     SCCondInit(&(p)->cuda_cond, NULL);          \
-    /*PACKET_RESET_CHECKSUMS((p));*/                \
+    PACKET_RESET_CHECKSUMS((p));                \
 } while(0)
 #endif
 
