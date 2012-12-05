@@ -26,7 +26,9 @@
 
 enum {
     TMQH_SIMPLE,
+#ifdef __tile__
     TMQH_DEMUX2,
+#endif
     TMQH_NFQ,
     TMQH_PACKETPOOL,
     TMQH_FLOW,
