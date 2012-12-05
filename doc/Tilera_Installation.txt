@@ -188,7 +188,8 @@ from Tilera in the tar file suricata-rules.tgz.
 You will probably want to extract the rules and sample suricata configuration
 as follows:
 
-    cd ~/work/TileGX
+    mkdir -p ~/work/TileGX/rules
+    cd ~/work/TileGX/rules
     tar xvfz suricata-rules.tgz
 
 If you are using either a TILEncore-Gx pcie card or using a TILEmpower-Gx or
