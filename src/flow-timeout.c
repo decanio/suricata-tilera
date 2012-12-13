@@ -543,6 +543,7 @@ static inline void FlowForceReassemblyForHash(void)
                 StreamTcpReassembleHandleSegment(stream_pseudo_pkt_stream_TV,
                         stt->ra_ctx, ssn, &ssn->server,
                         reassemble_p, NULL);
+                FlowDeReference(&reassemble_p->flow);
                 if (StreamTcpReassembleProcessAppLayer(stt->ra_ctx) < 0) {
                     SCLogDebug("shutdown flow timeout "
                                "StreamTcpReassembleProcessAppLayer() erroring "
@@ -560,6 +561,7 @@ static inline void FlowForceReassemblyForHash(void)
                 StreamTcpReassembleHandleSegment(stream_pseudo_pkt_stream_TV,
                         stt->ra_ctx, ssn, &ssn->client,
                         reassemble_p, NULL);
+                FlowDeReference(&reassemble_p->flow);
                 if (StreamTcpReassembleProcessAppLayer(stt->ra_ctx) < 0) {
                     SCLogDebug("shutdown flow timeout "
                                "StreamTcpReassembleProcessAppLayer() erroring "
@@ -603,6 +605,8 @@ static inline void FlowForceReassemblyForHash(void)
                     if (stream_pseudo_pkt_detect_TV != NULL) {
                         stream_pseudo_pkt_detect_TV->
                             tmqh_out(stream_pseudo_pkt_detect_TV, p);
+                    } else {
+                        TmqhOutputPacketpool(NULL, p);
                     }
                 }
             } /* if (ssn->client.seg_list != NULL) */
@@ -634,6 +638,8 @@ static inline void FlowForceReassemblyForHash(void)
                     if (stream_pseudo_pkt_detect_TV != NULL) {
                         stream_pseudo_pkt_detect_TV->
                             tmqh_out(stream_pseudo_pkt_detect_TV, p);
+                    } else {
+                        TmqhOutputPacketpool(NULL, p);
                     }
                 }
             } /* if (ssn->server.seg_list != NULL) */
@@ -733,7 +739,7 @@ void FlowForceReassemblySetup(void)
     if (stream_pseudo_pkt_detect_TV->tm_slots == stream_pseudo_pkt_detect_tm_slot) {
         stream_pseudo_pkt_detect_prev_TV = stream_pseudo_pkt_detect_TV->prev;
     }
-    if (stream_pseudo_pkt_detect_TV->next == NULL) {
+    if (strcasecmp(stream_pseudo_pkt_detect_TV->outqh_name, "packetpool") == 0) {
         stream_pseudo_pkt_detect_TV = NULL;
     }
 

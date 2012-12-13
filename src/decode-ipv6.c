@@ -285,12 +285,15 @@ DecodeIPV6ExtHdrs(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt
                     break;
                 }
 /** \todo move into own function to loaded on demand */
+                uint16_t padn_cnt = 0;
+                uint16_t other_cnt = 0;
                 uint16_t offset = 0;
                 while(offset < optslen)
                 {
                     if (*ptr == IPV6OPT_PADN) /* PadN */
                     {
                         //printf("PadN option\n");
+                        padn_cnt++;
                     }
                     else if (*ptr == IPV6OPT_RA) /* RA */
                     {
@@ -300,6 +303,7 @@ DecodeIPV6ExtHdrs(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt
                         ra->ip6ra_value = ntohs(ra->ip6ra_value);
                         //printf("RA option: type %" PRIu32 " len %" PRIu32 " value %" PRIu32 "\n",
                         //    ra->ip6ra_type, ra->ip6ra_len, ra->ip6ra_value);
+                        other_cnt++;
                     }
                     else if (*ptr == IPV6OPT_JUMBO) /* Jumbo */
                     {
@@ -321,10 +325,25 @@ DecodeIPV6ExtHdrs(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt
                         //PrintInet(AF_INET6, (char *)&(hao->ip6hao_hoa),
                         //    addr_buf,sizeof(addr_buf));
                         //printf("home addr %s\n", addr_buf);
+                        other_cnt++;
+                    } else {
+                        if (nh == IPPROTO_HOPOPTS)
+                            ENGINE_SET_EVENT(p, IPV6_HOPOPTS_UNKNOWN_OPT);
+                        else
+                            ENGINE_SET_EVENT(p, IPV6_DSTOPTS_UNKNOWN_OPT);
+
+                        other_cnt++;
                     }
                     uint16_t optlen = (*(ptr + 1) + 2);
                     ptr += optlen; /* +2 for opt type and opt len fields */
                     offset += optlen;
+                }
+                /* flag packets that have only padding */
+                if (padn_cnt > 0 && other_cnt == 0) {
+                    if (nh == IPPROTO_HOPOPTS)
+                        ENGINE_SET_EVENT(p, IPV6_HOPOPTS_ONLY_PADDING);
+                    else
+                        ENGINE_SET_EVENT(p, IPV6_DSTOPTS_ONLY_PADDING);
                 }
 
                 nh = *pkt;
@@ -468,7 +487,9 @@ DecodeIPV6ExtHdrs(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt
             case IPPROTO_NONE:
                 IPV6_SET_L4PROTO(p,nh);
                 SCReturn;
-
+            case IPPROTO_ICMP:
+                ENGINE_SET_EVENT(p,IPV6_WITH_ICMPV4);
+                break;
             default:
                 IPV6_SET_L4PROTO(p,nh);
                 SCReturn;
@@ -558,7 +579,9 @@ void DecodeIPV6(ThreadVars *tv, DecodeThreadVars *dtv, Packet *p, uint8_t *pkt, 
         case IPPROTO_ESP:
             DecodeIPV6ExtHdrs(tv, dtv, p, pkt + IPV6_HEADER_LEN, IPV6_GET_PLEN(p), pq);
             break;
-
+        case IPPROTO_ICMP:
+            ENGINE_SET_EVENT(p,IPV6_WITH_ICMPV4);
+            break;
         default:
             p->proto = IPV6_GET_NH(p);
             break;
