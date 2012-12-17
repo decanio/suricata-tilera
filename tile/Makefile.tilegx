@@ -24,22 +24,11 @@ all:
 # Go ahead and modify these:
 #
 HOME_DIR=/home/$(USER)
-WORK_DIR=$(HOME_DIR)/work/SURI14BETA
+WORK_DIR=$(HOME_DIR)/work/SURI14
 # you can probably leave the following alone
 RULES_DIR=$(WORK_DIR)/rules
-#RULES_DIR=$(HOME_DIR)/work/TileGX/rules
 INSTALL_DIR=$(WORK_DIR)/suricata-install-dir
-#RULES_CONFIG=/opt/suricata/etc/suricata.yaml
-#RULES_CONFIG=/opt/suricata/etc/suricata-workers.yaml
-RULES_CONFIG=/opt/etpro/etc/suricata.yaml
-#RULES_CONFIG=/opt/suricata/etc/suricata-tune.yaml
-#RULES_CONFIG=/opt/suricata/etc/suricata-500.yaml
-#RULES_CONFIG=/opt/snort/etc/suricata.yaml
-#RULES_CONFIG=/opt/suricata/etc/suricata-norules.yaml
-#RULES_CONFIG=/opt/suricata/etc/suricata-norules-tap.yaml
-#RULES_CONFIG=/opt/suricata/etc/suricata-tap.yaml
-#RULES_CONFIG=/opt/suricata/etc/suricata-ips.yaml
-#RULES_CONFIG=/opt/suricata/etc/suricata-1.3-etpro.yaml
+RULES_CONFIG=/opt/suricata/etc/suricata.yaml
 YAML_DIR=$(WORK_DIR)/github/yaml
 LOG_DIR=$(WORK_DIR)/logs
 
@@ -233,7 +222,7 @@ TILE_MONITOR_CANNON_CAPTURE_ARGS = \
     --mount $(LOG_DIR) /var/log/suricata \
     --upload ./src/suricata suricata \
     --run -+- suricata -c $(RULES_CONFIG) --mpipe -+- \
-  -++- /home/tdecanio/hack/gxpci_host_pq/run6.sh
+  -++- /home/$(USER)/hack/gxpci_host_pq/run6.sh
 
 # This boots a Wildcat and leaves it available for manipulation by hand
 TILE_MONITOR_WILDCAT_BOOT_STATIC_ARGS = \
