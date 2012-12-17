@@ -127,17 +127,17 @@
 			suricata on Tilera and is known to work. You may however use
 			alternate versions of these libraries if you desire.</P>
 			<P>The suricata source code and build environment delivered here
-			is assumed to run in your <I>~/work/TileGX/github</I> directory.
-			Suricata logs will be placed in <I>~/work/TileGX/logs</I>.
+			is assumed to run in your <I>~/work/SURI14/github</I> directory.
+			Suricata logs will be placed in <I>~/work/SURI14/logs</I>.
 			Therefore prepare your suricata environment as follows:</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd</CODE>
-<CODE CLASS="western">mkdir -p work/TileGX/github</CODE>
-<CODE CLASS="western">mkdir -p work/TileGX/logs</CODE>
-<CODE CLASS="western">cd work/TileGX/github</CODE></PRE><P>
+<CODE CLASS="western">mkdir -p work/SURI14/github</CODE>
+<CODE CLASS="western">mkdir -p work/SURI14/logs</CODE>
+<CODE CLASS="western">cd work/SURI14/github</CODE></PRE><P>
 			To install your source code you'll have to do one of the
 			following.</P>
 			<P>If you have been provided tarballs of suricata and libyaml
-			source code place them in your ~/work/TileGX/github directory and
+			source code place them in your ~/work/SURI14/github directory and
 			do the following:</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">tar xvfz suricata*.tgz</CODE>
 <CODE CLASS="western">tar xvfz yaml*.tgz</CODE></PRE><P>
@@ -173,7 +173,7 @@
 			for Tilera.</P>
 			<P>It is probably necessary to modify one or more environment
 			variables to reflect your host's build environment. The file
-			<I>~/work/TileGX/github/suricata/tile/Makefile.tilegx</I> contains
+			<I>~/work/SURI14/github/suricata/tile/Makefile.tilegx</I> contains
 			the following section that may need to be modified slightly.
 			You'll likely need to at least change <B>HOME_DIR</B> to match the
 			path to your home directory.</P>
@@ -182,7 +182,7 @@
 <CODE CLASS="western"># Go ahead and modify these:</CODE>
 <CODE CLASS="western">#</CODE>
 <CODE CLASS="western">HOME_DIR=/home/tdecanio</CODE>
-<CODE CLASS="western">WORK_DIR=$(HOME_DIR)/work/TileGX</CODE>
+<CODE CLASS="western">WORK_DIR=$(HOME_DIR)/work/SURI14</CODE>
 <CODE CLASS="western"># you can probably leave the following alone</CODE>
 <CODE CLASS="western">RULES_DIR=$(WORK_DIR)/rules</CODE>
 <CODE CLASS="western">INSTALL_DIR=$(WORK_DIR)/suricata-install-dir</CODE>
@@ -192,20 +192,20 @@
 <CODE CLASS="western">PCAPFILE=$(HOME_DIR)/work/napatech/suricata1.pcap</CODE>
 <CODE CLASS="western">LOG_DIR=$(WORK_DIR)/logs</CODE></PRE><P>
 			If you've placed the code in some directory other than
-			<I>~/work/TileGX</I> modify <B>WORK_DIR</B> to reflect the
+			<I>~/work/SURI14</I> modify <B>WORK_DIR</B> to reflect the
 			difference. 
 			</P>
 			<P>After modifying
-			<I>~/work/TileGX/github/suricata/tile/Makefile.tilegx</I> as
+			<I>~/work/SURI14/github/suricata/tile/Makefile.tilegx</I> as
 			described suricata for TileGX can be built as follows:</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/github/suricata</CODE>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/SURI14/github/suricata</CODE>
 <CODE CLASS="western">./autogen.sh</CODE>
 <CODE CLASS="western">make -f tile/Makefile.tilegx build</CODE></PRE><P>
 			Note than the autogen.sh stage may require that you install
 			missing build tools on your host.</P>
 			<P>If you ever need to rebuild Suricata because you've made some
 			changes you may simply:</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/github/suricata</CODE>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/SURI14/github/suricata</CODE>
 <CODE CLASS="western">make</CODE></PRE><H1 CLASS="western">
 			<STRONG>Suricata rules and configuration for Tilera</STRONG></H1>
 			<P><STRONG><SPAN STYLE="font-weight: normal">An example set of
@@ -214,7 +214,7 @@
 			<P><STRONG><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal"><SPAN STYLE="font-weight: normal">You
 			will probably want to extract the rules and sample suricata
 			configuration as follows:</SPAN></SPAN></SPAN></STRONG></P>
-			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX</CODE>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/SURI14</CODE>
 <CODE CLASS="western">mkdir rules</CODE>
 <CODE CLASS="western">cd rules</CODE>
 <CODE CLASS="western"><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal"><SPAN STYLE="font-weight: normal">tar xvfz suricata-rules.tgz</SPAN></SPAN></SPAN></CODE></PRE><P>
@@ -222,13 +222,13 @@
 			a TILEncore-Gx pcie card or using a TILEmpower-Gx or TILExtreme-Gx
 			booting them using Tilera's tile-monitor, the automated methods
 			described below will cause the suricata running on the Tilera to
-			pick up its configuration from the </SPAN></STRONG><STRONG><I><SPAN STYLE="font-weight: normal">~/work/TileGX/rules</SPAN></I></STRONG><STRONG>
+			pick up its configuration from the </SPAN></STRONG><STRONG><I><SPAN STYLE="font-weight: normal">~/work/SURI14/rules</SPAN></I></STRONG><STRONG>
 			</STRONG><STRONG><SPAN STYLE="font-weight: normal">directory on
 			your host.</SPAN></STRONG></P>
 			<P>The suricata configuration is typically found in a
 			<I>suricata.yaml</I> file. A suricata.yaml file can be found
 			either in the <I>suricata-rules.tgz</I> file extracted above, or
-			in <I>~/work/TileGX/github/suricata/suricata.yaml</I> file.</P>
+			in <I>~/work/SURI14/github/suricata/suricata.yaml</I> file.</P>
 			<P><STRONG><SPAN STYLE="font-weight: normal">The instructions that
 			follow use the configuration contained in </SPAN></STRONG><STRONG><I><SPAN STYLE="font-weight: normal">suricata-rules.tgz
 			</SPAN></I></STRONG><STRONG><SPAN STYLE="font-variant: normal"><SPAN STYLE="font-style: normal"><SPAN STYLE="font-weight: normal">along
@@ -305,13 +305,13 @@
 			system.</P>
 			<P>Once that is done you should be able to run suricata on your
 			TILEncore-GX card by executing the following on your host system.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/github/suricata</CODE>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/SURI14/github/suricata</CODE>
 <CODE CLASS="western">make -f tile/Makefile.tilegx run_pci</CODE></PRE><P>
 			<STRONG><FONT FACE="Times New Roman, serif"><SPAN STYLE="font-weight: normal">This
 			will reboot your TILEncore card, boot Linux on it and start
 			Suricata. The logs produced by Suricata will be available to the
 			host in the $(LOG_DIR) as specified in
-			</SPAN></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><I><SPAN STYLE="font-weight: normal">~/work/TileGX/github/suricata/tile/Makefile.tilegx</SPAN></I></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><SPAN STYLE="font-weight: normal">.</SPAN></FONT></STRONG></P>
+			</SPAN></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><I><SPAN STYLE="font-weight: normal">~/work/SURI14/github/suricata/tile/Makefile.tilegx</SPAN></I></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><SPAN STYLE="font-weight: normal">.</SPAN></FONT></STRONG></P>
 			<H1 CLASS="western"><STRONG><FONT FACE="Times New Roman, serif">Running
 			Suricata on TILEmpower-Gx or TILExtreme-Gx Systems</FONT></STRONG></H1>
 			<P>Both the TILEmpower-Gx and TILExtreme-Gx platforms may be
@@ -319,7 +319,7 @@
 			<P>The systems will be booted not from over a PCIe bus, but over
 			one of the network interfaces or a USB connection. Note using a
 			network instead of a USB connection is probably preferred.</P>
-			<P>The ~/work/TileGX/github/suricata/tile/Makefile.tilegx file
+			<P>The ~/work/SURI14/github/suricata/tile/Makefile.tilegx file
 			contained a section as follows:</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western"># Modify the following with the IP address of your Tilera target</CODE>
 <CODE CLASS="western">NET_ARGS=--net 192.168.0.11</CODE>
@@ -334,13 +334,13 @@
 			<P>Once that is done you should be able to run suricata on your
 			TILEmpower-Gx or TILExtreme-Gx system by executing the following
 			on your host.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/github/suricata</CODE>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/SURI14/github/suricata</CODE>
 <CODE CLASS="western">make -f tile/Makefile.tilegx run_net</CODE></PRE><P>
 			<STRONG><FONT FACE="Times New Roman, serif"><SPAN STYLE="font-weight: normal">This
 			will reboot your TILEmpower-Gx/TILExtreme-Gx system, boot Linux on
 			it and start Suricata. The logs produced by Suricata will be
 			available to the host in the $(LOG_DIR) as specified in
-			</SPAN></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><I><SPAN STYLE="font-weight: normal">~/work/TileGX/github/suricata/tile/Makefile.tilegx</SPAN></I></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><SPAN STYLE="font-weight: normal">.</SPAN></FONT></STRONG></P>
+			</SPAN></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><I><SPAN STYLE="font-weight: normal">~/work/SURI14/github/suricata/tile/Makefile.tilegx</SPAN></I></FONT></STRONG><STRONG><FONT FACE="Times New Roman, serif"><SPAN STYLE="font-weight: normal">.</SPAN></FONT></STRONG></P>
 			<H1 CLASS="western"><CODE CLASS="western"><STRONG><FONT FACE="Times New Roman, serif">Installing
 			Suricata on a TILEmpower-Gx or TILExtreme-Gx System's SSD Storage</FONT></STRONG></CODE></H1>
 			<P>This section describes the procedure for installing Suricata on
@@ -364,7 +364,7 @@
 			be modified with the address of your target system.</P>
 			<PRE CLASS="western" STYLE="margin-left: 0.5in; margin-bottom: 0.2in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">NET_ARGS=--net 192.168.0.11</CODE></PRE><P>
 			After changing the IP address run the following:</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/github/suricata</CODE>
+			<PRE CLASS="western" STYLE="margin-left: 0.5in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/SURI14/github/suricata</CODE>
 <CODE CLASS="western">make -f tile/Makefile.tilegx reimage_net</CODE></PRE><P>
 			This will take a couple of minutes to write a new boot image to
 			your target. When the above completes reboot your target.</P>
@@ -374,7 +374,7 @@
 			build target that creates an installation directory,
 			$(INSTALL_DIR) above, that can be copied to your TILEmpower-GX or
 			TILExtreme-GX file system.</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/github/suricata</CODE>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/SURI14/github/suricata</CODE>
 <CODE CLASS="western">make install</CODE></PRE><P>
 			This will populate your $(INSTALL_DIR) directory with the Suricata
 			files to be copied to your TILEmpower-GX or TILExtreme-GX target. 
@@ -382,7 +382,7 @@
 			<P>To copy the $(INSTALL_DIR) contents to your system's SSD create
 			a tar file of the $(INSTALL_DIR) contents as follows. 
 			</P>
-			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/TileGX/suricata-install-dir</CODE>
+			<PRE CLASS="western" STYLE="margin-left: 0.51in; background: #ffffff; border: 1px solid #000000; padding: 0.02in"><CODE CLASS="western">cd ~/work/SURI14/suricata-install-dir</CODE>
 <CODE CLASS="western">tar cfz ../suricata-install.tgz *</CODE></PRE><P>
 			<STRONG><SPAN STYLE="font-weight: normal">Copy the tar file to
 			your target system using scp or other means. Then extract the
