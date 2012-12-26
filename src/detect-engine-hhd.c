@@ -58,6 +58,10 @@
 
 #define BUFFER_STEP 50
 
+#ifdef __tile__
+#define max(a,b) (((a)>(b))?(a):(b))
+#endif
+
 static inline int HHDCreateSpace(DetectEngineThreadCtx *det_ctx, uint16_t size) {
     if (size > det_ctx->hhd_buffers_size) {
         det_ctx->hhd_buffers = SCRealloc(det_ctx->hhd_buffers, (det_ctx->hhd_buffers_size + BUFFER_STEP) * sizeof(uint8_t *));
@@ -157,7 +161,11 @@ static uint8_t *DetectEngineHHDGetBufferForTX(int tx_id,
         }
 
         /* the extra 4 bytes if for ": " and "\r\n" */
+#ifdef __tile__
+        headers_buffer = SCRealloc(headers_buffer, max(4096, headers_buffer_len + size1 + size2 + 4));
+#else
         headers_buffer = SCRealloc(headers_buffer, headers_buffer_len + size1 + size2 + 4);
+#endif
         if (headers_buffer == NULL) {
             det_ctx->hhd_buffers[index] = NULL;
             det_ctx->hhd_buffers_len[index] = 0;
