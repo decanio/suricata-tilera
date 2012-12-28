@@ -26,6 +26,7 @@ Mac_OS_X_106x.txt \
 OpenBSD_Installation_from_GIT.txt \
 Setting_up_IPSinline_for_Linux.txt \
 Third_Party_Installation_Guides.txt \
+Tilera_Installation.txt \
 Ubuntu_Installation.txt \
 Ubuntu_Installation_from_GIT.txt \
 Windows.txt
