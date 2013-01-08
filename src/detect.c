@@ -4570,10 +4570,6 @@ int SigGroupBuild (DetectEngineCtx *de_ctx) {
         //printf("huad- %d\n", mpm_ctx->pattern_cnt);
     }
 
-#ifdef __tile__
-    SCMpmFreeze();
-    SCLogInfo("MPM pattern memory frozen.");
-#endif
 //    SigAddressPrepareStage5(de_ctx);
 //    DetectAddressPrintMemory();
 //    DetectSigGroupPrintMemory();

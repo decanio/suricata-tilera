@@ -604,7 +604,8 @@ static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
     int max[2];
 
     if (rank == 0) {
-    	SCLogInfo("suricata is ready to process network traffic");
+        SCMpmFreeze();
+        SCLogInfo("suricata is ready to process network traffic");
     }
 
     tilera_fast_gettimeofday(&timeval);
