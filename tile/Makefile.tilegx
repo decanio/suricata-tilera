@@ -1,13 +1,32 @@
 #
 # \file Makefile.tilegx
 #
-# This is used to run Suricata on a "TILEncore-Gx" card
+# This Makefile can be used to build and run Suricata
+# on Tilera systems.
 #
-# make -f Makefile.tilegx run_pci
+# This supports both cross compiling suricata on an x86 host
+# for Tilera targets as well as natively compiling suricata
+# on Tilera platforms.
+# 
+# To build suricata natively do the following on your tilera platform
+#
+# make -f tile/Makefile.tilegx autogen build
+#
+# To cross compile suricata do the following on your host
+#
+# make -f tile/Makefile.tilegx autogen xbuild
+#
+# To run Suricata on a "TILEncore-Gx" card from the above directory
+#
+# make -f tile/Makefile.tilegx run_pci
 #
 # or on a "TILEmpower-Gx" or "TILExtreme-Gx" platform
 #
-# make -f Makefile.tilegx run_net
+# make -f tile/Makefile.tilegx run_net
+#
+# To install suricata on a "TILEmpower-Gx" or "TILExtreme-Gx" platform do
+#
+# make -f tile/Makefile.tilegx install
 #
 # \author Tom DeCanio <decanio.tom@gmail.com>
 #
@@ -26,10 +45,11 @@ all:
 HOME_DIR=/home/$(USER)
 WORK_DIR=$(HOME_DIR)/work/SURI14
 # you can probably leave the following alone
+CURRENT_DIR=$(PWD)
 RULES_DIR=$(WORK_DIR)/rules
 INSTALL_DIR=$(WORK_DIR)/suricata-install-dir
 RULES_CONFIG=/opt/suricata/etc/suricata.yaml
-YAML_DIR=$(WORK_DIR)/github/yaml
+YAML_DIR=$(CURRENT_DIR)/../yaml
 LOG_DIR=$(WORK_DIR)/logs
 
 # Modify the following with the IP address of your Tilera target
@@ -42,9 +62,16 @@ PCI_ARGS=--dev gxpci0
 .PHONY: all clean
 
 #
+# Run the autogen.sh script. This only needs to be done once in a new directory
+#
+autogen:
+	echo Running autogen.sh
+	./autogen.sh
+
+#
 # Rebuild everything from after autoconf.sh (cross compilation)
 #
-build:
+xbuild:
 	echo Running configure
 	LIBS="-lgxpci -lgxio -ltmc" ./configure --host=tile --prefix=$(INSTALL_DIR) \
             --disable-gccmarch-native \
@@ -66,21 +93,33 @@ build:
 #
 # Rebuild everything from after autoconf.sh (native compilation)
 #
-build_native_static:
+build:
 	echo Running configure
-	LIBS="-lgxio -ltmc" ./configure --disable-gccmarch-native \
+	LIBS="-lgxpci -lgxio -ltmc" ./configure \
+            --disable-gccmarch-native \
 	    --without-libpcap \
 	    --disable-af-packet \
 	    --with-libyaml-includes=$(YAML_DIR)/include \
 	    --with-libyaml-libraries=$(YAML_DIR)/src/.libs \
 	    --with-libmagic-includes=/usr/include \
 	    --with-libmagic-libraries=/usr/lib
-	echo Patching results
-	patch config.h tile/config.h.diff
-	patch src/Makefile tile/Makefile.static.diff
+	sed -e 's/LDFLAGS =/LDFLAGS = -static/' src/Makefile > src/Makefile.tmp
+	sed -e 's/-I\/usr\/include//' src/Makefile.tmp > src/Makefile
+	rm src/Makefile.tmp
 	echo building Suricata
 	make clean
-	make
+	make -j 30
+
+#
+# Install suricata to the system.
+# This is intended for Tilempower and Tilextreme systems.
+# Must have write access to installation # directory.  Note on tilegx pcie
+# cards tile-monitor will likely not have write access to the $TILERA_ROOT
+# directory on the host
+#
+install:
+	echo Running install
+	make install
 
 TILE_MONITOR = $(TILERA_ROOT)/bin/tile-monitor
 
