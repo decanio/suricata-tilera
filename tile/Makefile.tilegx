@@ -80,7 +80,9 @@ xbuild:
 	    --with-libyaml-includes=$(YAML_DIR)/include \
 	    --with-libyaml-libraries=$(YAML_DIR)/src/.libs \
 	    --with-libmagic-includes=$(TILERA_ROOT)/tile/usr/include \
-	    --with-libmagic-libraries=$(TILERA_ROOT)/tile/usr/lib
+	    --with-libmagic-libraries=$(TILERA_ROOT)/tile/usr/lib \
+	    --sysconfdir=/etc \
+	    --localstatedir=/var
 	echo Patching results
 	patch config.h tile/config.h.diff
 	sed -e 's/LDFLAGS =/LDFLAGS = -static/' src/Makefile > src/Makefile.tmp
