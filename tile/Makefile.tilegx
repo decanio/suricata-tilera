@@ -39,7 +39,7 @@ all:
 #endif
 
 #
-# Local environment configuation
+# Local environment configuration
 # Go ahead and modify these:
 #
 HOME_DIR=/home/$(USER)
