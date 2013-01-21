@@ -144,6 +144,7 @@
 #include "detect-app-layer-event.h"
 #include "detect-luajit.h"
 #include "detect-iprep.h"
+#include "detect-geoip.h"
 
 #include "util-rule-vars.h"
 
@@ -4716,6 +4717,7 @@ void SigTableSetup(void) {
     DetectBytetestRegister();
     DetectBytejumpRegister();
     DetectSameipRegister();
+    DetectGeoipRegister();
     DetectL3ProtoRegister();
     DetectIPProtoRegister();
     DetectWithinRegister();
