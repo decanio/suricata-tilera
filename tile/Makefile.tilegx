@@ -50,7 +50,11 @@ RULES_DIR=$(WORK_DIR)/rules
 INSTALL_DIR=$(WORK_DIR)/suricata-install-dir
 RULES_CONFIG=/opt/suricata/etc/suricata.yaml
 YAML_DIR=$(CURRENT_DIR)/../yaml
+GEOIP_DIR=$(CURRENT_DIR)/../geoip-1.4.8
 LOG_DIR=$(WORK_DIR)/logs
+# Uncomment the following to enable GeoIP functionality
+# NOTE: geoip can currently only be built natively
+#ENABLE_GEOIP=--enable-geoip
 
 # Modify the following with the IP address of your Tilera target
 NET_ARGS=--net 192.168.0.10 --reflash
@@ -81,6 +85,9 @@ xbuild:
 	    --with-libyaml-libraries=$(YAML_DIR)/src/.libs \
 	    --with-libmagic-includes=$(TILERA_ROOT)/tile/usr/include \
 	    --with-libmagic-libraries=$(TILERA_ROOT)/tile/usr/lib \
+	    --with-libgeoip-includes=$(GEOIP_DIR)/libGeoIP \
+	    --with-libgeoip-libraries=$(GEOIP_DIR)/libGeoIP/.libs \
+	    $(ENABLE_GEOIP) \
 	    --sysconfdir=/etc \
 	    --localstatedir=/var
 	echo Patching results
@@ -104,7 +111,12 @@ build:
 	    --with-libyaml-includes=$(YAML_DIR)/include \
 	    --with-libyaml-libraries=$(YAML_DIR)/src/.libs \
 	    --with-libmagic-includes=/usr/include \
-	    --with-libmagic-libraries=/usr/lib
+	    --with-libmagic-libraries=/usr/lib \
+	    --with-libgeoip-includes=$(GEOIP_DIR)/libGeoIP \
+	    --with-libgeoip-libraries=$(GEOIP_DIR)/libGeoIP/.libs \
+	    $(ENABLE_GEOIP) \
+	    --sysconfdir=/etc \
+	    --localstatedir=/var
 	sed -e 's/LDFLAGS =/LDFLAGS = -static/' src/Makefile > src/Makefile.tmp
 	sed -e 's/-I\/usr\/include//' src/Makefile.tmp > src/Makefile
 	rm src/Makefile.tmp

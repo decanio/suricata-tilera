@@ -21,13 +21,12 @@ Suricata runs on TileEncore-GX TilEmpower-GX and TilExtreme-GX platforms.
 
 This effort supports suricata on Tilera as an Intrusion Detection System (IDS).
 
-Follow on work to support inline IPS operation will come later. Suricata's IPS
-operation relies on either Netfilter/IPtables or IPFW. Our intent is to provide
-a higher performance solution than we believe can be provided by a kernel basedo
-firewall.
+Additionally this supports Suricata running operating as an IPS or TAP in
+bridge mode.  The IPS and TAP functionality is modeled after similar functionality
+implemented for AF_PACKET.
 
 Suricata on Tilera should support all of the accompanying tools found alongside
-suricata (ex. Barnyard, Snorby, Sguil, etc.). although exhaustive testing of
+suricata (ex. Barnyard, Snorby, Sguil, etc.), although exhaustive testing of
 each is ongoing work.
 
 
@@ -75,7 +74,7 @@ The source code to suricata can be obtained from either of two places:
     - As a set of tar files delivered from Tilera
     - As a set of git repositories available at github.com
 
-This source code delivery of suricatea for tilera comes as two parts.
+This source code delivery of suricata for tilera comes as two parts.
 
     1. source code for suricata
     2. source code for for libyaml
@@ -84,6 +83,9 @@ Suricata requires libyaml which, at the time this effort was begun, wasn't
 delivered by the Tilera Multicore Development Envionment (MDE). The copy of
 libyaml has been tested with suricata on Tilera and is known to work. You may
 however use alternate versions of these libraries if you desire.
+
+Suricata can be built for Tilera platforms by either cross compiling suricata
+on an x86 Linux host, or built natively on a Tilera based platform.
 
 The suricata source code and build environment delivered here is assumed to 
 run in your ~/work/SURI14/github directory. Suricata logs will be placed in
