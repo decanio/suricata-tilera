@@ -50,7 +50,7 @@ RULES_DIR=$(WORK_DIR)/rules
 INSTALL_DIR=$(WORK_DIR)/suricata-install-dir
 RULES_CONFIG=/opt/suricata/etc/suricata.yaml
 YAML_DIR=$(CURRENT_DIR)/../yaml
-GEOIP_DIR=$(CURRENT_DIR)/../geoip-1.4.8
+GEOIP_DIR=$(CURRENT_DIR)/../geoip
 LOG_DIR=$(WORK_DIR)/logs
 # Uncomment the following to enable GeoIP functionality
 # NOTE: geoip can currently only be built natively
