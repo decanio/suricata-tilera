@@ -1339,7 +1339,8 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         int group = result;
 
         /* Allocate a bucket. */
-        int num_buckets = 4096;
+        //int num_buckets = 4096;
+        int num_buckets = 2048;
         result = gxio_mpipe_alloc_buckets(context, num_buckets, 0, 0);
         VERIFY(result, "gxio_mpipe_alloc_buckets()");
         int bucket = result;

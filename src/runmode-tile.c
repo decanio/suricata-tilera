@@ -197,12 +197,28 @@ int TileMpipeUnmapTile(int cpu)
 #endif
 }
 
-void RunModeTileGetPipelineConfig(void) {
+char *RunModeTileGetPipelineConfig(const char *custom_mode) {
     intmax_t pipelines;
     intmax_t detect_per_pipe;
     intmax_t value = 0;
     char *s;
 
+    if (custom_mode != NULL) {
+        return custom_mode;
+    }
+
+    char *runmode = NULL;
+    if (ConfGet("runmode", &runmode) == 1) {
+        if (strcmp(runmode, "workers") == 0) {
+            /* Available cpus */
+            cpu_set_t cpus;
+            tmc_cpus_get_dataplane_cpus(&cpus);
+            uint16_t ncpus = tmc_cpus_count(&cpus);
+            TileNumPipelines = ncpus - 1;
+            return runmode;
+        }
+    }
+   
     if (ConfGetInt("tile.pipelines", &pipelines) == 1) {
         TileNumPipelines = pipelines;
     } else {
@@ -232,6 +248,7 @@ void RunModeTileGetPipelineConfig(void) {
     SCLogInfo("%d detect threads per pipeline", TileDetectThreadPerPipeline);
     SCLogInfo("%d utilized dataplane tiles", (TILES_PER_PIPELINE * TileNumPipelines) + (TileNumPipelines / 2));
     SCLogInfo("%s queueing between tiles", (queue_type == simple) ? "simple" : "tmc");
+    return NULL;
 }
 
 void *ParseMpipeConfig(const char *iface)
