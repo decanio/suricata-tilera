@@ -1025,17 +1025,9 @@ static struct {
 TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
     SCEnter()
     int cpu = tmc_cpus_get_my_cpu();
-#if 1
     int rank = (cpu-1);
-#else
-#if 1
-    int rank = (TileMpipeUnmapTile(cpu)-1)/TILES_PER_MPIPE_PIPELINE;
-#else
-    int rank = (cpu-1)/TILES_PER_MPIPE_PIPELINE;
-#endif
-#endif
     unsigned int num_buffers;
-    //unsigned int total_buffers = max_pending_packets;
+    int num_buckets = 4096; 
     unsigned int total_buffers = 0;
     unsigned int num_workers = TileNumPipelines /*DFLT_TILERA_MPIPE_PIPELINES*/;
     unsigned int stack_count = 0;
@@ -1127,6 +1119,16 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
                 SCLogError(SC_ERR_FATAL, "Illegal mpipe.timestamp value.");
             }
         }
+        intmax_t value = 0;
+        if (ConfGetInt("mpipe.buckets", &value) == 1) {
+            /* range check */
+            if ((value >= 1) && (value <= 4096)) {
+                num_buckets = (int) value;
+            } else {
+                SCLogError(SC_ERR_INVALID_ARGUMENT, "Illegal mpipe.buckets value.");
+            }
+        }
+
         if (strcmp(link_name, "multi") == 0) {
             int nlive = LiveGetDeviceCount();
             //printf("nlive: %d\n", nlive);
@@ -1339,10 +1341,13 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         int group = result;
 
         /* Allocate a bucket. */
-        //int num_buckets = 4096;
-        int num_buckets = 2048;
         result = gxio_mpipe_alloc_buckets(context, num_buckets, 0, 0);
-        VERIFY(result, "gxio_mpipe_alloc_buckets()");
+        if (result == GXIO_MPIPE_ERR_NO_BUCKET) {
+            SCLogError(SC_ERR_INVALID_ARGUMENT,
+                       "Could not allocate mpipe buckets. "
+                       "Try a smaller mpipe.buckets value in suricata.yaml");
+            tmc_task_die("Could not allocate mpipe buckets");
+        }
         int bucket = result;
 
         /* Init group and buckets, preserving packet order among flows. */
