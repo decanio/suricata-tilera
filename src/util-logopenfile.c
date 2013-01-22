@@ -94,6 +94,29 @@ SCLogOpenFileFp(const char *path, const char *append_setting)
     return ret;
 }
 
+/** \brief open the indicated file, logging any errors
+ *  \param path filesystem path to open
+ *  \param append_setting open file with O_APPEND: "yes" or "no"
+ *  \retval FILE* on success
+ *  \retval NULL on error
+ */
+static void *
+SCLogOpenPcieFileFp(const char *path, const char *append_setting)
+{
+    FILE *ret = NULL;
+
+    if (strcasecmp(append_setting, "yes") == 0) {
+        ret = TileTrioOpenFileFp(path, "a");
+    } else {
+        ret = TileTrioOpenFileFp(path, "w");
+    }
+
+    if (ret == NULL)
+        SCLogError(SC_ERR_FOPEN, "Error opening file: \"%s\": %s",
+                   path, strerror(errno));
+    return ret;
+}
+
 /** \brief open a generic output "log file", which may be a regular file or a socket
  *  \param conf ConfNode structure for the output section in question
  *  \param log_ctx Log file context allocated by caller
@@ -143,11 +166,20 @@ SCConfLogOpenGeneric(ConfNode *conf,
     if (filetype == NULL)
         filetype = DEFAULT_LOG_FILETYPE;
 
+#ifdef __tile__
+    log_ctx->filetype = regular;
+#endif
     // Now, what have we been asked to open?
     if (strcasecmp(filetype, "unix_stream") == 0) {
         log_ctx->fp = SCLogOpenUnixSocketFp(log_path, SOCK_STREAM);
+#ifdef __tile__
+        log_ctx->filetype = unix_stream;
+#endif
     } else if (strcasecmp(filetype, "unix_dgram") == 0) {
         log_ctx->fp = SCLogOpenUnixSocketFp(log_path, SOCK_DGRAM);
+#ifdef __tile__
+        log_ctx->filetype = unix_dgram;
+#endif
     } else if (strcasecmp(filetype, DEFAULT_LOG_FILETYPE) == 0) {
         const char *append;
 
@@ -155,6 +187,16 @@ SCConfLogOpenGeneric(ConfNode *conf,
         if (append == NULL)
             append = DEFAULT_LOG_MODE_APPEND;
         log_ctx->fp = SCLogOpenFileFp(log_path, append);
+#ifdef __tile__
+    } else if (strcasecmp(filetype, "tile_pcie") == 0) {
+        const char *append;
+
+        append = ConfNodeLookupChildValue(conf, "append");
+        if (append == NULL)
+            append = DEFAULT_LOG_MODE_APPEND;
+        log_ctx->pcie_ctx = SCLogOpenPcieFileFp(log_path, append);
+        log_ctx->filetype = tile_pcie;
+#endif
     } else {
         SCLogError(SC_ERR_INVALID_YAML_CONF_ENTRY, "Invalid entry for "
                    "%s.type.  Expected \"regular\" (default), \"unix_stream\" "
@@ -162,8 +204,18 @@ SCConfLogOpenGeneric(ConfNode *conf,
                    conf->name);
     }
 
+#ifdef __tile__
+    if (log_ctx->filetype == tile_pcie) {
+        if (log_ctx->pcie_ctx == NULL)
+            return -1; // Error already logged by Open...Fp routine
+    } else {
+        if (log_ctx->fp == NULL)
+            return -1; // Error already logged by Open...Fp routine
+    }
+#else
     if (log_ctx->fp == NULL)
         return -1; // Error already logged by Open...Fp routine
+#endif
 
     SCLogInfo("%s output device (%s) initialized: %s", conf->name, filetype,
               filename);

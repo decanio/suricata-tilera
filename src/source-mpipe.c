@@ -205,12 +205,22 @@ static MpipePeerVars channel_to_equeue[MAX_CHANNELS];
  */
 static gxio_trio_context_t trio_context_body;
 static gxio_trio_context_t* trio_context = &trio_context_body;
+static int trio_inited = 0;
 
 #define MAX_TILES 36
 
+/*
+ * gxpci packet queue contexts used for packet capture (one per pipeline)
+ */
 static gxpci_context_t gxpci_context_body[PIPELINES];
 static gxpci_context_t* gxpci_context[PIPELINES];
 static int *inflight[MAX_TILES];
+
+/*
+ * gxpci raw dma contexts used for log relay
+ */
+static gxpci_context_t gxpci_raw_context_body;
+static gxpci_context_t *gxpci_raw_context = &gxpci_raw_context_body;
 
 /* The TRIO index. */
 static int trio_index = 0;
@@ -1229,6 +1239,7 @@ TmEcode ReceiveMpipeThreadInit(ThreadVars *tv, void *initdata, void **data) {
         if (capture_enabled != off) {
             result = gxio_trio_init(trio_context, trio_index);
             VERIFY(result, "gxio_trio_init()");
+            trio_inited = 1;
 
             for (queue_index = 0; queue_index < TileNumPipelines; queue_index++) {
 
@@ -1619,6 +1630,216 @@ int MpipeLiveGetDeviceCount(void) {
     }
 
     return i;
+}
+
+#define PCIE_PQ_LOG     1 /* use PQ for file I/O instead of raw_dma */
+
+#define OP_OPEN		1
+#define OP_WRITE	2
+#define OP_CLOSE	3
+
+typedef struct {
+    uint32_t	magic;
+    uint32_t	fileno;
+    uint32_t	op;
+    uint32_t    seq;
+    uint32_t	len;
+    uint32_t	next_offset;
+    char	buf[];
+} __attribute__((__packed__)) TrioMsg;
+
+static int gxpci_fileno = 0;
+static int gxpci_raw_ctx_inited = 0;
+static int raw_mutex_inited = 0;
+static uint32_t wr_pos;		/* write position within log_mem */
+static char *log_mem = NULL;
+static SCMutex raw_mutex;
+static uint32_t raw_seq = 0;
+static uint32_t dma_cnt = 0;
+static uint32_t comps_rcvd = 0;
+static uint32_t offsets[1024];
+uint_reg_t io_address[1024];
+static uint32_t lens[1024];
+static void *comp_buffer[1024];
+#define LOG_WRAP_OFFSET (log_wrap_offset)
+static size_t log_wrap_offset = 0;
+
+#define HOST_CACHE_ALIGN 128
+
+static void TrioDMABuf(void *p, uint32_t offset, uint32_t len)
+{
+    gxpci_comp_t comp[MAX_CMDS_BATCH];
+#ifdef PCIE_PQ_LOG
+    gxpci_cmd_t cmd;
+#else
+    gxpci_dma_cmd_t cmd;
+#endif
+    int result;
+    int credits;
+    uint32_t dmas;
+
+    __insn_mf();
+
+    do {
+        credits = gxpci_get_cmd_credits(gxpci_raw_context);
+        if (unlikely(credits == GXPCI_ERESET)) {
+            SCLogInfo("gxpci channel is reset");
+            SCReturn;
+        }
+    } while(credits == 0);
+
+    if ((offset & (HOST_CACHE_ALIGN -1)) != 0) {
+        tmc_task_die("UNALIGNED DMA: %d\n", offset);
+    }
+    cmd.buffer = p;
+#ifndef PCIE_PQ_LOG
+    cmd.remote_buf_offset = offset;
+#endif
+    cmd.size = (len + 63) & ~(63);
+
+#ifdef PCIE_PQ_LOG
+    result = gxpci_pq_t2h_cmd(gxpci_raw_context, &cmd);
+#else
+    result = gxpci_raw_dma_send_cmd(gxpci_raw_context, &cmd);
+#endif
+    dmas = arch_atomic_increment(&dma_cnt);
+    if (unlikely(result == GXPCI_ERESET)) {
+        SCLogInfo("gxpci channel is reset");
+    } else if (unlikely(result != 0)) {
+        SCLogInfo("gxpci_raw_dma_send_cmd returned non-zero");
+    }
+    offsets[dmas % 1024] = offset;
+    lens[dmas % 1024] = len;
+
+    result = gxpci_get_comps(gxpci_raw_context, comp, 0, MAX_CMDS_BATCH);
+    if (unlikely(result == GXPCI_ERESET)) {
+        SCLogInfo("gxpci channel is reset");
+        SCReturn;
+    } else {
+        //printf("dma_send: %d comps_rcvd: %d\n", dmas, arch_atomic_add(&comps_rcvd, result));
+        for(int i = 0; i < result; i++) {
+           comp_buffer[(comps_rcvd + i) % 1024] = comp[i].buffer;
+        }
+        arch_atomic_add(&comps_rcvd, result);
+    }
+}
+
+
+static void TrioWriteOpen(TrioFD *fp, const char *path, const char *append)
+{
+    SCMutexLock(&raw_mutex);
+    TrioMsg *p = (TrioMsg *)&log_mem[wr_pos];
+    uint32_t pos = wr_pos;
+
+    p->magic = 5555;
+    p->fileno = fp->fileno;
+    p->op = OP_OPEN;
+    p->seq = ++raw_seq;
+    p->len = offsetof(TrioMsg, buf);
+    p->len += sprintf(p->buf, "%s%s", append, path);
+    if (wr_pos + p->len > LOG_WRAP_OFFSET) {
+        wr_pos = p->next_offset = 0;
+    } else {
+        int roundup = (p->len + HOST_CACHE_ALIGN - 1) & ~(HOST_CACHE_ALIGN-1);
+        wr_pos = p->next_offset = (wr_pos + roundup);
+    }
+    TrioDMABuf(p, pos, p->len);
+    SCMutexUnlock(&raw_mutex);
+}
+
+int TileTrioPrintf(TrioFD *fp, const char *format, ...)
+{
+    va_list ap;
+#if 0
+    int cpu = tmc_cpus_get_my_cpu();
+    int rank = (cpu-1);
+    if (rank == 0) {
+#endif
+    SCMutexLock(&raw_mutex);
+    TrioMsg *p = (TrioMsg *)&log_mem[wr_pos];
+    uint32_t pos = wr_pos;
+
+    va_start(ap, format);
+
+    p->magic = 5555;
+    p->fileno = fp->fileno;
+    p->op = OP_WRITE;
+    p->seq = ++raw_seq;
+    p->len = offsetof(TrioMsg, buf);
+    p->len += vsprintf(p->buf, format, ap);
+    if (wr_pos + p->len > LOG_WRAP_OFFSET) {
+        wr_pos = p->next_offset = 0;
+    } else {
+        int roundup = (p->len + HOST_CACHE_ALIGN - 1) & ~(HOST_CACHE_ALIGN-1);
+        wr_pos = p->next_offset = (wr_pos + roundup);
+    }
+    TrioDMABuf(p, pos, p->len);
+    SCMutexUnlock(&raw_mutex);
+    vprintf(format, ap);
+#if 0
+    }
+#endif
+    return 0;
+}
+
+void *TileTrioOpenFileFp(const char*path, const char *append_setting)
+{
+    int result;
+    TrioFD *fp;
+
+    SCLogInfo("opening PCIe file: %s\n", path);
+    /* TBD: make this an atomic */
+    if (arch_atomic_exchange(&raw_mutex_inited, 1) == 0) {
+        SCMutexInit(&raw_mutex, NULL);
+        SCLogInfo("raw mutex initialized\n");
+    }
+    if (trio_inited == 0) {
+        result = gxio_trio_init(trio_context, trio_index);
+        VERIFY(result, "gxio_trio_init()");
+        trio_inited = 1;
+    }
+    if (gxpci_raw_ctx_inited == 0) {
+        result = gxpci_init(trio_context, gxpci_raw_context, trio_index, loc_mac);
+        VERIFY(result, "gxio_init()");
+
+        /*
+         * This indicates that we need to allocate an ASID ourselves,
+         * instead of using one that is allocated somewhere else.
+         */
+        int asid = GXIO_ASID_NULL;
+
+        result = gxpci_open_queue(gxpci_raw_context, asid,
+#ifdef PCIE_PQ_LOG
+                                  GXPCI_PQ_T2H,
+#else
+                                  GXPCI_RAW_DMA_SEND,
+#endif
+                                  0,
+                                  queue_index,
+                                  0,
+                                  0);
+        VERIFY(result, "gxio_open_queue()");
+
+        /*
+         * Allocate and register data buffer
+         */
+        size_t hugepagesz = tmc_alloc_get_huge_pagesize();
+        tmc_alloc_t alloc = TMC_ALLOC_INIT;
+        tmc_alloc_set_huge(&alloc);
+        tmc_alloc_set_home(&alloc, TMC_ALLOC_HOME_HASH);
+        tmc_alloc_set_pagesize_exact(&alloc, hugepagesz);
+        log_mem = tmc_alloc_map(&alloc, hugepagesz);
+        log_wrap_offset = (4 * 1024 * 1024) - 4096;
+
+        result = gxpci_iomem_register(gxpci_raw_context, log_mem, hugepagesz);
+        VERIFY(result, "gxio_iomem_register()");
+
+        gxpci_raw_ctx_inited = 1;
+    }
+    fp = SCMalloc(sizeof(TrioFD));
+    fp->fileno = arch_atomic_increment(&gxpci_fileno);
+    TrioWriteOpen(fp, path, append_setting);
+    return fp;
 }
 
 #endif // __tilegx__
