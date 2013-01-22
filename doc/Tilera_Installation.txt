@@ -225,14 +225,20 @@ below if you are using other network interface ports.
       # Load balancing mode "static" or "dynamic".
       load-balance: static
 
+      # number of buckets to take from mpipe.
+      buckets: 4096
+
       # Enable packet capture to pcie
       capture:
-          enabled: no
+        enabled: no
 
       # List of interfaces we will listen on.
       inputs:
-        - interface: gbe3
-        - interface: gbe4
+      - interface: gbe3
+      - interface: gbe4
+
+      # number of queues to poll
+      poll: 2
 
 Suricata can be configured to utilize available tiles on different Tilera
 processors by indicating the number of parallel processing pipelines to be
