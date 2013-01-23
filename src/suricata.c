@@ -1897,7 +1897,7 @@ int main(int argc, char **argv)
     {
     char *runmode = RunModeTileGetPipelineConfig(runmode_custom_mode);
 
-    if (strcmp(runmode, "workers") == 0) {
+    if (runmode && (strcmp(runmode, "workers") == 0)) {
         SCLogInfo("init workers startup barrier to TileNumPipeLines: %d barrier: %d",
                           TileNumPipelines,
                           TileNumPipelines + 4);
