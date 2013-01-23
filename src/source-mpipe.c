@@ -1750,11 +1750,6 @@ static void TrioWriteOpen(TrioFD *fp, const char *path, const char *append)
 int TileTrioPrintf(TrioFD *fp, const char *format, ...)
 {
     va_list ap;
-#if 0
-    int cpu = tmc_cpus_get_my_cpu();
-    int rank = (cpu-1);
-    if (rank == 0) {
-#endif
     SCMutexLock(&raw_mutex);
     TrioMsg *p = (TrioMsg *)&log_mem[wr_pos];
     uint32_t pos = wr_pos;
@@ -1775,10 +1770,7 @@ int TileTrioPrintf(TrioFD *fp, const char *format, ...)
     }
     TrioDMABuf(p, pos, p->len);
     SCMutexUnlock(&raw_mutex);
-    vprintf(format, ap);
-#if 0
-    }
-#endif
+    /*vprintf(format, ap); for debugging */
     return 0;
 }
 
