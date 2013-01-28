@@ -1453,6 +1453,13 @@ void MpmWuManberRegister (void) {
 /*
  * ONLY TESTS BELOW THIS COMMENT
  */
+#ifdef __tilegx__
+/* 
+ * Remove this temporarily on Tilera
+ * Needs a little more work because of the ThreadVars stuff
+ */
+#undef UNITTESTS
+#endif
 
 #ifdef UNITTESTS
 int WmTestInitCtx01 (void) {

@@ -1295,6 +1295,12 @@ retry:
 #endif
     return 0;
 }
+#ifdef __tilegx__
+/* 
+ * Remove this temporarily on Tilera
+ */
+#undef UNITTESTS
+#endif
 
 #ifdef UNITTESTS
 static int RingBuffer8SrSwInit01 (void) {

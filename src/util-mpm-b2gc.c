@@ -1267,6 +1267,13 @@ uint32_t B2gcSearch1(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx, PatternMatch
 /*
  * TESTS
  */
+#ifdef __tilegx__
+/* 
+ * Remove this temporarily on Tilera
+ * Needs a little more work because of the ThreadVars stuff
+ */
+#undef UNITTESTS
+#endif
 
 #ifdef UNITTESTS
 static int B2gcTestMacro01 (void) {

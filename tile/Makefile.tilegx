@@ -426,11 +426,32 @@ reimage_net:
 # suricata on Tilera platforms and perform additional analysis
 #
 
+#
+# Rebuild with unittests support (native compilation)
+#
+build_unittests:
+	echo Running configure
+	LIBS="-lgxpci -lgxio -ltmc" ./configure \
+            --enable-unittests \
+            --disable-gccmarch-native \
+	    --without-libpcap \
+	    --disable-af-packet \
+	    --with-libyaml-includes=$(YAML_DIR)/include \
+	    --with-libyaml-libraries=$(YAML_DIR)/src/.libs \
+	    --with-libmagic-includes=/usr/include \
+	    --with-libmagic-libraries=/usr/lib
+	sed -e 's/LDFLAGS =/LDFLAGS = -static/' src/Makefile > src/Makefile.tmp
+	sed -e 's/-I\/usr\/include//' src/Makefile.tmp > src/Makefile
+	rm src/Makefile.tmp
+	echo building Suricata
+	make clean
+	make -j 30
+
 # boot and upload suricata via a network interface
 # useful for testing as if this was installed on SSD
 boot_net: $(SIM_DEPS)
 	$(TILE_MONITOR) \
-    $(NET_ARGS) \
+	$(NET_ARGS) \
 	$(TILE_MONITOR_WILDCAT_BOOT_STATIC_ARGS)
 
 # boot tilera and mount home directory
