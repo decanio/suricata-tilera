@@ -2004,6 +2004,12 @@ void AppLayerFreeProbingParsers(AppLayerProbingParser *probing_parsers)
 }
 
 /**************************************Unittests*******************************/
+#ifdef __tilegx__
+/* 
+ * Remove this temporarily on Tilera
+ */
+#undef UNITTESTS
+#endif
 
 #ifdef UNITTESTS
 

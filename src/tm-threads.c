@@ -183,7 +183,10 @@ static void *TmThreadsThreadWrap(void *td)
         result = gxio_mica_register_page(&tv->mica_cb, tile_packet_page, tile_vhuge_size, 0);
         VERIFY(result, "gxio_mica_register_page()");
     }
-    tmc_sync_barrier_wait(&startup_barrier);
+    if (!((tv->thread_setup_flags == THREAD_SET_AFFTYPE) && 
+          (tv->cpu_affinity ==MANAGEMENT_CPU_SET))) {
+        tmc_sync_barrier_wait(&startup_barrier);
+    }
     return (*tv->tm_func)(tv);
 }
 #endif
@@ -1327,8 +1330,10 @@ TmEcode TmThreadSetCPUAffinity(ThreadVars *tv, uint16_t cpu)
 
 TmEcode TmThreadSetCPU(ThreadVars *tv, uint8_t type)
 {
+#ifndef __tile__ /* tilera always sets affinity for mpipe */
     if (!threading_set_cpu_affinity)
         return TM_ECODE_OK;
+#endif
 
     if (type > MAX_CPU_SET) {
         SCLogError(SC_ERR_INVALID_ARGUMENT, "invalid cpu type family");

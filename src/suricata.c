@@ -1894,13 +1894,35 @@ int main(int argc, char **argv)
 #endif /* OS_WIN32 */
 
 #ifdef __tile__
-    RunModeTileGetPipelineConfig();
-    tmc_sync_barrier_init(&startup_barrier,
+    {
+    char *runmode = RunModeTileGetPipelineConfig(runmode_custom_mode);
+
+    if (runmode && (strcmp(runmode, "workers") == 0)) {
+        SCLogInfo("init workers startup barrier to TileNumPipeLines: %d barrier: %d",
+                          TileNumPipelines,
+                          TileNumPipelines + 4);
+        
+        tmc_sync_barrier_init(&startup_barrier, TileNumPipelines + 4);
+
+    } else {
+  
+        unsigned int rx_tiles;
+        if (TileNumPipelinesPerRx == 1) {
+            rx_tiles = TileNumPipelines;
+        } else {
+            rx_tiles = (TileNumPipelines+1) / 2;
+        }
+        SCLogInfo("init startup barrier to TileNumPipeLines: %d barrier: %d",
+                          TileNumPipelines,
                           (TileNumPipelines * TILES_PER_PIPELINE) + 4 +
-                          ((TileNumPipelines+1) / 2) + /* Receive tiles */
-                          //((TileNumPipelines+2) / 3)); /* Output tiles */
-                          //((TileNumPipelines+1) / 2)); /* Output tiles */
+                          rx_tiles + /* Receive tiles */
                           TileNumPipelines); /* Output tiles */
+        tmc_sync_barrier_init(&startup_barrier,
+                          (TileNumPipelines * TILES_PER_PIPELINE) + 4 +
+                          rx_tiles + /* Receive tiles */
+                          TileNumPipelines); /* Output tiles */
+        }
+    }
 #endif /* __tile__ */
 
     PacketPoolInit(max_pending_packets);

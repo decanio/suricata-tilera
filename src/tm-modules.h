@@ -60,9 +60,21 @@ typedef struct TmModule_ {
 
 TmModule tmm_modules[TMM_SIZE];
 
+#ifdef __tile__
+typedef enum { regular, unix_stream, unix_dgram, tile_pcie } FileType;
+#endif
+
 /** Global structure for Output Context */
 typedef struct LogFileCtx_ {
+#ifdef __tile__
+    union {
+        void *pcie_ctx;
+        FILE *fp;
+    };
+    FileType filetype;
+#else
     FILE *fp;
+#endif
     /** It will be locked if the log/alert
      * record cannot be written to the file in one call */
     SCMutex fp_mutex;

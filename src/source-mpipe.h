@@ -94,4 +94,11 @@ char *MpipeLiveGetDevice(int);
 void MpipeFreePacket(void *arg);
 TmEcode ReceiveMpipeGo(void);
 
+typedef struct {
+    int         fileno;
+} TrioFD;
+
+int TileTrioPrintf(TrioFD *fp, const char *format, ...);
+void *TileTrioOpenFileFp(const char*path, const char *append_setting);
+
 #endif /* __SOURCE_MPIPE_H__ */

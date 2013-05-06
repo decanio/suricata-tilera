@@ -59,6 +59,10 @@
 #include "util-optimize.h"
 #include "util-logopenfile.h"
 
+#ifdef __tile__
+#include "source-mpipe.h" /* logging is in here for the time being */
+#endif
+
 #define DEFAULT_LOG_FILENAME "fast.log"
 
 #define MODULE_NAME "AlertFastLog"
@@ -154,12 +158,25 @@ TmEcode AlertFastLogIPv4(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
         }
 
         SCMutexLock(&aft->file_ctx->fp_mutex);
+#ifdef __tile__
+        if (aft->file_ctx->filetype == tile_pcie) {
+            TileTrioPrintf(aft->file_ctx->pcie_ctx,
+                "%s  %s[**] [%" PRIu32 ":%" PRIu32 ":%"
+                PRIu32 "] %s [**] [Classification: %s] [Priority: %"PRIu32"]"
+                " {%s} %s:%" PRIu32 " -> %s:%" PRIu32 "\n", timebuf, action,
+                pa->s->gid, pa->s->id, pa->s->rev, pa->s->msg, pa->s->class_msg, pa->s->prio,
+                proto, srcip, p->sp, dstip, p->dp);
+        } else {
+#endif
         fprintf(aft->file_ctx->fp, "%s  %s[**] [%" PRIu32 ":%" PRIu32 ":%"
                 PRIu32 "] %s [**] [Classification: %s] [Priority: %"PRIu32"]"
                 " {%s} %s:%" PRIu32 " -> %s:%" PRIu32 "\n", timebuf, action,
                 pa->s->gid, pa->s->id, pa->s->rev, pa->s->msg, pa->s->class_msg, pa->s->prio,
                 proto, srcip, p->sp, dstip, p->dp);
         fflush(aft->file_ctx->fp);
+#ifdef __tile__
+        }
+#endif
         aft->file_ctx->alerts++;
         SCMutexUnlock(&aft->file_ctx->fp_mutex);
     }

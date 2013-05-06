@@ -64,6 +64,11 @@
 #define SCMalloc SCMpmMalloc
 #define SCRealloc SCMpmRealloc
 //#define SCFree SCMpmFree
+
+#ifdef __tilegx__
+// optionally use experimental version of SCACSearch()
+//#define EXPERIMENTAL_SCACSEARCH 1
+#endif
 #endif
 
 void SCACInitCtx(MpmCtx *, int);
@@ -783,7 +788,7 @@ static inline void SCACCreateDeltaTable(MpmCtx *mpm_ctx)
         mpm_ctx->memory_size += (ctx->state_count *
                                  sizeof(SC_AC_STATE_TYPE_U16) * 256);
 
-	SCLogInfo("Delta Table size %d", (ctx->state_count *
+	SCLogInfo("Delta Table size %lu", (ctx->state_count *
                                  sizeof(SC_AC_STATE_TYPE_U16) * 256));
 
         StateQueue q;
@@ -827,7 +832,7 @@ static inline void SCACCreateDeltaTable(MpmCtx *mpm_ctx)
         mpm_ctx->memory_size += (ctx->state_count *
                                  sizeof(SC_AC_STATE_TYPE_U32) * 256);
 
-	SCLogInfo("Delta Table size %d", (ctx->state_count *
+	SCLogInfo("Delta Table size %lu", (ctx->state_count *
                                  sizeof(SC_AC_STATE_TYPE_U32) * 256));
 
         StateQueue q;
@@ -1224,6 +1229,7 @@ void SCACDestroyCtx(MpmCtx *mpm_ctx)
     return;
 }
 
+#if !defined(__tilegx__) || !defined(EXPERIMENTAL_SCACSEARCH)
 /**
  * \brief The aho corasick search function.
  *
@@ -1339,6 +1345,197 @@ uint32_t SCACSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
 
     return matches;
 }
+#else
+#warning Using optimized SCACSearch
+/*
+ * Heavily optimized pattern matching routine for tilegx.  Still experimental.
+ */
+
+//#define STYPE uint16_t
+//#define SCHECK(x) ((x) & 0x8000)
+//#define SLOAD(x) (x)
+//#define TOLOWER(x) tolower(x)
+//#define SLOAD(x) (*(int16_t*)(x))
+#define STYPE int16_t
+#define SCHECK(x) ((x) < 0)
+// Load int16_t assuming L2 hit latency
+#define SLOAD(x) __insn_ld2s_L2((int16_t* restrict)(x))
+#define TOLOWER(x) lctable[(x)]
+#define BTYPE uint32_t
+// Extract byte N=0,1,2,3 from x
+#define BYTE0(x) __insn_bfextu(x, 0, 7)
+#define BYTE1(x) __insn_bfextu(x, 8, 15)
+#define BYTE2(x) __insn_bfextu(x, 16, 23)
+#define BYTE3(x) __insn_bfextu(x, 24, 31)
+// y = 2 * (x & 0x7FFF)
+#define SINDEX(y,x) __insn_bfins(y, x, 9, 23)
+
+int CheckMatch(SCACCtx *ctx, PatternMatcherQueue *pmq, uint8_t *buf, uint16_t buflen, STYPE state, int i, int matches)
+{
+    SCACPatternList *pid_pat_list = ctx->pid_pat_list;
+
+    uint32_t no_of_entries = ctx->output_table[state & 0x7FFF].no_of_entries;
+    uint32_t *pids = ctx->output_table[state & 0x7FFF].pids;
+    uint32_t k;
+    for (k = 0; k < no_of_entries; k++) {
+        if (pids[k] & 0xFFFF0000) {
+            if (SCMemcmp(pid_pat_list[pids[k] & 0x0000FFFF].cs,
+                         buf + i - pid_pat_list[pids[k] & 0x0000FFFF].patlen + 1,
+                         pid_pat_list[pids[k] & 0x0000FFFF].patlen) != 0) {
+                /* inside loop */
+                if (pid_pat_list[pids[k] & 0x0000FFFF].case_state != 3) {
+                    continue;
+                }
+            }
+            if (pmq->pattern_id_bitarray[(pids[k] & 0x0000FFFF) / 8] & (1 << ((pids[k] & 0x0000FFFF) % 8))) {
+                ;
+            } else {
+                pmq->pattern_id_bitarray[(pids[k] & 0x0000FFFF) / 8] |= (1 << ((pids[k] & 0x0000FFFF) % 8));
+                pmq->pattern_id_array[pmq->pattern_id_array_cnt++] = pids[k] & 0x0000FFFF;
+            }
+            matches++;
+        } else {
+            if (pmq->pattern_id_bitarray[pids[k] / 8] & (1 << (pids[k] % 8))) {
+                ;
+            } else {
+                pmq->pattern_id_bitarray[pids[k] / 8] |= (1 << (pids[k] % 8));
+                pmq->pattern_id_array[pmq->pattern_id_array_cnt++] = pids[k];
+            }
+            matches++;
+        }
+        //loop1:
+        //;
+    }
+    return matches;
+}
+
+
+/**
+ * \brief The aho corasick search function.
+ *
+ * \param mpm_ctx        Pointer to the mpm context.
+ * \param mpm_thread_ctx Pointer to the mpm thread context.
+ * \param pmq            Pointer to the Pattern Matcher Queue to hold
+ *                       search matches.
+ * \param buf            Buffer to be searched.
+ * \param buflen         Buffer length.
+ *
+ * \retval matches Match count.
+ */
+uint32_t SCACSearch(MpmCtx *mpm_ctx, MpmThreadCtx *mpm_thread_ctx,
+                    PatternMatcherQueue *pmq, uint8_t *buf, uint16_t buflen)
+{
+    SCACCtx *ctx = (SCACCtx *)mpm_ctx->ctx;
+    int i = 0;
+    int matches = 0;
+
+    /* \todo tried loop unrolling with register var, with no perf increase.  Need
+     * to dig deeper */
+    /* \todo Change it for stateful MPM.  Supply the state using mpm_thread_ctx */
+    if (buflen == 0)
+        return matches;
+
+    SCACPatternList *pid_pat_list = ctx->pid_pat_list;
+
+    SC_AC_STATE_TYPE_U16 (*state_table_u16)[256];
+    uint8_t* restrict lctable = g_u8_lowercasetable;
+    /* this following implies (ctx->state_count < 32767) */
+    if ((state_table_u16 = ctx->state_table_u16)) {
+        STYPE state = 0;
+        int c = TOLOWER(buf[0]);
+        /* If buflen at least 4 bytes and buf 4-byte aligned. */
+        if (buflen >= 4 && ((uint64_t)buf & 0x3)==0) {
+            BTYPE data = *(BTYPE* restrict)(&buf[0]);
+            uint64_t index = 0;
+            /* Process 4*floor(buflen/4) bytes. */
+            i = 0;
+            while (i < (buflen & ~0x3)) {
+                BTYPE data1 = *(BTYPE* restrict)(&buf[i+4]);
+                index = SINDEX(index, state);
+                state = SLOAD((char*)&state_table_u16[0] + index + 2*c);
+                c = TOLOWER(BYTE1(data));
+                if (unlikely(SCHECK(state))) {
+                    matches = CheckMatch(ctx, pmq, buf, buflen, state, i, matches);
+                }
+                i++;
+                index = SINDEX(index, state);
+                state = SLOAD((char*)&state_table_u16[0] + index + 2*c);
+                c = TOLOWER(BYTE2(data));
+                if (unlikely(SCHECK(state))) {
+                    matches = CheckMatch(ctx, pmq, buf, buflen, state, i, matches);
+                }
+                i++;
+                index = SINDEX(index, state);
+                state = SLOAD((char*)&state_table_u16[0] + index + 2*c);
+                c = TOLOWER(BYTE3(data));
+                if (unlikely(SCHECK(state))) {
+                    matches = CheckMatch(ctx, pmq, buf, buflen, state, i, matches);
+                }
+                data = data1;
+                i++;
+                index = SINDEX(index, state);
+                state = SLOAD((char*)&state_table_u16[0] + index + 2*c);
+                c = TOLOWER(BYTE0(data));
+                if (unlikely(SCHECK(state))) {
+                    matches = CheckMatch(ctx, pmq, buf, buflen, state, i, matches);
+                }
+                i++;
+            }
+        }
+        /* Process buflen % 4 bytes. */
+        for (; i < buflen; i++) {
+            state = SLOAD(&state_table_u16[state & 0x7FFF][c]);
+            c = TOLOWER(buf[i+1]);
+            if (unlikely(SCHECK(state))) {
+                matches = CheckMatch(ctx, pmq, buf, buflen, state, i, matches);
+            }
+        } /* for (i = 0; i < buflen; i++) */
+    } else {
+        register SC_AC_STATE_TYPE_U32 state = 0;
+        SC_AC_STATE_TYPE_U32 (*state_table_u32)[256] = ctx->state_table_u32;
+        for (i = 0; i < buflen; i++) {
+            state = state_table_u32[state & 0x00FFFFFF][u8_tolower(buf[i])];
+            if (state & 0xFF000000) {
+                uint32_t no_of_entries = ctx->output_table[state & 0x00FFFFFF].no_of_entries;
+                uint32_t *pids = ctx->output_table[state & 0x00FFFFFF].pids;
+                uint32_t k;
+                for (k = 0; k < no_of_entries; k++) {
+                    if (pids[k] & 0xFFFF0000) {
+                        if (SCMemcmp(pid_pat_list[pids[k] & 0x0000FFFF].cs,
+                                     buf + i - pid_pat_list[pids[k] & 0x0000FFFF].patlen + 1,
+                                     pid_pat_list[pids[k] & 0x0000FFFF].patlen) != 0) {
+                            /* inside loop */
+                            if (pid_pat_list[pids[k] & 0x0000FFFF].case_state != 3) {
+                                continue;
+                            }
+                        }
+                        if (pmq->pattern_id_bitarray[(pids[k] & 0x0000FFFF) / 8] & (1 << ((pids[k] & 0x0000FFFF) % 8))) {
+                            ;
+                        } else {
+                            pmq->pattern_id_bitarray[(pids[k] & 0x0000FFFF) / 8] |= (1 << ((pids[k] & 0x0000FFFF) % 8));
+                            pmq->pattern_id_array[pmq->pattern_id_array_cnt++] = pids[k] & 0x0000FFFF;
+                        }
+                        matches++;
+                    } else {
+                        if (pmq->pattern_id_bitarray[pids[k] / 8] & (1 << (pids[k] % 8))) {
+                            ;
+                        } else {
+                            pmq->pattern_id_bitarray[pids[k] / 8] |= (1 << (pids[k] % 8));
+                            pmq->pattern_id_array[pmq->pattern_id_array_cnt++] = pids[k];
+                        }
+                        matches++;
+                    }
+                    //loop1:
+                    //;
+                }
+            }
+        } /* for (i = 0; i < buflen; i++) */
+    }
+
+    return matches;
+}
+
+#endif
 
 /**
  * \brief Add a case insensitive pattern.  Although we have different calls for
@@ -1424,6 +1621,13 @@ void SCACPrintInfo(MpmCtx *mpm_ctx)
 }
 
 /*************************************Unittests********************************/
+#ifdef __tilegx__
+/* 
+ * Remove this temporarily on Tilera
+ * Needs a little more work because of the ThreadVars stuff
+ */
+#undef UNITTESTS
+#endif
 
 #ifdef UNITTESTS
 

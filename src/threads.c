@@ -30,6 +30,13 @@
 #include "util-debug.h"
 #include "threads.h"
 
+#ifdef __tilegx__
+/* 
+ * Remove this temporarily on Tilera
+ */
+#undef UNITTESTS
+#endif
+
 #ifdef UNITTESTS /* UNIT TESTS */
 
 /**

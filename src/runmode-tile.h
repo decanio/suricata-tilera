@@ -76,7 +76,7 @@ int RunModeIdsTileMpipeWorkers(DetectEngineCtx *de_ctx);
 void RunModeIdsTileMpipeRegister(void);
 const char *RunModeIdsTileMpipeGetDefaultMode(void);
 
-void RunModeTileGetPipelineConfig(void);
+char *RunModeTileGetPipelineConfig(const char *custom_mode);
 
 extern int TileMpipeUnmapTile(int cpu);
 extern void *ParseMpipeConfig(const char *iface);

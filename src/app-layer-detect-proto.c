@@ -128,6 +128,14 @@ static void AlpProtoAddSignature(AlpProtoDetectCtx *ctx, DetectContentData *co, 
     ctx->sigs++;
 }
 
+#ifdef __tilegx__
+/* 
+ * Remove this temporarily on Tilera
+ * Needs a little more work because of the ThreadVars stuff
+ */
+#undef UNITTESTS
+#endif
+
 #ifdef UNITTESTS
 /** \brief free a AlpProtoSignature, recursively free any next sig */
 static void AlpProtoFreeSignature(AlpProtoSignature *s) {
