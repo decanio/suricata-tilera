@@ -43,7 +43,7 @@ all:
 # Go ahead and modify these:
 #
 HOME_DIR=/home/$(USER)
-WORK_DIR=$(HOME_DIR)/work/SURI14
+WORK_DIR=$(HOME_DIR)/work
 # you can probably leave the following alone
 CURRENT_DIR=$(PWD)
 RULES_DIR=$(WORK_DIR)/rules
