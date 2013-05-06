@@ -87,6 +87,7 @@
 #define max(a,b) (((a) > (b)) ? (a) : (b))
 
 extern uint8_t suricata_ctl_flags;
+extern int rule_reload;
 extern intmax_t max_pending_packets;
 extern size_t tile_vhuge_size;
 void *tile_packet_page = NULL;
@@ -614,7 +615,10 @@ static TmEcode ReceiveMpipePollPair(ThreadVars *tv, MpipeThreadVars *ptv,
     int max[2];
 
     if (rank == 0) {
-        SCMpmFreeze();
+        /* Make pattern memory read only, but only if rule-reload is disabled */
+        if (rule_reload == 0) {
+            SCMpmFreeze();
+        }
         SCLogInfo("suricata is ready to process network traffic");
     }
 
