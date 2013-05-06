@@ -43,6 +43,7 @@ enum {
 };
 
 char *RunmodeGetActive(void);
+const char *RunModeGetMainMode(void);
 
 void RunModeListRunmodes(void);
 void RunModeDispatch(int, const char *, DetectEngineCtx *);

@@ -33,6 +33,7 @@
 #include "detect-engine-mpm.h"
 
 #include "detect-content.h"
+#include "detect-pcre.h"
 #include "detect-uricontent.h"
 #include "detect-reference.h"
 #include "detect-ipproto.h"
@@ -94,6 +95,94 @@ typedef struct SigDuplWrapper_ {
 #define CONFIG_PCRE "^([A-z]+)\\s+([A-z0-9\\-]+)\\s+([\\[\\]A-z0-9\\.\\:_\\$\\!\\-,\\/]+)\\s+([\\:A-z0-9_\\$\\!,]+)\\s+(-\\>|\\<\\>|\\<\\-)\\s+([\\[\\]A-z0-9\\.\\:_\\$\\!\\-,/]+)\\s+([\\:A-z0-9_\\$\\!,]+)(?:\\s+\\((.*)?(?:\\s*)\\))?(?:(?:\\s*)\\n)?\\s*$"
 #define OPTION_PARTS 3
 #define OPTION_PCRE "^\\s*([A-z_0-9-\\.]+)(?:\\s*\\:\\s*(.*)(?<!\\\\))?\\s*;\\s*(?:\\s*(.*))?\\s*$"
+
+int DetectEngineContentModifierBufferSetup(DetectEngineCtx *de_ctx, Signature *s, char *arg,
+                                           uint8_t sm_type, uint8_t sm_list,
+                                           uint16_t alproto,  void (*CustomCallback)(Signature *s))
+{
+    SigMatch *sm = NULL;
+    int ret = -1;
+
+    if (arg != NULL && strcmp(arg, "") != 0) {
+        SCLogError(SC_ERR_INVALID_ARGUMENT, "%s shouldn't be supplied "
+                   "with an argument", sigmatch_table[sm_type].name);
+        goto end;
+    }
+
+    if (s->init_flags & (SIG_FLAG_INIT_FILE_DATA | SIG_FLAG_INIT_DCE_STUB_DATA)) {
+        SCLogError(SC_ERR_INVALID_SIGNATURE, "\"%s\" keyword seen "
+                   "with a sticky buffer still set.  Reset sticky buffer "
+                   "with pkt_data before using the modifier.",
+                   sigmatch_table[sm_type].name);
+        goto end;
+    }
+    /* for now let's hardcode it as http */
+    if (s->alproto != ALPROTO_UNKNOWN && s->alproto != alproto) {
+        SCLogError(SC_ERR_CONFLICTING_RULE_KEYWORDS, "rule contains conflicting "
+                   "alprotos set");
+        goto end;
+    }
+
+    sm = SigMatchGetLastSMFromLists(s, 2,
+                                    DETECT_CONTENT, s->sm_lists_tail[DETECT_SM_LIST_PMATCH]);
+    if (sm == NULL) {
+        SCLogError(SC_ERR_INVALID_SIGNATURE, "\"%s\" keyword "
+                   "found inside the rule without a content context.  "
+                   "Please use a \"content\" keyword before using the "
+                   "\"%s\" keyword", sigmatch_table[sm_type].name,
+                   sigmatch_table[sm_type].name);
+        goto end;
+    }
+    DetectContentData *cd = (DetectContentData *)sm->ctx;
+    if (cd->flags & DETECT_CONTENT_RAWBYTES) {
+        SCLogError(SC_ERR_INVALID_SIGNATURE, "%s rule can not "
+                   "be used with the rawbytes rule keyword",
+                   sigmatch_table[sm_type].name);
+        goto end;
+    }
+    if (cd->flags & (DETECT_CONTENT_WITHIN | DETECT_CONTENT_DISTANCE)) {
+        SigMatch *pm =  SigMatchGetLastSMFromLists(s, 4,
+                                                   DETECT_CONTENT, sm->prev,
+                                                   DETECT_PCRE, sm->prev);
+        if (pm != NULL) {
+            if (pm->type == DETECT_CONTENT) {
+                DetectContentData *tmp_cd = (DetectContentData *)pm->ctx;
+                tmp_cd->flags &= ~DETECT_CONTENT_RELATIVE_NEXT;
+            } else {
+                DetectPcreData *tmp_pd = (DetectPcreData *)pm->ctx;
+                tmp_pd->flags &= ~DETECT_PCRE_RELATIVE_NEXT;
+            }
+        }
+
+        pm = SigMatchGetLastSMFromLists(s, 4,
+                                        DETECT_CONTENT, s->sm_lists_tail[sm_list],
+                                        DETECT_PCRE, s->sm_lists_tail[sm_list]);
+        if (pm != NULL) {
+            if (pm->type == DETECT_CONTENT) {
+                DetectContentData *tmp_cd = (DetectContentData *)pm->ctx;
+                tmp_cd->flags |= DETECT_CONTENT_RELATIVE_NEXT;
+            } else {
+                DetectPcreData *tmp_pd = (DetectPcreData *)pm->ctx;
+                tmp_pd->flags |= DETECT_PCRE_RELATIVE_NEXT;
+            }
+        }
+    }
+    if (CustomCallback != NULL)
+        CustomCallback(s);
+    s->alproto = alproto;
+    s->flags |= SIG_FLAG_APPLAYER;
+
+    /* transfer the sm from the pmatch list to hcbdmatch list */
+    SigMatchTransferSigMatchAcrossLists(sm,
+                                        &s->sm_lists[DETECT_SM_LIST_PMATCH],
+                                        &s->sm_lists_tail[DETECT_SM_LIST_PMATCH],
+                                        &s->sm_lists[sm_list],
+                                        &s->sm_lists_tail[sm_list]);
+
+    ret = 0;
+ end:
+    return ret;
+}
 
 uint32_t DbgGetSrcPortAnyCnt(void) {
     return dbg_srcportany_cnt;
@@ -989,7 +1078,11 @@ static void SigBuildAddressMatchArray(Signature *s) {
  *  \retval 0 invalid
  *  \retval 1 valid
  */
-static int SigValidate(Signature *s) {
+int SigValidate(DetectEngineCtx *de_ctx, Signature *s) {
+    uint32_t u = 0;
+    uint32_t sig_flags = 0;
+    SigMatch *sm, *pm;
+
     SCEnter();
 
     if ((s->flags & SIG_FLAG_REQUIRE_PACKET) &&
@@ -999,7 +1092,6 @@ static int SigValidate(Signature *s) {
         SCReturnInt(0);
     }
 
-    SigMatch *sm;
     for (sm = s->sm_lists[DETECT_SM_LIST_MATCH]; sm != NULL; sm = sm->next) {
         if (sm->type == DETECT_FLOW) {
             DetectFlowData *fd = (DetectFlowData *)sm->ctx;
@@ -1033,6 +1125,25 @@ static int SigValidate(Signature *s) {
         }
     }
 
+    if (s->sm_lists[DETECT_SM_LIST_UMATCH] != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HRUDMATCH] != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HCBDMATCH] != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HMDMATCH] != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HUADMATCH] != NULL) {
+        sig_flags |= SIG_FLAG_TOSERVER;
+    }
+    if (s->sm_lists[DETECT_SM_LIST_HSBDMATCH] != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HSMDMATCH] != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HSCDMATCH] != NULL) {
+        sig_flags |= SIG_FLAG_TOCLIENT;
+    }
+    if ((sig_flags & (SIG_FLAG_TOCLIENT | SIG_FLAG_TOSERVER)) == (SIG_FLAG_TOCLIENT | SIG_FLAG_TOSERVER)) {
+        SCLogError(SC_ERR_INVALID_SIGNATURE,"You seem to have mixed keywords "
+                   "that require inspection in both directions.  Atm we only "
+                   "support keywords in one direction within a rule.");
+        SCReturnInt(0);
+    }
+
     if (s->sm_lists[DETECT_SM_LIST_HRHDMATCH] != NULL) {
         if ((s->flags & (SIG_FLAG_TOCLIENT|SIG_FLAG_TOSERVER)) == (SIG_FLAG_TOCLIENT|SIG_FLAG_TOSERVER)) {
             SCLogError(SC_ERR_INVALID_SIGNATURE,"http_raw_header signature "
@@ -1051,37 +1162,37 @@ static int SigValidate(Signature *s) {
 #endif /* HAVE_HTP_TX_GET_RESPONSE_HEADERS_RAW */
     }
 
-    if (s->alproto == ALPROTO_DCERPC) {
-        /* \todo We haven't covered dce rpc cases now.  They need special
-         * treatment, since they do allow distance, within without a
-         * previous content, but with respect to the stub buffer */
-        ;
-    } else {
-        SigMatch *sm;
-        for (sm = s->sm_lists[DETECT_SM_LIST_PMATCH]; sm != NULL; sm = sm->next) {
+    if (s->sm_lists[DETECT_SM_LIST_HHHDMATCH] != NULL) {
+        for (sm = s->sm_lists[DETECT_SM_LIST_HHHDMATCH];
+             sm != NULL; sm = sm->next) {
             if (sm->type == DETECT_CONTENT) {
                 DetectContentData *cd = (DetectContentData *)sm->ctx;
-                if ((cd->flags & DETECT_CONTENT_DISTANCE) ||
-                    (cd->flags & DETECT_CONTENT_WITHIN)) {
-                    SigMatch *pm = SigMatchGetLastSMFromLists(s, 4,
-                                                              DETECT_PCRE, sm->prev,
-                                                              DETECT_BYTEJUMP, sm->prev);
-                    if (pm == NULL) {
-                        SCLogError(SC_ERR_DISTANCE_MISSING_CONTENT, "within needs two "
-                                   "preceding content or uricontent options");
-                        SCReturnInt(0);
-                    } else {
-                        break;
-                    }
+                if (cd->flags & DETECT_CONTENT_NOCASE) {
+                    SCLogWarning(SC_ERR_INVALID_SIGNATURE, "http_host keyword "
+                                 "specified along with \"nocase\". "
+                                 "Since the hostname buffer we match against "
+                                 "is actually lowercase.  So having a "
+                                 "nocase is redundant.");
                 } else {
-                    break;
+                    for (u = 0; u < cd->content_len; u++) {
+                        if (isupper(cd->content[u]))
+                            break;
+                    }
+                    if (u != cd->content_len) {
+                        SCLogWarning(SC_ERR_INVALID_SIGNATURE, "A pattern with "
+                                     "uppercase chars detected for http_host.  "
+                                     "Since the hostname buffer we match against "
+                                     "is lowercase only, please specify a "
+                                     "lowercase pattern.");
+                        SCReturnInt(0);
+                    }
                 }
             }
         }
     }
 
     if (s->flags & SIG_FLAG_REQUIRE_PACKET) {
-        SigMatch *pm =  SigMatchGetLastSMFromLists(s, 14,
+        pm =  SigMatchGetLastSMFromLists(s, 24,
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_UMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HRUDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HCBDMATCH],
@@ -1092,7 +1203,9 @@ static int SigValidate(Signature *s) {
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HSMDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HSCDMATCH],
                 DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH],
-                DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HUADMATCH]);
+                DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HUADMATCH],
+                DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HHHDMATCH],
+                DETECT_REPLACE, s->sm_lists_tail[DETECT_SM_LIST_HRHHDMATCH]);
         if (pm != NULL) {
             SCLogError(SC_ERR_INVALID_SIGNATURE, "Signature has"
                 " replace keyword linked with a modified content"
@@ -1111,7 +1224,9 @@ static int SigValidate(Signature *s) {
                 s->sm_lists_tail[DETECT_SM_LIST_HSMDMATCH] ||
                 s->sm_lists_tail[DETECT_SM_LIST_HSCDMATCH] ||
                 s->sm_lists_tail[DETECT_SM_LIST_HCDMATCH] ||
-                s->sm_lists_tail[DETECT_SM_LIST_HUADMATCH])
+                s->sm_lists_tail[DETECT_SM_LIST_HUADMATCH] ||
+                s->sm_lists_tail[DETECT_SM_LIST_HHHDMATCH] ||
+                s->sm_lists_tail[DETECT_SM_LIST_HRHHDMATCH])
         {
             SCLogError(SC_ERR_INVALID_SIGNATURE, "Signature combines packet "
                     "specific matches (like dsize, flags, ttl) with stream / "
@@ -1125,7 +1240,7 @@ static int SigValidate(Signature *s) {
     if (s->proto.proto[IPPROTO_TCP / 8] & (1 << (IPPROTO_TCP % 8))) {
         if (!(s->flags & (SIG_FLAG_REQUIRE_PACKET | SIG_FLAG_REQUIRE_STREAM))) {
             s->flags |= SIG_FLAG_REQUIRE_STREAM;
-            SigMatch *sm = s->sm_lists[DETECT_SM_LIST_PMATCH];
+            sm = s->sm_lists[DETECT_SM_LIST_PMATCH];
             while (sm != NULL) {
                 if (sm->type == DETECT_CONTENT &&
                         (((DetectContentData *)(sm->ctx))->flags &
@@ -1142,7 +1257,6 @@ static int SigValidate(Signature *s) {
     int i;
     for (i = 0; i < DETECT_SM_LIST_MAX; i++) {
         if (s->sm_lists[i] != NULL) {
-            SigMatch *sm;
             for (sm = s->sm_lists[i]; sm != NULL; sm = sm->next) {
                 BUG_ON(sm == sm->prev);
                 BUG_ON(sm == sm->next);
@@ -1260,6 +1374,10 @@ static Signature *SigInitHelper(DetectEngineCtx *de_ctx, char *sigstr,
         sig->flags |= SIG_FLAG_STATE_MATCH;
     if (sig->sm_lists[DETECT_SM_LIST_HUADMATCH])
         sig->flags |= SIG_FLAG_STATE_MATCH;
+    if (sig->sm_lists[DETECT_SM_LIST_HHHDMATCH])
+        sig->flags |= SIG_FLAG_STATE_MATCH;
+    if (sig->sm_lists[DETECT_SM_LIST_HRHHDMATCH])
+        sig->flags |= SIG_FLAG_STATE_MATCH;
 
     if (!(sig->init_flags & SIG_FLAG_INIT_FLOW)) {
         sig->flags |= SIG_FLAG_TOSERVER;
@@ -1273,7 +1391,7 @@ static Signature *SigInitHelper(DetectEngineCtx *de_ctx, char *sigstr,
     SigBuildAddressMatchArray(sig);
 
     /* validate signature, SigValidate will report the error reason */
-    if (SigValidate(sig) == 0) {
+    if (SigValidate(de_ctx, sig) == 0) {
         goto error;
     }
 
@@ -1625,197 +1743,6 @@ error:
     return NULL;
 }
 
-/**
- *  \brief Parse a content string, ie "abc|DE|fgh"
- *
- *  \param content_str null terminated string containing the content
- *  \param result result pointer to pass the fully parsed byte array
- *  \param result_len size of the resulted data
- *  \param flags flags to be set by this parsing function
- *
- *  \retval -1 error
- *  \retval 0 ok
- *
- *  \initonly
- */
-int DetectParseContentString (char *contentstr, uint8_t **result, uint16_t *result_len, uint32_t *result_flags)
-{
-    char *str = NULL;
-    char *temp = NULL;
-    uint16_t len;
-    uint16_t pos = 0;
-    uint16_t slen = 0;
-    uint8_t *content = NULL;
-    uint16_t content_len = 0;
-    uint32_t flags = 0;
-
-    if ((temp = SCStrdup(contentstr)) == NULL) {
-        SCLogError(SC_ERR_MEM_ALLOC, "Error allocating memory. Exiting...");
-        exit(EXIT_FAILURE);
-    }
-
-    if (strlen(temp) == 0) {
-        SCFree(temp);
-        return -1;
-    }
-
-    /* skip the first spaces */
-    slen = strlen(temp);
-    while (pos < slen && isspace((unsigned char)temp[pos])) {
-        pos++;
-    }
-
-    if (temp[pos] == '!') {
-        SCFree(temp);
-
-        if ((temp = SCStrdup(contentstr + pos + 1)) == NULL) {
-            SCLogError(SC_ERR_MEM_ALLOC, "error allocating memory. exiting...");
-            exit(EXIT_FAILURE);
-        }
-
-        pos = 0;
-        flags |= DETECT_CONTENT_NEGATED;
-        SCLogDebug("negation in place");
-    }
-
-    if (temp[pos] == '\"' && strlen(temp + pos) == 1)
-        goto error;
-
-    if (temp[pos] == '\"' && temp[pos + strlen(temp + pos) - 1] == '\"') {
-        if ((str = SCStrdup(temp + pos + 1)) == NULL) {
-            SCLogError(SC_ERR_MEM_ALLOC, "error allocating memory. exiting...");
-            exit(EXIT_FAILURE);
-        }
-
-        str[strlen(temp) - pos - 2] = '\0';
-    } else if (temp[pos] == '\"' || temp[pos + strlen(temp + pos) - 1] == '\"') {
-        goto error;
-    } else {
-        if ((str = SCStrdup(temp + pos)) == NULL) {
-            SCLogError(SC_ERR_MEM_ALLOC, "error allocating memory. exiting...");
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    SCFree(temp);
-    temp = NULL;
-
-    len = strlen(str);
-    if (len == 0)
-        goto error;
-
-    //SCLogDebug("DetectContentParse: \"%s\", len %" PRIu32 "", str, len);
-    char converted = 0;
-
-    {
-        uint16_t i, x;
-        uint8_t bin = 0;
-        uint8_t escape = 0;
-        uint8_t binstr[3] = "";
-        uint8_t binpos = 0;
-        uint16_t bin_count = 0;
-
-        for (i = 0, x = 0; i < len; i++) {
-            // SCLogDebug("str[%02u]: %c", i, str[i]);
-            if (str[i] == '|') {
-                bin_count++;
-                if (bin) {
-                    bin = 0;
-                } else {
-                    bin = 1;
-                }
-            } else if(!escape && str[i] == '\\') {
-                escape = 1;
-            } else {
-                if (bin) {
-                    if (isdigit((unsigned char)str[i]) ||
-                            str[i] == 'A' || str[i] == 'a' ||
-                            str[i] == 'B' || str[i] == 'b' ||
-                            str[i] == 'C' || str[i] == 'c' ||
-                            str[i] == 'D' || str[i] == 'd' ||
-                            str[i] == 'E' || str[i] == 'e' ||
-                            str[i] == 'F' || str[i] == 'f')
-                    {
-                        // SCLogDebug("part of binary: %c", str[i]);
-
-                        binstr[binpos] = (char)str[i];
-                        binpos++;
-
-                        if (binpos == 2) {
-                            uint8_t c = strtol((char *)binstr, (char **) NULL, 16) & 0xFF;
-                            binpos = 0;
-                            str[x] = c;
-                            x++;
-                            converted = 1;
-                        }
-                    } else if (str[i] == ' ') {
-                        // SCLogDebug("space as part of binary string");
-                    }
-                } else if (escape) {
-                    if (str[i] == ':' ||
-                        str[i] == ';' ||
-                        str[i] == '\\' ||
-                        str[i] == '\"')
-                    {
-                        str[x] = str[i];
-                        x++;
-                    } else {
-                        //SCLogDebug("Can't escape %c", str[i]);
-                        goto error;
-                    }
-                    escape = 0;
-                    converted = 1;
-                } else {
-                    str[x] = str[i];
-                    x++;
-                }
-            }
-        }
-
-        if (bin_count % 2 != 0) {
-            SCLogError(SC_ERR_INVALID_SIGNATURE, "Invalid hex code assembly in "
-                       "content - %s.  Invalidating signature", str);
-            goto error;
-        }
-
-#if 0//def DEBUG
-        if (SCLogDebugEnabled()) {
-            for (i = 0; i < x; i++) {
-                if (isprint(str[i])) SCLogDebug("%c", str[i]);
-                else                 SCLogDebug("\\x%02u", str[i]);
-            }
-            SCLogDebug("");
-        }
-#endif
-
-        if (converted) {
-            len = x;
-        }
-    }
-
-    content = SCMalloc(len);
-    if (unlikely(content == NULL)) {
-        exit(EXIT_FAILURE);
-    }
-
-    memcpy(content, str, len);
-    content_len = len;
-
-    SCFree(str);
-
-    *result = content;
-    *result_len = content_len;
-    *result_flags = flags;
-    SCLogDebug("flags %02X, result_flags %02X", flags, *result_flags);
-    return 0;
-
-error:
-    SCFree(str);
-    SCFree(temp);
-    if (content != NULL)
-        SCFree(content);
-    return -1;
-}
 /*
  * TESTS
  */

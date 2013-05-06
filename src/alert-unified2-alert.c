@@ -67,6 +67,9 @@
 /**< Minimum log file limit in MB. */
 #define MIN_LIMIT 1 * 1024 * 1024
 
+/* Default Sensor ID value */
+static uint32_t sensor_id = 0;
+
 /**
  * Unified2 file header struct
  *
@@ -358,7 +361,7 @@ static int Unified2PrintStreamSegmentCallback(Packet *p, void *data, uint8_t *bu
     hdr->type = htonl(UNIFIED2_PACKET_TYPE);
     aun->hdr = hdr;
 
-    phdr->sensor_id = 0;
+    phdr->sensor_id = htonl(sensor_id);
     phdr->linktype = htonl(datalink);
     phdr->event_id = aun->event_id;
     phdr->event_second = phdr->packet_second = htonl(p->ts.tv_sec);
@@ -547,7 +550,7 @@ int Unified2PacketTypeAlert (Unified2AlertThread *aun, Packet *p, uint32_t event
         hdr->type = htonl(UNIFIED2_PACKET_TYPE);
         aun->hdr = hdr;
 
-        phdr->sensor_id = 0;
+        phdr->sensor_id = htonl(sensor_id);
         phdr->linktype = htonl(datalink);
         phdr->event_id =  event_id;
         phdr->event_second = phdr->packet_second = htonl(p->ts.tv_sec);
@@ -638,7 +641,7 @@ int Unified2IPv6TypeAlert (ThreadVars *t, Packet *p, void *data, PacketQueue *pq
     /* fill the gphdr structure with the data of the packet */
     memset(&gphdr, 0, sizeof(gphdr));
     /* FIXME this need to be copied for each alert */
-    gphdr.sensor_id = 0;
+    gphdr.sensor_id = htonl(sensor_id);
     gphdr.event_second =  htonl(p->ts.tv_sec);
     gphdr.event_microsecond = htonl(p->ts.tv_usec);
     gphdr.src_ip = *(struct in6_addr*)GET_IPV6_SRC_ADDR(p);
@@ -731,8 +734,10 @@ int Unified2IPv6TypeAlert (ThreadVars *t, Packet *p, void *data, PacketQueue *pq
         aun->length = 0;
         aun->offset = 0;
 
-        ret = Unified2PacketTypeAlert(aun, p, phdr->event_id,
-                pa->flags & (PACKET_ALERT_FLAG_STATE_MATCH|PACKET_ALERT_FLAG_STREAM_MATCH) ? 1 : 0);
+        /* stream flag based on state match, but only for TCP */
+        int stream = (gphdr.protocol == IPPROTO_TCP) ?
+            (pa->flags & (PACKET_ALERT_FLAG_STATE_MATCH|PACKET_ALERT_FLAG_STREAM_MATCH) ? 1 : 0) : 0;
+        ret = Unified2PacketTypeAlert(aun, p, phdr->event_id, stream);
         if (ret != 1) {
             SCLogError(SC_ERR_FWRITE, "Error: fwrite failed: %s", strerror(errno));
             aun->file_ctx->alerts += i;
@@ -783,7 +788,7 @@ int Unified2IPv4TypeAlert (ThreadVars *tv, Packet *p, void *data, PacketQueue *p
 
     /* fill the gphdr structure with the data of the packet */
     memset(&gphdr, 0, sizeof(gphdr));
-    gphdr.sensor_id = 0;
+    gphdr.sensor_id = htonl(sensor_id);
     gphdr.event_id = 0;
     gphdr.event_second =  htonl(p->ts.tv_sec);
     gphdr.event_microsecond = htonl(p->ts.tv_usec);
@@ -872,8 +877,9 @@ int Unified2IPv4TypeAlert (ThreadVars *tv, Packet *p, void *data, PacketQueue *p
         /* Write the alert (it doesn't lock inside, since we
          * already locked here for rotation check)
          */
-        ret = Unified2PacketTypeAlert(aun, p, event_id,
-                pa->flags & (PACKET_ALERT_FLAG_STATE_MATCH|PACKET_ALERT_FLAG_STREAM_MATCH) ? 1 : 0);
+        int stream = (gphdr.protocol == IPPROTO_TCP) ?
+            (pa->flags & (PACKET_ALERT_FLAG_STATE_MATCH|PACKET_ALERT_FLAG_STREAM_MATCH) ? 1 : 0) : 0;
+        ret = Unified2PacketTypeAlert(aun, p, event_id, stream);
         if (ret != 1) {
             aun->file_ctx->alerts += i;
             SCMutexUnlock(&aun->file_ctx->fp_mutex);
@@ -1007,6 +1013,17 @@ OutputCtx *Unified2AlertInitCtx(ConfNode *conf)
                 SCLogError(SC_ERR_INVALID_ARGUMENT,
                     "Failed to initialize unified2 output, limit less than "
                     "allowed minimum: %d.", MIN_LIMIT);
+                exit(EXIT_FAILURE);
+            }
+        }
+    }
+
+    if (conf != NULL) {
+        const char *sensor_id_s = NULL;
+        sensor_id_s = ConfNodeLookupChildValue(conf, "sensor-id");
+        if (sensor_id_s != NULL) {
+            if (ByteExtractStringUint32(&sensor_id, 10, 0, sensor_id_s) == -1) {
+                SCLogError(SC_ERR_INVALID_ARGUMENT, "Failed to initialize unified2 output, invalid sensor-id: %s", sensor_id_s);
                 exit(EXIT_FAILURE);
             }
         }

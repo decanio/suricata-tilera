@@ -52,6 +52,8 @@
 #include "detect-http-cookie.h"
 #include "detect-http-method.h"
 #include "detect-http-ua.h"
+#include "detect-http-hh.h"
+#include "detect-http-hrh.h"
 
 #include "detect-engine-event.h"
 #include "decode.h"
@@ -136,6 +138,8 @@
 #include "detect-engine-hsmd.h"
 #include "detect-engine-hscd.h"
 #include "detect-engine-hua.h"
+#include "detect-engine-hhhd.h"
+#include "detect-engine-hrhhd.h"
 #include "detect-byte-extract.h"
 #include "detect-file-data.h"
 #include "detect-pkt-data.h"
@@ -333,7 +337,7 @@ int DetectLoadSigFile(DetectEngineCtx *de_ctx, char *sig_file, int *sigs_tot) {
         (*sigs_tot)++;
         if (sig != NULL) {
             if (rule_engine_analysis_set || fp_engine_analysis_set) {
-                sig->mpm_sm = RetrieveFPForSig(sig);
+                sig->mpm_sm = RetrieveFPForSigV2(sig);
                 if (fp_engine_analysis_set) {
                     EngineAnalysisFP(sig, line);
                 }
@@ -469,7 +473,8 @@ int SigLoadSignatures(DetectEngineCtx *de_ctx, char *sig_file, int sig_file_excl
     }
 
     /* Setup the signature group lookup structure and pattern matchers */
-    SigGroupBuild(de_ctx);
+    if (SigGroupBuild(de_ctx) < 0)
+        goto end;
 
     ret = 0;
 
@@ -1014,6 +1019,16 @@ static inline void DetectMpmPrefilter(DetectEngineCtx *de_ctx,
                     DetectEngineRunHttpUAMpm(det_ctx, p->flow, alstate, flags);
                     PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HUAD);
                 }
+                if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HHHD) {
+                    PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HHHD);
+                    DetectEngineRunHttpHHMpm(det_ctx, p->flow, alstate, flags);
+                    PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HHHD);
+                }
+                if (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HRHHD) {
+                    PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HRHHD);
+                    DetectEngineRunHttpHRHMpm(det_ctx, p->flow, alstate, flags);
+                    PACKET_PROFILING_DETECT_END(p, PROF_DETECT_MPM_HRHHD);
+                }
             } else { /* implied FLOW_PKT_TOCLIENT */
                 if ((p->flowflags & FLOW_PKT_TOCLIENT) && (det_ctx->sgh->flags & SIG_GROUP_HEAD_MPM_HSBD)) {
                     PACKET_PROFILING_DETECT_START(p, PROF_DETECT_MPM_HSBD);
@@ -1229,7 +1244,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
             /* Retrieve the app layer state and protocol and the tcp reassembled
              * stream chunks. */
             if ((p->proto == IPPROTO_TCP && (p->flags & PKT_STREAM_EST)) ||
-                (p->proto == IPPROTO_UDP && (p->flowflags & FLOW_PKT_ESTABLISHED)) ||
+                (p->proto == IPPROTO_UDP) ||
                 (p->proto == IPPROTO_SCTP && (p->flowflags & FLOW_PKT_ESTABLISHED)))
             {
                 alstate = AppLayerGetProtoStateFromPacket(p);
@@ -1294,11 +1309,6 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
                    ((p->flowflags & FLOW_PKT_TOCLIENT) &&
                    (p->flow->flags & FLOW_TOCLIENT_IPONLY_SET)))
         {
-            /* Get the result of the first IPOnlyMatch() */
-            if (p->flow->flags & FLOW_ACTION_PASS) {
-                /* if it matched a "pass" rule, we have to let it go */
-                p->action |= ACTION_PASS;
-            }
             /* If we have a drop from IP only module,
              * we will drop the rest of the flow packets
              * This will apply only to inline/IPS */
@@ -1357,7 +1367,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
 
         /* if applicable, continue stateful detection */
         int state = DeStateFlowHasState(p->flow, flags, alversion);
-        if (state == 1) {
+        if (state == 1 || (flags & STREAM_EOF)) {
             DeStateDetectContinueDetection(th_v, de_ctx, det_ctx, p->flow,
                     flags, alstate, alproto, alversion);
         } else if (state == 2) {
@@ -1603,6 +1613,7 @@ int SigMatchSignatures(ThreadVars *th_v, DetectEngineCtx *de_ctx, DetectEngineTh
             p->action |= s->action;
         }
 next:
+        DetectFlowvarCleanupList(det_ctx);
         DetectReplaceFree(det_ctx->replist);
         det_ctx->replist = NULL;
         RULE_PROFILING_END(det_ctx, s, smatch);
@@ -1965,6 +1976,12 @@ int SignatureIsIPOnly(DetectEngineCtx *de_ctx, Signature *s) {
     if (s->sm_lists[DETECT_SM_LIST_HUADMATCH] != NULL)
         return 0;
 
+    if (s->sm_lists[DETECT_SM_LIST_HHHDMATCH] != NULL)
+        return 0;
+
+    if (s->sm_lists[DETECT_SM_LIST_HRHHDMATCH] != NULL)
+        return 0;
+
     if (s->sm_lists[DETECT_SM_LIST_AMATCH] != NULL)
         return 0;
 
@@ -2062,7 +2079,9 @@ static int SignatureIsDEOnly(DetectEngineCtx *de_ctx, Signature *s) {
         s->sm_lists[DETECT_SM_LIST_HSMDMATCH] != NULL ||
         s->sm_lists[DETECT_SM_LIST_HSCDMATCH] != NULL ||
         s->sm_lists[DETECT_SM_LIST_HRUDMATCH] != NULL ||
-        s->sm_lists[DETECT_SM_LIST_HUADMATCH] != NULL)
+        s->sm_lists[DETECT_SM_LIST_HUADMATCH] != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HHHDMATCH] != NULL ||
+        s->sm_lists[DETECT_SM_LIST_HRHHDMATCH] != NULL)
     {
         SCReturnInt(0);
     }
@@ -2221,6 +2240,16 @@ static int SignatureCreateMask(Signature *s) {
     }
 
     if (s->sm_lists[DETECT_SM_LIST_HUADMATCH] != NULL) {
+        s->mask |= SIG_MASK_REQUIRE_HTTP_STATE;
+        SCLogDebug("sig requires http app state");
+    }
+
+    if (s->sm_lists[DETECT_SM_LIST_HHHDMATCH] != NULL) {
+        s->mask |= SIG_MASK_REQUIRE_HTTP_STATE;
+        SCLogDebug("sig requires http app state");
+    }
+
+    if (s->sm_lists[DETECT_SM_LIST_HRHHDMATCH] != NULL) {
         s->mask |= SIG_MASK_REQUIRE_HTTP_STATE;
         SCLogDebug("sig requires http app state");
     }
@@ -2390,6 +2419,12 @@ static void SigInitStandardMpmFactoryContexts(DetectEngineCtx *de_ctx)
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_huad =
         MpmFactoryRegisterMpmCtxProfile(de_ctx, "huad",
+                                        MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
+    de_ctx->sgh_mpm_context_hhhd =
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "hhhd",
+                                        MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
+    de_ctx->sgh_mpm_context_hrhhd =
+        MpmFactoryRegisterMpmCtxProfile(de_ctx, "hrhhd",
                                         MPM_CTX_FACTORY_FLAGS_PREPARE_WITH_SIG_GROUP_BUILD);
     de_ctx->sgh_mpm_context_app_proto_detect =
         MpmFactoryRegisterMpmCtxProfile(de_ctx, "app_proto_detect", 0);
@@ -4348,9 +4383,14 @@ int SigAddressPrepareStage5(DetectEngineCtx *de_ctx) {
  * \param de_ctx Pointer to the Detection Engine Context whose Signatures have
  *               to be processed
  *
- * \retval 0 Always
+ * \retval  0 On Success.
+ * \retval -1 On failure.
  */
-int SigGroupBuild (DetectEngineCtx *de_ctx) {
+int SigGroupBuild(DetectEngineCtx *de_ctx)
+{
+    if (DetectSetFastPatternAndItsId(de_ctx) < 0)
+        return -1;
+
     /* if we are using single sgh_mpm_context then let us init the standard mpm
      * contexts using the mpm_ctx factory */
     if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
@@ -4569,6 +4609,30 @@ int SigGroupBuild (DetectEngineCtx *de_ctx) {
             mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
         }
         //printf("huad- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hhhd, 0);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("hhhd- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hhhd, 1);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("hhhd- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrhhd, 0);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("hrhhd- %d\n", mpm_ctx->pattern_cnt);
+
+        mpm_ctx = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrhhd, 1);
+        if (mpm_table[de_ctx->mpm_matcher].Prepare != NULL) {
+            mpm_table[de_ctx->mpm_matcher].Prepare(mpm_ctx);
+        }
+        //printf("hrhhd- %d\n", mpm_ctx->pattern_cnt);
     }
 
 //    SigAddressPrepareStage5(de_ctx);
@@ -4785,6 +4849,8 @@ void SigTableSetup(void) {
     DetectFilesizeRegister();
     DetectAppLayerEventRegister();
     DetectHttpUARegister();
+    DetectHttpHHRegister();
+    DetectHttpHRHRegister();
     DetectLuajitRegister();
     DetectIPRepRegister();
 

@@ -32,6 +32,7 @@ typedef enum{
     SC_RADIX_USER_DATA_FLOWBITS,
     SC_RADIX_USER_DATA_FLOWVAR,
     SC_RADIX_USER_DATA_PKTVAR,
+    SC_RADIX_USER_DATA_FLOWINT,
     SC_RADIX_USER_DATA_MAX
 } SCRadixUserDataType;
 
@@ -65,7 +66,7 @@ typedef struct SCSigSignatureWrapper_ {
  */
 typedef struct SCSigOrderFunc_ {
     /* Pointer to the Signature Ordering function */
-    void (*FuncPtr)(DetectEngineCtx *, SCSigSignatureWrapper *);
+    int (*SWCompare)(SCSigSignatureWrapper *sw1, SCSigSignatureWrapper *sw2);
 
     struct SCSigOrderFunc_ *next;
 } SCSigOrderFunc;

@@ -84,6 +84,9 @@ outputs:
       # is parsed as bytes.
       #limit: 32mb
 
+      # Sensor ID field of unified2 alerts.
+      #sensor-id: 0
+
   # a line based log of HTTP requests (no alerts)
   - http-log:
       enabled: yes
@@ -217,6 +220,8 @@ magic-file: @e_magic_file@
 # this mode, you need to set mode to 'repeat'
 # If you want packet to be sent to another queue after an ACCEPT decision
 # set mode to 'route' and set next-queue value.
+# On linux >= 3.1, you can set batchcount to a value > 1 to improve performance
+# by processing several packets before sending a verdict (worker runmode only).
 # On linux >= 3.6, you can set the fail-open option to yes to have the kernel
 # accept the packet if suricata is not able to keep pace.
 nfq:
@@ -224,6 +229,7 @@ nfq:
 #  repeat-mark: 1
 #  repeat-mask: 1
 #  route-queue: 2
+#  batchcount: 20
 #  fail-open: yes
 
 # af-packet support
@@ -293,6 +299,9 @@ af-packet:
   - interface: default
     #threads: 2
     #use-mmap: yes
+
+legacy:
+  uricontent: enabled
 
 # You can specify a threshold config file by setting "threshold-file"
 # to the path of the threshold config file:
@@ -570,13 +579,14 @@ flow-timeouts:
 #                               # Warning: locally generated trafic can be
 #                               # generated without checksum due to hardware offload
 #                               # of checksum. You can control the handling of checksum
-#				# on a per-interface basis via the 'checksum-checks'
-#				# option
+#                               # on a per-interface basis via the 'checksum-checks'
+#                               # option
 #   max-sessions: 262144        # 256k concurrent sessions
 #   prealloc-sessions: 32768    # 32k sessions prealloc'd
 #   midstream: false            # don't allow midstream session pickups
 #   async-oneside: false        # don't enable async stream handling
 #   inline: no                  # stream inline mode
+#   max-synack-queued: 5        # Max different SYN/ACKs to queue
 #
 #   reassembly:
 #     memcap: 64mb              # Can be specified in kb, mb, gb.  Just a number
@@ -586,9 +596,18 @@ flow-timeouts:
 #     toserver-chunk-size: 2560 # inspect raw stream in chunks of at least
 #                               # this size.  Can be specified in kb, mb,
 #                               # gb.  Just a number indicates it's in bytes.
+#                               # The max acceptable size is 4024 bytes.
 #     toclient-chunk-size: 2560 # inspect raw stream in chunks of at least
 #                               # this size.  Can be specified in kb, mb,
 #                               # gb.  Just a number indicates it's in bytes.
+#                               # The max acceptable size is 4024 bytes.
+#     randomize-chunk-size: yes # Take a random value for chunk size around the specified value.
+#                               # This lower the risk of some evasion technics but could lead
+#                               # detection change between runs. It is set to 'yes' by default.
+#     randomize-chunk-range: 10 # If randomize-chunk-size is active, the value of chunk-size is
+#                               # a random value between (1 - randomize-chunk-range/100)*randomize-chunk-size
+#                               # and (1 + randomize-chunk-range/100)*randomize-chunk-size. Default value
+#                               # of randomize-chunk-range is 10.
 
 stream:
   memcap: 32mb
@@ -599,6 +618,8 @@ stream:
     depth: 1mb                  # reassemble 1mb into a stream
     toserver-chunk-size: 2560
     toclient-chunk-size: 2560
+    randomize-chunk-size: yes
+    #randomize-chunk-range: 10
 
 # Host table:
 #
@@ -686,7 +707,10 @@ pfring:
 
 pcap:
   - interface: eth0
-    #buffer-size: 32768
+    # On Linux, pcap will try to use mmaped capture and will use buffer-size
+    # as total of memory used by the ring. So set this to something bigger
+    # than 1% of your bandwidth.
+    #buffer-size: 16777216
     #bpf-filter: "tcp and port 25"
     # Choose checksum verification mode for the interface. At the moment
     # of the capture, some packets may be with an invalid checksum due to
@@ -703,6 +727,11 @@ pcap:
     # rings. In this case, set up the threads variable to N to start N threads
     # listening on the same interface.
     #threads: 16
+    # set to no to disable promiscuous mode:
+    #promisc: no
+    # set snaplen, if not set it defaults to MTU if MTU can be known
+    # via ioctl call and to full capture if not.
+    #snaplen: 1518
   # Put default values here
   - interface: default
     #checksum-checks: auto
@@ -1056,3 +1085,16 @@ profiling:
 
 coredump:
   max-dump: unlimited
+
+napatech:
+    # The Host Buffer Allowance for all streams
+    # (-1 = OFF, 1 - 100 = percentage of the host buffer that can be held back)
+    hba: -1
+
+    # use_all_streams set to "yes" will query the Napatech service for all configured
+    # streams and listen on all of them. When set to "no" the streams config array
+    # will be used.
+    use-all-streams: yes
+
+    # The streams to listen on
+    streams: [1, 2, 3]

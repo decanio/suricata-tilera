@@ -254,13 +254,12 @@ TmEcode AlertDebugLogger(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
 #endif
         MemBufferWriteString(aft->buffer,
                              "FLOW IPONLY SET:   TOSERVER: %s, TOCLIENT: %s\n"
-                             "FLOW ACTION:       DROP: %s, PASS %s\n"
+                             "FLOW ACTION:       DROP: %s\n"
                              "FLOW NOINSPECTION: PACKET: %s, PAYLOAD: %s, APP_LAYER: %s\n"
                              "FLOW APP_LAYER:    DETECTED: %s, PROTO %"PRIu16"\n",
                              p->flow->flags & FLOW_TOSERVER_IPONLY_SET ? "TRUE" : "FALSE",
                              p->flow->flags & FLOW_TOCLIENT_IPONLY_SET ? "TRUE" : "FALSE",
                              p->flow->flags & FLOW_ACTION_DROP ? "TRUE" : "FALSE",
-                             p->flow->flags & FLOW_ACTION_PASS ? "TRUE" : "FALSE",
                              p->flow->flags & FLOW_NOPACKET_INSPECTION ? "TRUE" : "FALSE",
                              p->flow->flags & FLOW_NOPAYLOAD_INSPECTION ? "TRUE" : "FALSE",
                              p->flow->flags & FLOW_NO_APPLAYER_INSPECTION ? "TRUE" : "FALSE",
@@ -321,7 +320,7 @@ TmEcode AlertDebugLogger(ThreadVars *tv, Packet *p, void *data, PacketQueue *pq,
             /* This is an app layer or stream alert */
             int ret;
             uint8_t flag;
-            if ((! PKT_IS_TCP(p)) || p->flow == NULL ||
+            if (!(PKT_IS_TCP(p)) || p->flow == NULL ||
                     p->flow->protoctx == NULL) {
                 return TM_ECODE_OK;
             }

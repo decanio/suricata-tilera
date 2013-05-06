@@ -46,7 +46,7 @@
 #include "util-unittest-helper.h"
 
 int DetectContentMatch (ThreadVars *, DetectEngineThreadCtx *, Packet *, Signature *, SigMatch *);
-static int DetectContentSetup (DetectEngineCtx *, Signature *, char *);
+int DetectContentSetup(DetectEngineCtx *, Signature *, char *);
 void DetectContentRegisterTests(void);
 
 void DetectContentRegister (void) {
@@ -66,7 +66,19 @@ uint32_t DetectContentMaxId(DetectEngineCtx *de_ctx) {
     return MpmPatternIdStoreGetMaxId(de_ctx->mpm_pattern_id_store);
 }
 
-int DetectContentDataParse(char *keyword, char *contentstr, char** pstr, uint16_t *plen, int *flags)
+/**
+ *  \brief Parse a content string, ie "abc|DE|fgh"
+ *
+ *  \param content_str null terminated string containing the content
+ *  \param result result pointer to pass the fully parsed byte array
+ *  \param result_len size of the resulted data
+ *  \param flags flags to be set by this parsing function
+ *
+ *  \retval -1 error
+ *  \retval 0 ok
+ */
+int DetectContentDataParse(const char *keyword, const char *contentstr,
+        uint8_t **pstr, uint16_t *plen, uint32_t *flags)
 {
     char *str = NULL;
     uint16_t len;
@@ -108,10 +120,6 @@ int DetectContentDataParse(char *keyword, char *contentstr, char** pstr, uint16_
         goto error;
 
     SCLogDebug("\"%s\", len %" PRIu32 "", str, len);
-
-    len = strlen(str);
-    if (len == 0)
-        goto error;
 
     //SCLogDebug("DetectContentParse: \"%s\", len %" PRIu32 "", str, len);
     char converted = 0;
@@ -198,7 +206,7 @@ int DetectContentDataParse(char *keyword, char *contentstr, char** pstr, uint16_
     }
 
     *plen = len;
-    *pstr = str;
+    *pstr = (uint8_t *)str;
     return 0;
 
 error:
@@ -213,12 +221,12 @@ error:
 DetectContentData *DetectContentParse (char *contentstr)
 {
     DetectContentData *cd = NULL;
-    char *str = NULL;
-    uint16_t len;
-    int flags;
+    uint8_t *content = NULL;
+    uint16_t len = 0;
+    uint32_t flags = 0;
     int ret;
 
-    ret = DetectContentDataParse("content", contentstr, &str, &len, &flags);
+    ret = DetectContentDataParse("content", contentstr, &content, &len, &flags);
     if (ret == -1) {
         return NULL;
     }
@@ -232,7 +240,7 @@ DetectContentData *DetectContentParse (char *contentstr)
 
     cd = SCMalloc(sizeof(DetectContentData) + len);
     if (unlikely(cd == NULL)) {
-        SCFree(str);
+        SCFree(content);
         exit(EXIT_FAILURE);
     }
 
@@ -242,7 +250,7 @@ DetectContentData *DetectContentParse (char *contentstr)
         cd->flags |= DETECT_CONTENT_NEGATED;
 
     cd->content = (uint8_t *)cd + sizeof(DetectContentData);
-    memcpy(cd->content, str, len);
+    memcpy(cd->content, content, len);
     cd->content_len = len;
 
     /* Prepare Boyer Moore context for searching faster */
@@ -252,7 +260,7 @@ DetectContentData *DetectContentParse (char *contentstr)
     cd->within = 0;
     cd->distance = 0;
 
-    SCFree(str);
+    SCFree(content);
     return cd;
 
 }
@@ -365,52 +373,42 @@ void DetectContentPrintAll(SigMatch *sm)
  * \retval -1 if error
  * \retval 0 if all was ok
  */
-static int DetectContentSetup (DetectEngineCtx *de_ctx, Signature *s, char *contentstr)
+int DetectContentSetup(DetectEngineCtx *de_ctx, Signature *s, char *contentstr)
 {
     DetectContentData *cd = NULL;
     SigMatch *sm = NULL;
 
     cd = DetectContentParse(contentstr);
-    if (cd == NULL) goto error;
+    if (cd == NULL)
+        goto error;
+    DetectContentPrint(cd);
+
+    int sm_list;
+    if (s->init_flags & (SIG_FLAG_INIT_FILE_DATA | SIG_FLAG_INIT_DCE_STUB_DATA)) {
+        if (s->init_flags & SIG_FLAG_INIT_FILE_DATA) {
+            AppLayerHtpEnableResponseBodyCallback();
+            s->alproto = ALPROTO_HTTP;
+            sm_list = DETECT_SM_LIST_HSBDMATCH;
+        } else {
+            sm_list = DETECT_SM_LIST_DMATCH;
+        }
+
+        s->flags |= SIG_FLAG_APPLAYER;
+    } else {
+        sm_list = DETECT_SM_LIST_PMATCH;
+    }
 
     sm = SigMatchAlloc();
     if (sm == NULL)
         goto error;
-
-    sm->type = DETECT_CONTENT;
     sm->ctx = (void *)cd;
-    cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_SM_LIST_PMATCH);
-
-    DetectContentPrint(cd);
-
-    SigMatchAppendSMToList(s, sm, DETECT_SM_LIST_PMATCH);
-
-    if (s->init_flags & SIG_FLAG_INIT_FILE_DATA) {
-        cd->id = DetectPatternGetId(de_ctx->mpm_pattern_id_store, cd, DETECT_SM_LIST_HSBDMATCH);
-        sm->type = DETECT_CONTENT;
-
-        /* transfer the sm from the pmatch list to hsbdmatch list */
-        SigMatchTransferSigMatchAcrossLists(sm,
-                &s->sm_lists[DETECT_SM_LIST_PMATCH],
-                &s->sm_lists_tail[DETECT_SM_LIST_PMATCH],
-                &s->sm_lists[DETECT_SM_LIST_HSBDMATCH],
-                &s->sm_lists_tail[DETECT_SM_LIST_HSBDMATCH]);
-
-        /* flag the signature to indicate that we scan the app layer data */
-        s->flags |= SIG_FLAG_APPLAYER;
-        s->alproto = ALPROTO_HTTP;
-
-        /* enable http request body callback in the http app layer parser */
-        AppLayerHtpEnableResponseBodyCallback();
-    }
+    sm->type = DETECT_CONTENT;
+    SigMatchAppendSMToList(s, sm, sm_list);
 
     return 0;
 
 error:
-    if (cd != NULL)
-        DetectContentFree(cd);
-    if (sm != NULL)
-        SCFree(sm);
+    DetectContentFree(cd);
     return -1;
 }
 

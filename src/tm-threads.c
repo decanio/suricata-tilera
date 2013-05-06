@@ -113,7 +113,7 @@ void TmThreadExchange(ThreadVars *otv, ThreadVars *ntv, int type);
  * \retval 1 flag is set.
  * \retval 0 flag is not set.
  */
-int TmThreadsCheckFlag(ThreadVars *tv, uint8_t flag)
+int TmThreadsCheckFlag(ThreadVars *tv, uint16_t flag)
 {
     return (SC_ATOMIC_GET(tv->flags) & flag) ? 1 : 0;
 }
@@ -121,7 +121,7 @@ int TmThreadsCheckFlag(ThreadVars *tv, uint8_t flag)
 /**
  * \brief Set a thread flag.
  */
-void TmThreadsSetFlag(ThreadVars *tv, uint8_t flag)
+void TmThreadsSetFlag(ThreadVars *tv, uint16_t flag)
 {
     SC_ATOMIC_OR(tv->flags, flag);
 }
@@ -129,7 +129,7 @@ void TmThreadsSetFlag(ThreadVars *tv, uint8_t flag)
 /**
  * \brief Unset a thread flag.
  */
-void TmThreadsUnsetFlag(ThreadVars *tv, uint8_t flag)
+void TmThreadsUnsetFlag(ThreadVars *tv, uint16_t flag)
 {
     SC_ATOMIC_AND(tv->flags, ~flag);
 }
@@ -245,7 +245,11 @@ void *TmThreadsSlot1NoIn(void *td)
 #endif
 
     while (run) {
-        TmThreadTestThreadUnPaused(tv);
+        if (TmThreadsCheckFlag(tv, THV_PAUSE)) {
+            TmThreadsSetFlag(tv, THV_PAUSED);
+            TmThreadTestThreadUnPaused(tv);
+            TmThreadsUnsetFlag(tv, THV_PAUSED);
+        }
         TmSlotFunc SlotFunc = SC_ATOMIC_GET(s->SlotFunc);
 
         r = SlotFunc(tv, NULL, SC_ATOMIC_GET(s->slot_data), &s->slot_pre_pq, &s->slot_post_pq);
@@ -350,7 +354,11 @@ void *TmThreadsSlot1NoOut(void *td)
     MpipeRegisterPipeStage(tv);
 #endif
     while (run) {
-        TmThreadTestThreadUnPaused(tv);
+        if (TmThreadsCheckFlag(tv, THV_PAUSE)) {
+            TmThreadsSetFlag(tv, THV_PAUSED);
+            TmThreadTestThreadUnPaused(tv);
+            TmThreadsUnsetFlag(tv, THV_PAUSED);
+        }
         TmSlotFunc SlotFunc = SC_ATOMIC_GET(s->SlotFunc);
 
         p = tv->tmqh_in(tv);
@@ -439,7 +447,11 @@ void *TmThreadsSlot1NoInOut(void *td)
 #endif
     while (run) {
         TmSlotFunc SlotFunc = SC_ATOMIC_GET(s->SlotFunc);
-        TmThreadTestThreadUnPaused(tv);
+        if (TmThreadsCheckFlag(tv, THV_PAUSE)) {
+            TmThreadsSetFlag(tv, THV_PAUSED);
+            TmThreadTestThreadUnPaused(tv);
+            TmThreadsUnsetFlag(tv, THV_PAUSED);
+        }
 
         r = SlotFunc(tv, NULL, SC_ATOMIC_GET(s->slot_data), /* no outqh, no pq */NULL, NULL);
 
@@ -522,7 +534,11 @@ void *TmThreadsSlot1(void *td)
     MpipeRegisterPipeStage(tv);
 #endif
     while (run) {
-        TmThreadTestThreadUnPaused(tv);
+        if (TmThreadsCheckFlag(tv, THV_PAUSE)) {
+            TmThreadsSetFlag(tv, THV_PAUSED);
+            TmThreadTestThreadUnPaused(tv);
+            TmThreadsUnsetFlag(tv, THV_PAUSED);
+        }
 
         /* input a packet */
         p = tv->tmqh_in(tv);
@@ -751,7 +767,11 @@ void *TmThreadsSlotPktAcqLoop(void *td) {
     TmThreadsSetFlag(tv, THV_INIT_DONE);
 
     while(run) {
-        TmThreadTestThreadUnPaused(tv);
+        if (TmThreadsCheckFlag(tv, THV_PAUSE)) {
+            TmThreadsSetFlag(tv, THV_PAUSED);
+            TmThreadTestThreadUnPaused(tv);
+            TmThreadsUnsetFlag(tv, THV_PAUSED);
+        }
 
         r = s->PktAcqLoop(tv, SC_ATOMIC_GET(s->slot_data), s);
 
@@ -859,7 +879,11 @@ void *TmThreadsSlotVar(void *td)
 #endif
 
     while (run) {
-        TmThreadTestThreadUnPaused(tv);
+        if (TmThreadsCheckFlag(tv, THV_PAUSE)) {
+            TmThreadsSetFlag(tv, THV_PAUSED);
+            TmThreadTestThreadUnPaused(tv);
+            TmThreadsUnsetFlag(tv, THV_PAUSED);
+        }
 
         /* input a packet */
         p = tv->tmqh_in(tv);
@@ -2176,7 +2200,7 @@ void TmThreadTestThreadUnPaused(ThreadVars *tv)
  *
  * \param tv Pointer to the TV instance.
  */
-void TmThreadWaitForFlag(ThreadVars *tv, uint8_t flags)
+void TmThreadWaitForFlag(ThreadVars *tv, uint16_t flags)
 {
     while (!TmThreadsCheckFlag(tv, flags)) {
 #ifdef __tile__

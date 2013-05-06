@@ -78,15 +78,14 @@ struct SCSigSignatureWrapper_;
 
 /* holds the values for different possible lists in struct Signature.
  * These codes are access points to particular lists in the array
- * Signature->sm_lists[DETECT_SM_LIST_MAX] */
+ * Signature->sm_lists[DETECT_SM_LIST_MAX]. */
 enum {
     DETECT_SM_LIST_MATCH = 0,
     DETECT_SM_LIST_PMATCH,
     /* list for http_uri keyword and the ones relative to it */
     DETECT_SM_LIST_UMATCH,
-    DETECT_SM_LIST_AMATCH,
-    DETECT_SM_LIST_DMATCH,
-    DETECT_SM_LIST_TMATCH,
+    /* list for http_raw_uri keyword and the ones relative to it */
+    DETECT_SM_LIST_HRUDMATCH,
     /* list for http_client_body keyword and the ones relative to it */
     DETECT_SM_LIST_HCBDMATCH,
     /* list for http_server_body keyword and the ones relative to it */
@@ -95,18 +94,24 @@ enum {
     DETECT_SM_LIST_HHDMATCH,
     /* list for http_raw_header keyword and the ones relative to it */
     DETECT_SM_LIST_HRHDMATCH,
-    /* list for http_method keyword and the ones relative to it */
-    DETECT_SM_LIST_HMDMATCH,
-    /* list for http_cookie keyword and the ones relative to it */
-    DETECT_SM_LIST_HCDMATCH,
-    /* list for http_raw_uri keyword and the ones relative to it */
-    DETECT_SM_LIST_HRUDMATCH,
     /* list for http_stat_msg keyword and the ones relative to it */
     DETECT_SM_LIST_HSMDMATCH,
     /* list for http_stat_code keyword and the ones relative to it */
     DETECT_SM_LIST_HSCDMATCH,
+    /* list for http_host keyword and the ones relative to it */
+    DETECT_SM_LIST_HHHDMATCH,
+    /* list for http_raw_host keyword and the ones relative to it */
+    DETECT_SM_LIST_HRHHDMATCH,
+    /* list for http_method keyword and the ones relative to it */
+    DETECT_SM_LIST_HMDMATCH,
+    /* list for http_cookie keyword and the ones relative to it */
+    DETECT_SM_LIST_HCDMATCH,
     /* list for http_user_agent keyword and the ones relative to it */
     DETECT_SM_LIST_HUADMATCH,
+
+    DETECT_SM_LIST_AMATCH,
+    DETECT_SM_LIST_DMATCH,
+    DETECT_SM_LIST_TMATCH,
 
     DETECT_SM_LIST_FILEMATCH,
 
@@ -271,6 +276,7 @@ typedef struct DetectPort_ {
 #define SIG_FLAG_INIT_BIDIREC        (1<<3)  /**< signature has bidirectional operator */
 #define SIG_FLAG_INIT_PAYLOAD        (1<<4)  /**< signature is inspecting the packet payload */
 #define SIG_FLAG_INIT_FILE_DATA      (1<<5)  /**< file_data set */
+#define SIG_FLAG_INIT_DCE_STUB_DATA  (1<<6)  /**< dce_stub_data set */
 
 /* signature mask flags */
 #define SIG_MASK_REQUIRE_PAYLOAD            (1<<0)
@@ -407,6 +413,11 @@ typedef struct Signature_ {
 
     /** classification id **/
     uint8_t class;
+
+#ifdef PROFILING
+    uint16_t profiling_id;
+#endif
+
     uint32_t gid; /**< generator id */
 
     /** netblocks and hosts specified at the sid, in CIDR format */
@@ -416,26 +427,19 @@ typedef struct Signature_ {
 
     int prio;
 
-    char *msg;
-
-    /** classification message */
-    char *class_msg;
-
-    /** Reference */
-    DetectReference *references;
-
-    /* Be careful, this pointer is only valid while parsing the sig,
-     * to warn the user about any possible problem */
-    char *sig_str;
-
-#ifdef PROFILING
-    uint16_t profiling_id;
-#endif
-
     /* holds all sm lists */
     struct SigMatch_ *sm_lists[DETECT_SM_LIST_MAX];
     /* holds all sm lists' tails */
     struct SigMatch_ *sm_lists_tail[DETECT_SM_LIST_MAX];
+
+    SigMatch *filestore_sm;
+
+    char *msg;
+
+    /** classification message */
+    char *class_msg;
+    /** Reference */
+    DetectReference *references;
 
     /** address settings for this signature */
     DetectAddressHead src, dst;
@@ -444,15 +448,17 @@ typedef struct Signature_ {
     uint32_t init_flags;
     /** number of sigmatches in the match and pmatch list */
     uint16_t sm_cnt;
-
+    /* used at init to determine max dsize */
     SigMatch *dsize_sm;
-    SigMatch *filestore_sm;
     /* the fast pattern added from this signature */
     SigMatch *mpm_sm;
     /* helper for init phase */
     uint16_t mpm_content_maxlen;
     uint16_t mpm_uricontent_maxlen;
 
+    /* Be careful, this pointer is only valid while parsing the sig,
+     * to warn the user about any possible problem */
+    char *sig_str;
 
     /** ptr to the next sig in the list */
     struct Signature_ *next;
@@ -463,6 +469,16 @@ typedef struct DetectReplaceList_ {
     uint8_t *found;
     struct DetectReplaceList_ *next;
 } DetectReplaceList;
+
+/** list for flowvar store candidates, to be stored from
+ *  post-match function */
+typedef struct DetectFlowvarList_ {
+    uint16_t idx;                       /**< flowvar name idx */
+    uint16_t len;                       /**< data len */
+    uint8_t *buffer;                    /**< alloc'd buffer, may be freed by
+                                             post-match, post-non-match */
+    struct DetectFlowvarList_ *next;
+} DetectFlowvarList;
 
 typedef struct DetectEngineIPOnlyThreadCtx_ {
     uint8_t *sig_match_array; /* bit array of sig nums */
@@ -638,6 +654,7 @@ typedef struct DetectEngineCtx_ {
     /** hash table for looking up patterns for
      *  id sharing and id tracking. */
     MpmPatternIdStore *mpm_pattern_id_store;
+    uint16_t max_fp_id;
 
     MpmCtxFactoryContainer *mpm_ctx_factory_container;
 
@@ -670,6 +687,8 @@ typedef struct DetectEngineCtx_ {
     int32_t sgh_mpm_context_hsmd;
     int32_t sgh_mpm_context_hscd;
     int32_t sgh_mpm_context_huad;
+    int32_t sgh_mpm_context_hhhd;
+    int32_t sgh_mpm_context_hrhhd;
     int32_t sgh_mpm_context_app_proto_detect;
 
     /* the max local id used amongst all sigs */
@@ -725,6 +744,8 @@ typedef struct HttpReassembledBody_ {
 } HttpReassembledBody;
 
 #define DETECT_FILESTORE_MAX 15
+/** \todo review how many we actually need here */
+#define DETECT_SMSG_PMQ_NUM 256
 
 /**
   * Detection engine thread data.
@@ -800,7 +821,7 @@ typedef struct DetectionEngineThreadCtx_ {
     MpmThreadCtx mtcu;  /**< thread ctx for uricontent mpm */
     MpmThreadCtx mtcs;  /**< thread ctx for stream mpm */
     PatternMatcherQueue pmq;
-    PatternMatcherQueue smsg_pmq[256];
+    PatternMatcherQueue smsg_pmq[DETECT_SMSG_PMQ_NUM];
 
     /** ip only rules ctx */
     DetectEngineIPOnlyThreadCtx io_ctx;
@@ -810,6 +831,8 @@ typedef struct DetectionEngineThreadCtx_ {
 
     /* string to replace */
     DetectReplaceList *replist;
+    /* flowvars to store in post match function */
+    DetectFlowvarList *flowvarlist;
 
     /* Array in which the filestore keyword stores file id and tx id. If the
      * full signature matches, these are processed by a post-match filestore
@@ -888,8 +911,10 @@ typedef struct SigTableElmt_ {
 #define SIG_GROUP_HEAD_MPM_HSMD         (1 << 16)
 #define SIG_GROUP_HEAD_MPM_HSCD         (1 << 17)
 #define SIG_GROUP_HEAD_MPM_HUAD         (1 << 18)
-#define SIG_GROUP_HEAD_HAVEFILEMD5      (1 << 19)
-#define SIG_GROUP_HEAD_HAVEFILESIZE     (1 << 20)
+#define SIG_GROUP_HEAD_MPM_HHHD         (1 << 19)
+#define SIG_GROUP_HEAD_MPM_HRHHD        (1 << 20)
+#define SIG_GROUP_HEAD_HAVEFILEMD5      (1 << 21)
+#define SIG_GROUP_HEAD_HAVEFILESIZE     (1 << 22)
 
 typedef struct SigGroupHeadInitData_ {
     /* list of content containers
@@ -948,6 +973,8 @@ typedef struct SigGroupHead_ {
     MpmCtx *mpm_hsmd_ctx_ts;
     MpmCtx *mpm_hscd_ctx_ts;
     MpmCtx *mpm_huad_ctx_ts;
+    MpmCtx *mpm_hhhd_ctx_ts;
+    MpmCtx *mpm_hrhhd_ctx_ts;
 
     MpmCtx *mpm_proto_tcp_ctx_tc;
     MpmCtx *mpm_proto_udp_ctx_tc;
@@ -963,6 +990,8 @@ typedef struct SigGroupHead_ {
     MpmCtx *mpm_hsmd_ctx_tc;
     MpmCtx *mpm_hscd_ctx_tc;
     MpmCtx *mpm_huad_ctx_tc;
+    MpmCtx *mpm_hhhd_ctx_tc;
+    MpmCtx *mpm_hrhhd_ctx_tc;
 
     uint16_t mpm_uricontent_maxlen;
 
@@ -1026,6 +1055,7 @@ enum {
     DETECT_RPC,
     DETECT_DSIZE,
     DETECT_FLOWVAR,
+    DETECT_FLOWVAR_POSTMATCH,
     DETECT_FLOWINT,
     DETECT_PKTVAR,
     DETECT_NOALERT,
@@ -1073,6 +1103,8 @@ enum {
     DETECT_AL_HTTP_STAT_MSG,
     DETECT_AL_HTTP_STAT_CODE,
     DETECT_AL_HTTP_USER_AGENT,
+    DETECT_AL_HTTP_HOST,
+    DETECT_AL_HTTP_RAW_HOST,
     DETECT_AL_SSH_PROTOVERSION,
     DETECT_AL_SSH_SOFTWAREVERSION,
     DETECT_AL_SSL_VERSION,

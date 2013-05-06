@@ -636,6 +636,76 @@ uint32_t HttpUAPatternSearch(DetectEngineThreadCtx *det_ctx,
     SCReturnUInt(ret);
 }
 
+/**
+ * \brief Http host header match -- searches for one pattern per signature.
+ *
+ * \param det_ctx    Detection engine thread ctx.
+ * \param hh     Host header to inspect.
+ * \param hh_len Host header buffer length.
+ * \param flags  Flags
+ *
+ *  \retval ret Number of matches.
+ */
+uint32_t HttpHHPatternSearch(DetectEngineThreadCtx *det_ctx,
+                             uint8_t *hh, uint32_t hh_len, uint8_t flags)
+{
+    SCEnter();
+
+    uint32_t ret;
+    if (flags & STREAM_TOSERVER) {
+        if (det_ctx->sgh->mpm_hhhd_ctx_ts == NULL)
+            SCReturnUInt(0);
+
+        ret = mpm_table[det_ctx->sgh->mpm_hhhd_ctx_ts->mpm_type].
+            Search(det_ctx->sgh->mpm_hhhd_ctx_ts, &det_ctx->mtcu,
+                   &det_ctx->pmq, hh, hh_len);
+    } else {
+        if (det_ctx->sgh->mpm_hhhd_ctx_tc == NULL)
+            SCReturnUInt(0);
+
+        ret = mpm_table[det_ctx->sgh->mpm_hhhd_ctx_tc->mpm_type].
+            Search(det_ctx->sgh->mpm_hhhd_ctx_tc, &det_ctx->mtcu,
+                   &det_ctx->pmq, hh, hh_len);
+    }
+
+    SCReturnUInt(ret);
+}
+
+/**
+ * \brief Http raw host header match -- searches for one pattern per signature.
+ *
+ * \param det_ctx    Detection engine thread ctx.
+ * \param hrh        Raw hostname to inspect.
+ * \param hrh_len    Raw hostname buffer length.
+ * \param flags  Flags
+ *
+ *  \retval ret Number of matches.
+ */
+uint32_t HttpHRHPatternSearch(DetectEngineThreadCtx *det_ctx,
+                              uint8_t *hrh, uint32_t hrh_len, uint8_t flags)
+{
+    SCEnter();
+
+    uint32_t ret;
+    if (flags & STREAM_TOSERVER) {
+        if (det_ctx->sgh->mpm_hrhhd_ctx_ts == NULL)
+            SCReturnUInt(0);
+
+        ret = mpm_table[det_ctx->sgh->mpm_hrhhd_ctx_ts->mpm_type].
+            Search(det_ctx->sgh->mpm_hrhhd_ctx_ts, &det_ctx->mtcu,
+                   &det_ctx->pmq, hrh, hrh_len);
+    } else {
+        if (det_ctx->sgh->mpm_hrhhd_ctx_tc == NULL)
+            SCReturnUInt(0);
+
+        ret = mpm_table[det_ctx->sgh->mpm_hrhhd_ctx_tc->mpm_type].
+            Search(det_ctx->sgh->mpm_hrhhd_ctx_tc, &det_ctx->mtcu,
+                   &det_ctx->pmq, hrh, hrh_len);
+    }
+
+    SCReturnUInt(ret);
+}
+
 /** \brief Pattern match -- searches for only one pattern per signature.
  *
  *  \param det_ctx detection engine thread ctx
@@ -1455,6 +1525,8 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
         case DETECT_SM_LIST_HSMDMATCH:
         case DETECT_SM_LIST_HSCDMATCH:
         case DETECT_SM_LIST_HUADMATCH:
+        case DETECT_SM_LIST_HHHDMATCH:
+        case DETECT_SM_LIST_HRHHDMATCH:
         {
             MpmCtx *mpm_ctx_ts = NULL;
             MpmCtx *mpm_ctx_tc = NULL;
@@ -1562,6 +1634,24 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
                 sig_flags |= SIG_FLAG_MPM_HTTP;
                 if (cd->flags & DETECT_CONTENT_NEGATED)
                     sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
+            } else if (sm_list == DETECT_SM_LIST_HHHDMATCH) {
+                if (s->flags & SIG_FLAG_TOSERVER)
+                    mpm_ctx_ts = sgh->mpm_hhhd_ctx_ts;
+                if (s->flags & SIG_FLAG_TOCLIENT)
+                    mpm_ctx_tc = sgh->mpm_hhhd_ctx_tc;
+                sgh_flags = SIG_GROUP_HEAD_MPM_HHHD;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
+            } else if (sm_list == DETECT_SM_LIST_HRHHDMATCH) {
+                if (s->flags & SIG_FLAG_TOSERVER)
+                    mpm_ctx_ts = sgh->mpm_hrhhd_ctx_ts;
+                if (s->flags & SIG_FLAG_TOCLIENT)
+                    mpm_ctx_tc = sgh->mpm_hrhhd_ctx_tc;
+                sgh_flags = SIG_GROUP_HEAD_MPM_HRHHD;
+                sig_flags |= SIG_FLAG_MPM_HTTP;
+                if (cd->flags & DETECT_CONTENT_NEGATED)
+                    sig_flags |= SIG_FLAG_MPM_HTTP_NEG;
             }
 
             if (cd->flags & DETECT_CONTENT_FAST_PATTERN_CHOP) {
@@ -1659,18 +1749,19 @@ static void PopulateMpmAddPatternToMpm(DetectEngineCtx *de_ctx,
 
 SigMatch *RetrieveFPForSig(Signature *s)
 {
-    SigMatch *mpm_sm = NULL;
+    SigMatch *mpm_sm = NULL, *sm = NULL;
     uint8_t has_non_negated_non_stream_pattern = 0;
 
     if (s->mpm_sm != NULL)
         return s->mpm_sm;
 
-    for (int list_id = 0 ; list_id < DETECT_SM_LIST_MAX; list_id++) {
+    int list_id;
+    for (list_id = 0 ; list_id < DETECT_SM_LIST_MAX; list_id++) {
         /* we have no keywords that support fp in this Signature sm list */
         if (!FastPatternSupportEnabledForSigMatchList(list_id))
             continue;
 
-        for (SigMatch *sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
+        for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
             /* this keyword isn't registered for fp support */
             if (sm->type != DETECT_CONTENT)
                 continue;
@@ -1691,7 +1782,7 @@ SigMatch *RetrieveFPForSig(Signature *s)
     int max_len = 0;
     int max_len_negated = 0;
     int max_len_non_negated = 0;
-    for (int list_id = 0; list_id < DETECT_SM_LIST_MAX; list_id++) {
+    for (list_id = 0; list_id < DETECT_SM_LIST_MAX; list_id++) {
         if (!FastPatternSupportEnabledForSigMatchList(list_id))
             continue;
 
@@ -1703,7 +1794,7 @@ SigMatch *RetrieveFPForSig(Signature *s)
             continue;
         }
 
-        for (SigMatch *sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
+        for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
             if (sm->type != DETECT_CONTENT)
                 continue;
 
@@ -1727,7 +1818,7 @@ SigMatch *RetrieveFPForSig(Signature *s)
         skip_negated_content = 1;
     }
 
-    for (int list_id = 0; list_id < DETECT_SM_LIST_MAX; list_id++) {
+    for (list_id = 0; list_id < DETECT_SM_LIST_MAX; list_id++) {
         if (!FastPatternSupportEnabledForSigMatchList(list_id))
             continue;
 
@@ -1739,7 +1830,7 @@ SigMatch *RetrieveFPForSig(Signature *s)
             continue;
         }
 
-        for (SigMatch *sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
+        for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
             if (sm->type != DETECT_CONTENT)
                 continue;
 
@@ -1772,6 +1863,126 @@ SigMatch *RetrieveFPForSig(Signature *s)
     return mpm_sm;
 }
 
+SigMatch *RetrieveFPForSigV2(Signature *s)
+{
+    if (s->mpm_sm != NULL)
+        return s->mpm_sm;
+
+
+    SigMatch *mpm_sm = NULL, *sm = NULL;
+    int nn_sm_list[DETECT_SM_LIST_MAX];
+    int n_sm_list[DETECT_SM_LIST_MAX];
+    memset(nn_sm_list, 0, sizeof(nn_sm_list));
+    memset(n_sm_list, 0, sizeof(n_sm_list));
+    int count_nn_sm_list = 0;
+    int count_n_sm_list = 0;
+    int list_id;
+
+    for (list_id = 0; list_id < DETECT_SM_LIST_MAX; list_id++) {
+        if (!FastPatternSupportEnabledForSigMatchList(list_id))
+            continue;
+
+        for (sm = s->sm_lists[list_id]; sm != NULL; sm = sm->next) {
+            if (sm->type != DETECT_CONTENT)
+                continue;
+
+            DetectContentData *cd = (DetectContentData *)sm->ctx;
+            if ((cd->flags & DETECT_CONTENT_FAST_PATTERN))
+                return sm;
+            if (cd->flags & DETECT_CONTENT_NEGATED) {
+                n_sm_list[list_id] = 1;
+                count_n_sm_list++;
+            } else {
+                nn_sm_list[list_id] = 1;
+                count_nn_sm_list++;
+            }
+        } /* for */
+    } /* for */
+
+    int *curr_sm_list = NULL;
+    int skip_negated_content = 1;
+    if (count_nn_sm_list > 0) {
+        curr_sm_list = nn_sm_list;
+    } else if (count_n_sm_list > 0) {
+        curr_sm_list = n_sm_list;
+        skip_negated_content = 0;
+    } else {
+        return NULL;
+    }
+
+    int final_sm_list[DETECT_SM_LIST_MAX];
+    int count_final_sm_list = 0;
+    int priority;
+
+    SCFPSupportSMList *tmp = sm_fp_support_smlist_list;
+    while (tmp != NULL) {
+        for (priority = tmp->priority;
+             tmp != NULL && priority == tmp->priority;
+             tmp = tmp->next) {
+
+            if (curr_sm_list[tmp->list_id] == 0)
+                continue;
+            final_sm_list[count_final_sm_list++] = tmp->list_id;
+        }
+        if (count_final_sm_list != 0)
+            break;
+    }
+
+    BUG_ON(count_final_sm_list == 0);
+
+    int max_len = 0;
+    int i;
+    for (i = 0; i < count_final_sm_list; i++) {
+        for (sm = s->sm_lists[final_sm_list[i]]; sm != NULL; sm = sm->next) {
+            if (sm->type != DETECT_CONTENT)
+                continue;
+
+            DetectContentData *cd = (DetectContentData *)sm->ctx;
+            /* skip_negated_content is only set if there's absolutely no
+             * non-negated content present in the sig */
+            if ((cd->flags & DETECT_CONTENT_NEGATED) && skip_negated_content)
+                continue;
+            if (max_len < cd->content_len)
+                max_len = cd->content_len;
+        }
+    }
+
+    for (i = 0; i < count_final_sm_list; i++) {
+        for (sm = s->sm_lists[final_sm_list[i]]; sm != NULL; sm = sm->next) {
+            if (sm->type != DETECT_CONTENT)
+                continue;
+
+            DetectContentData *cd = (DetectContentData *)sm->ctx;
+            /* skip_negated_content is only set if there's absolutely no
+             * non-negated content present in the sig */
+            if ((cd->flags & DETECT_CONTENT_NEGATED) && skip_negated_content)
+                continue;
+            if (cd->content_len != max_len)
+                continue;
+
+            if (mpm_sm == NULL) {
+                mpm_sm = sm;
+            } else {
+                DetectContentData *data1 = (DetectContentData *)sm->ctx;
+                DetectContentData *data2 = (DetectContentData *)mpm_sm->ctx;
+                uint32_t ls = PatternStrength(data1->content, data1->content_len);
+                uint32_t ss = PatternStrength(data2->content, data2->content_len);
+                if (ls > ss) {
+                    mpm_sm = sm;
+                } else if (ls == ss) {
+                    /* if 2 patterns are of equal strength, we pick the longest */
+                    if (data1->content_len > data2->content_len)
+                        mpm_sm = sm;
+                } else {
+                    SCLogDebug("sticking with mpm_sm");
+                }
+            } /* else - if */
+        } /* for */
+    } /* for */
+
+    return mpm_sm;
+}
+
 /**
  * \internal
  * \brief Setup the mpm content.
@@ -1785,11 +1996,12 @@ SigMatch *RetrieveFPForSig(Signature *s)
 static int PatternMatchPreparePopulateMpm(DetectEngineCtx *de_ctx,
                                           SigGroupHead *sgh)
 {
-    for (uint32_t sig = 0; sig < sgh->sig_cnt; sig++) {
+    uint32_t sig = 0;
+    for (sig = 0; sig < sgh->sig_cnt; sig++) {
         Signature *s = sgh->match_array[sig];
         if (s == NULL)
             continue;
-        PopulateMpmAddPatternToMpm(de_ctx, sgh, s, RetrieveFPForSig(s));
+        PopulateMpmAddPatternToMpm(de_ctx, sgh, s, s->mpm_sm);
     } /* for (sig = 0; sig < sgh->sig_cnt; sig++) */
 
     return 0;
@@ -1827,6 +2039,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
     uint32_t has_co_hscd = 0;
     /* used to indicate if sgh has atleast one sig with http_user_agent */
     uint32_t has_co_huad = 0;
+    /* used to indicate if sgh has atleast one sig with http_host */
+    uint32_t has_co_hhhd = 0;
+    /* used to indicate if sgh has atleast one sig with http_raw_host */
+    uint32_t has_co_hrhhd = 0;
     //uint32_t cnt = 0;
     uint32_t sig = 0;
 
@@ -1885,6 +2101,14 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 
         if (s->sm_lists[DETECT_SM_LIST_HUADMATCH] != NULL) {
             has_co_huad = 1;
+        }
+
+        if (s->sm_lists[DETECT_SM_LIST_HHHDMATCH] != NULL) {
+            has_co_hhhd = 1;
+        }
+
+        if (s->sm_lists[DETECT_SM_LIST_HRHHDMATCH] != NULL) {
+            has_co_hrhhd = 1;
         }
     }
 
@@ -2210,6 +2434,50 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
 #endif
     }
 
+    if (has_co_hhhd) {
+        if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
+            sh->mpm_hhhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hhhd, 0);
+            sh->mpm_hhhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hhhd, 1);
+        } else {
+            sh->mpm_hhhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_hhhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+        }
+        if (sh->mpm_hhhd_ctx_ts == NULL || sh->mpm_hhhd_ctx_tc == NULL) {
+            SCLogDebug("sh->mpm_hhhd_ctx == NULL. This should never happen");
+            exit(EXIT_FAILURE);
+        }
+
+#ifndef __SC_CUDA_SUPPORT__
+        MpmInitCtx(sh->mpm_hhhd_ctx_ts, de_ctx->mpm_matcher, -1);
+        MpmInitCtx(sh->mpm_hhhd_ctx_tc, de_ctx->mpm_matcher, -1);
+#else
+        MpmInitCtx(sh->mpm_hhhd_ctx_ts, de_ctx->mpm_matcher, de_ctx->cuda_rc_mod_handle);
+        MpmInitCtx(sh->mpm_hhhd_ctx_tc, de_ctx->mpm_matcher, de_ctx->cuda_rc_mod_handle);
+#endif
+    }
+
+    if (has_co_hrhhd) {
+        if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_SINGLE) {
+            sh->mpm_hrhhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrhhd, 0);
+            sh->mpm_hrhhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, de_ctx->sgh_mpm_context_hrhhd, 1);
+        } else {
+            sh->mpm_hrhhd_ctx_ts = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 0);
+            sh->mpm_hrhhd_ctx_tc = MpmFactoryGetMpmCtxForProfile(de_ctx, MPM_CTX_FACTORY_UNIQUE_CONTEXT, 1);
+        }
+        if (sh->mpm_hrhhd_ctx_ts == NULL || sh->mpm_hrhhd_ctx_tc == NULL) {
+            SCLogDebug("sh->mpm_hrhhd_ctx == NULL. This should never happen");
+            exit(EXIT_FAILURE);
+        }
+
+#ifndef __SC_CUDA_SUPPORT__
+        MpmInitCtx(sh->mpm_hrhhd_ctx_ts, de_ctx->mpm_matcher, -1);
+        MpmInitCtx(sh->mpm_hrhhd_ctx_tc, de_ctx->mpm_matcher, -1);
+#else
+        MpmInitCtx(sh->mpm_hrhhd_ctx_ts, de_ctx->mpm_matcher, de_ctx->cuda_rc_mod_handle);
+        MpmInitCtx(sh->mpm_hrhhd_ctx_tc, de_ctx->mpm_matcher, de_ctx->cuda_rc_mod_handle);
+#endif
+    }
+
     if (has_co_packet ||
         has_co_stream ||
         has_co_uri ||
@@ -2222,7 +2490,9 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
         has_co_hsmd ||
         has_co_hscd ||
         has_co_hrud ||
-        has_co_huad) {
+        has_co_huad ||
+        has_co_hhhd ||
+        has_co_hrhhd) {
 
         PatternMatchPreparePopulateMpm(de_ctx, sh);
 
@@ -2567,6 +2837,50 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
                  }
              }
          }
+         if (sh->mpm_hhhd_ctx_ts != NULL) {
+             if (sh->mpm_hhhd_ctx_ts->pattern_cnt == 0) {
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hhhd_ctx_ts);
+                 sh->mpm_hhhd_ctx_ts = NULL;
+             } else {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
+                     if (mpm_table[sh->mpm_hhhd_ctx_ts->mpm_type].Prepare != NULL)
+                         mpm_table[sh->mpm_hhhd_ctx_ts->mpm_type].Prepare(sh->mpm_hhhd_ctx_ts);
+                 }
+             }
+         }
+         if (sh->mpm_hhhd_ctx_tc != NULL) {
+             if (sh->mpm_hhhd_ctx_tc->pattern_cnt == 0) {
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hhhd_ctx_tc);
+                 sh->mpm_hhhd_ctx_tc = NULL;
+             } else {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
+                     if (mpm_table[sh->mpm_hhhd_ctx_tc->mpm_type].Prepare != NULL)
+                         mpm_table[sh->mpm_hhhd_ctx_tc->mpm_type].Prepare(sh->mpm_hhhd_ctx_tc);
+                 }
+             }
+         }
+         if (sh->mpm_hrhhd_ctx_ts != NULL) {
+             if (sh->mpm_hrhhd_ctx_ts->pattern_cnt == 0) {
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrhhd_ctx_ts);
+                 sh->mpm_hrhhd_ctx_ts = NULL;
+             } else {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
+                     if (mpm_table[sh->mpm_hrhhd_ctx_ts->mpm_type].Prepare != NULL)
+                         mpm_table[sh->mpm_hrhhd_ctx_ts->mpm_type].Prepare(sh->mpm_hrhhd_ctx_ts);
+                 }
+             }
+         }
+         if (sh->mpm_hrhhd_ctx_tc != NULL) {
+             if (sh->mpm_hrhhd_ctx_tc->pattern_cnt == 0) {
+                 MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrhhd_ctx_tc);
+                 sh->mpm_hrhhd_ctx_tc = NULL;
+             } else {
+                 if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) {
+                     if (mpm_table[sh->mpm_hrhhd_ctx_tc->mpm_type].Prepare != NULL)
+                         mpm_table[sh->mpm_hrhhd_ctx_tc->mpm_type].Prepare(sh->mpm_hrhhd_ctx_tc);
+                 }
+             }
+         }
         //} /* if (de_ctx->sgh_mpm_context == ENGINE_SGH_MPM_FACTORY_CONTEXT_FULL) */
     } else {
         MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_other_ctx);
@@ -2598,6 +2912,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
         sh->mpm_hscd_ctx_ts = NULL;
         MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_huad_ctx_ts);
         sh->mpm_huad_ctx_ts = NULL;
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hhhd_ctx_ts);
+        sh->mpm_hhhd_ctx_ts = NULL;
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrhhd_ctx_ts);
+        sh->mpm_hrhhd_ctx_ts = NULL;
 
         MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_proto_tcp_ctx_tc);
         sh->mpm_proto_tcp_ctx_tc = NULL;
@@ -2625,6 +2943,10 @@ int PatternMatchPrepareGroup(DetectEngineCtx *de_ctx, SigGroupHead *sh)
         sh->mpm_hscd_ctx_tc = NULL;
         MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_huad_ctx_tc);
         sh->mpm_huad_ctx_tc = NULL;
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hhhd_ctx_tc);
+        sh->mpm_hhhd_ctx_tc = NULL;
+        MpmFactoryReClaimMpmCtx(de_ctx, sh->mpm_hrhhd_ctx_tc);
+        sh->mpm_hrhhd_ctx_tc = NULL;
     }
 
     return 0;
@@ -2850,7 +3172,7 @@ uint32_t DetectUricontentGetId(MpmPatternIdStore *ht, DetectContentData *co) {
  *
  * \retval id Pattern id.
  */
-uint32_t DetectPatternGetId(MpmPatternIdStore *ht, void *ctx, uint8_t sm_list)
+uint32_t DetectPatternGetId(MpmPatternIdStore *ht, void *ctx, Signature *s, uint8_t sm_list)
 {
     SCEnter();
 
@@ -2876,58 +3198,64 @@ uint32_t DetectPatternGetId(MpmPatternIdStore *ht, void *ctx, uint8_t sm_list)
 
     r = HashTableLookup(ht->hash, (void *)e, sizeof(MpmPatternIdTableElmt));
     if (r == NULL) {
-        /* we don't have a duplicate with this pattern + id type.  If the id is
-         * for content, then it is the first entry for such a
-         * pattern + id combination.  Let us create an entry for it */
-        if (sm_list == DETECT_SM_LIST_PMATCH) {
+        if (s->init_flags & (SIG_FLAG_INIT_FILE_DATA | SIG_FLAG_INIT_DCE_STUB_DATA)) {
+            BUG_ON((sm_list != DETECT_SM_LIST_HSBDMATCH) & (sm_list != DETECT_SM_LIST_DMATCH));
             e->id = ht->max_id;
             ht->max_id++;
             id = e->id;
-
             int ret = HashTableAdd(ht->hash, e, sizeof(MpmPatternIdTableElmt));
             BUG_ON(ret != 0);
-
             e = NULL;
-
-            /* the id type is not content or uricontent.  It would be one of
-             * those http_ modifiers against content then */
         } else {
-            /* we know that this is one of those http_ modifiers against content.
-             * So we would have seen a content before coming across this http_
-             * modifier.  Let's retrieve this content entry that has already
-             * been registered. */
-            e->sm_list = DETECT_SM_LIST_PMATCH;
-            MpmPatternIdTableElmt *tmp_r = HashTableLookup(ht->hash, (void *)e, sizeof(MpmPatternIdTableElmt));
-            if (tmp_r == NULL) {
-                SCLogError(SC_ERR_FATAL, "How can this happen?  We have to have "
-                           "a content of type DETECT_CONTENT already registered "
-                           "at this point.  Impossible");
-                exit(EXIT_FAILURE);
-            }
-
-            /* we have retrieved the content, and the content registered was the
-             * first entry made(dup_count is 1) for that content.  Let us just
-             * reset the sm_type to the http_ keyword's sm_type */
-            if (tmp_r->dup_count == 1) {
-                tmp_r->sm_list = sm_list;
-                id = tmp_r->id;
-
-                /* interestingly we have more than one entry for this content.
-                 * Out of these tmp_r->dup_count entries, one would be for the content
-                 * entry made for this http_ modifier.  Erase this entry and make
-                 * a separate entry for the http_ modifier(of course with a new id) */
-            } else {
-                tmp_r->dup_count--;
-                /* reset the sm_type, since we changed it to DETECT_CONTENT prev */
-                e->sm_list = sm_list;
+            /* we don't have a duplicate with this pattern + id type.  If the id is
+             * for content, then it is the first entry for such a
+             * pattern + id combination.  Let us create an entry for it */
+            if (sm_list == DETECT_SM_LIST_PMATCH) {
                 e->id = ht->max_id;
                 ht->max_id++;
                 id = e->id;
-
                 int ret = HashTableAdd(ht->hash, e, sizeof(MpmPatternIdTableElmt));
                 BUG_ON(ret != 0);
-
                 e = NULL;
+
+                /* the id type is not content or uricontent.  It would be one of
+                 * those http_ modifiers against content then */
+            } else {
+                /* we know that this is one of those http_ modifiers against content.
+                 * So we would have seen a content before coming across this http_
+                 * modifier.  Let's retrieve this content entry that has already
+                 * been registered. */
+                e->sm_list = DETECT_SM_LIST_PMATCH;
+                MpmPatternIdTableElmt *tmp_r = HashTableLookup(ht->hash, (void *)e, sizeof(MpmPatternIdTableElmt));
+                if (tmp_r == NULL) {
+                    SCLogError(SC_ERR_FATAL, "How can this happen?  We have to have "
+                               "a content of type DETECT_CONTENT already registered "
+                               "at this point.  Impossible");
+                    exit(EXIT_FAILURE);
+                }
+
+                /* we have retrieved the content, and the content registered was the
+                 * first entry made(dup_count is 1) for that content.  Let us just
+                 * reset the sm_type to the http_ keyword's sm_type */
+                if (tmp_r->dup_count == 1) {
+                    tmp_r->sm_list = sm_list;
+                    id = tmp_r->id;
+
+                    /* interestingly we have more than one entry for this content.
+                     * Out of these tmp_r->dup_count entries, one would be for the content
+                     * entry made for this http_ modifier.  Erase this entry and make
+                     * a separate entry for the http_ modifier(of course with a new id) */
+                } else {
+                    tmp_r->dup_count--;
+                    /* reset the sm_type, since we changed it to DETECT_CONTENT prev */
+                    e->sm_list = sm_list;
+                    e->id = ht->max_id;
+                    ht->max_id++;
+                    id = e->id;
+                    int ret = HashTableAdd(ht->hash, e, sizeof(MpmPatternIdTableElmt));
+                    BUG_ON(ret != 0);
+                    e = NULL;
+                }
             }
         }
 
@@ -2935,7 +3263,9 @@ uint32_t DetectPatternGetId(MpmPatternIdStore *ht, void *ctx, uint8_t sm_list)
     } else {
         /* oh cool!  It is a duplicate for content, uricontent types.  Update the
          * dup_count and get out */
-        if (sm_list == DETECT_SM_LIST_PMATCH) {
+        if ((s->init_flags & (SIG_FLAG_INIT_FILE_DATA | SIG_FLAG_INIT_DCE_STUB_DATA)) ||
+            sm_list == DETECT_SM_LIST_PMATCH) {
+            /* we have a duplicate */
             r->dup_count++;
             id = r->id;
             goto end;
@@ -2973,4 +3303,128 @@ uint32_t DetectPatternGetId(MpmPatternIdStore *ht, void *ctx, uint8_t sm_list)
         MpmPatternIdTableElmtFree(e);
 
     SCReturnUInt(id);
+}
+
+uint32_t DetectPatternGetIdV2(MpmPatternIdStore *ht, void *ctx, Signature *s, uint8_t sm_list)
+{
+    SCEnter();
+
+    MpmPatternIdTableElmt *e = NULL;
+    MpmPatternIdTableElmt *r = NULL;
+    PatIntId id = 0;
+
+    e = SCMalloc(sizeof(MpmPatternIdTableElmt));
+    if (unlikely(e == NULL)) {
+        exit(EXIT_FAILURE);
+    }
+
+    DetectContentData *cd = ctx;
+    e->pattern = SCMalloc(cd->content_len);
+    if (e->pattern == NULL) {
+        exit(EXIT_FAILURE);
+    }
+    memcpy(e->pattern, cd->content, cd->content_len);
+    e->pattern_len = cd->content_len;
+    e->dup_count = 1;
+    e->sm_list = sm_list;
+    e->id = 0;
+
+    r = HashTableLookup(ht->hash, (void *)e, sizeof(MpmPatternIdTableElmt));
+    if (r == NULL) {
+        e->id = ht->max_id;
+        ht->max_id++;
+        id = e->id;
+        int ret = HashTableAdd(ht->hash, e, sizeof(MpmPatternIdTableElmt));
+        BUG_ON(ret != 0);
+        e = NULL;
+
+        /* we do seem to have an entry for this already */
+    } else {
+        r->dup_count++;
+        id = r->id;
+    }
+
+    if (e != NULL)
+        MpmPatternIdTableElmtFree(e);
+
+    SCReturnUInt(id);
+}
+
+typedef struct DetectFPAndItsId_ {
+    PatIntId id;
+    uint16_t content_len;
+    uint32_t flags;
+    int sm_list;
+
+    uint8_t *content;
+} DetectFPAndItsId;
+
+/**
+ * \brief Figured out the FP and their respective content ids for all the
+ *        sigs in the engine.
+ *
+ * \param de_ctx Detection engine context.
+ *
+ * \retval  0 On success.
+ * \retval -1 On failure.
+ */
+int DetectSetFastPatternAndItsId(DetectEngineCtx *de_ctx)
+{
+    uint32_t struct_total_size = 0;
+    uint32_t content_total_size = 0;
+    Signature *s = NULL;
+
+    for (s = de_ctx->sig_list; s != NULL; s = s->next) {
+        s->mpm_sm = RetrieveFPForSigV2(s);
+        if (s->mpm_sm != NULL) {
+            DetectContentData *cd = (DetectContentData *)s->mpm_sm->ctx;
+            struct_total_size += sizeof(DetectFPAndItsId);
+            content_total_size += cd->content_len;
+        }
+    }
+
+    /* array hash buffer - i've run out of ideas to name it */
+    uint8_t *ahb = SCMalloc(sizeof(uint8_t) * (struct_total_size + content_total_size));
+    if (ahb == NULL)
+        return -1;
+
+    PatIntId max_id = 0;
+    DetectFPAndItsId *struct_offset = (DetectFPAndItsId *)ahb;
+    uint8_t *content_offset = ahb + struct_total_size;
+    for (s = de_ctx->sig_list; s != NULL; s = s->next) {
+        if (s->mpm_sm != NULL) {
+            int sm_list = SigMatchListSMBelongsTo(s, s->mpm_sm);
+            BUG_ON(sm_list == -1);
+            DetectContentData *cd = (DetectContentData *)s->mpm_sm->ctx;
+            DetectFPAndItsId *dup = (DetectFPAndItsId *)ahb;
+            for (; dup != struct_offset; dup++) {
+                if (dup->content_len != cd->content_len ||
+                    dup->sm_list != sm_list ||
+                    SCMemcmp(dup->content, cd->content, dup->content_len) != 0) {
+                    continue;
+                }
+
+                break;
+            }
+            if (dup != struct_offset) {
+                cd->id = dup->id;
+                continue;
+            }
+
+            struct_offset->id = max_id++;
+            cd->id = struct_offset->id;
+            struct_offset->content_len = cd->content_len;
+            struct_offset->sm_list = sm_list;
+            struct_offset->content = content_offset;
+            content_offset += cd->content_len;
+            memcpy(struct_offset->content, cd->content, cd->content_len);
+
+            struct_offset++;
+        } /* if (s->mpm_sm != NULL) */
+    } /* for */
+
+    de_ctx->max_fp_id = max_id;
+
+    SCFree(ahb);
+    return 0;
 }

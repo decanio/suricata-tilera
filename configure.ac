@@ -2,8 +2,8 @@
 
 AC_INIT(configure.ac)
 
-    AM_CONFIG_HEADER(config.h)
-    AM_INIT_AUTOMAKE(suricata, 1.4dev)
+    AC_CONFIG_HEADERS([config.h])
+    AM_INIT_AUTOMAKE(suricata, 2.0dev)
 
     AC_LANG_C
     AC_PROG_CC_C99
@@ -99,6 +99,19 @@ AC_INIT(configure.ac)
         echo
     fi
     AM_CONDITIONAL([HAVE_COCCINELLE], [test "$HAVE_COCCINELLE_CONFIG" != "no"])
+
+    AC_PATH_PROG(HAVE_PYTHON_CONFIG, python, "no")
+    if test "$HAVE_PYTHON_CONFIG" = "no"; then
+        echo
+        echo "   Warning! python not found, you will not be     "
+        echo "   able to install surictasc unix socket client   "
+        echo
+        enable_python="no"
+    else
+        enable_python="yes"
+    fi
+    AM_CONDITIONAL([HAVE_PYTHON], [test "$HAVE_PYTHON_CONFIG" != "no"])
+
 
 
     # Checks for libraries.
@@ -550,20 +563,27 @@ AC_INIT(configure.ac)
 
     enable_jansson="no"
     enable_unixsocket="no"
+
+    AC_ARG_ENABLE(unix-socket,
+           AS_HELP_STRING([--enable-unix-socket], [Enable unix socket [default=test]]),[enable_unixsocket="$enableval"],[enable_unixsocket=test])
+
     AC_CHECK_HEADER(jansson.h,JANSSON="yes",JANSSON="no")
     if test "$JANSSON" = "yes"; then
         if test "$with_libjansson_libraries" != "no"; then
             LDFLAGS="${LDFLAGS}  -L${with_libjansson_libraries}"
         fi
 
-	    AC_CHECK_LIB(jansson, json_loads,, JANSSON="no")
+	    AC_CHECK_LIB(jansson, json_dump_callback,, JANSSON="no")
         enable_jansson="yes"
         if test "$JANSSON" = "no"; then
             echo
-            echo "   Jansson is required for features like unix socket"
+            echo "   Jansson >= 2.2 is required for features like unix socket"
             echo "   Go get it from your distribution of from:"
-	        echo "     http://www.digip.org/jansson/"
+            echo "     http://www.digip.org/jansson/"
             echo
+	    if test "x$enable_unixsocket" = "xyes"; then
+                exit 1
+            fi
             enable_unixsocket="no"
             enable_jansson="no"
         else
@@ -573,10 +593,22 @@ AC_INIT(configure.ac)
                 *-*-cygwin)
                 ;;
                 *)
-                enable_unixsocket="yes"
+		if test "x$enable_unixsocket" = "xtest"; then
+                    enable_unixsocket="yes"
+		fi
                 ;;
             esac
         fi
+    else
+        if test "x$enable_unixsocket" = "xyes"; then
+            echo
+            echo "   Jansson >= 2.2 is required for features like unix socket"
+            echo "   Go get it from your distribution of from:"
+            echo "     http://www.digip.org/jansson/"
+            echo
+            exit 1
+        fi
+        enable_unixsocket="no"
     fi
 
     AS_IF([test "x$enable_unixsocket" = "xyes"], [AC_DEFINE([BUILD_UNIX_SOCKET], [1], [Unix socket support enabled])])
@@ -665,6 +697,7 @@ AC_INIT(configure.ac)
         AC_CHECK_LIB([netfilter_queue], [nfq_set_queue_maxlen],AC_DEFINE_UNQUOTED([HAVE_NFQ_MAXLEN],[1],[Found queue max length support in netfilter_queue]) ,,[-lnfnetlink])
         AC_CHECK_LIB([netfilter_queue], [nfq_set_verdict2],AC_DEFINE_UNQUOTED([HAVE_NFQ_SET_VERDICT2],[1],[Found nfq_set_verdict2 function in netfilter_queue]) ,,[-lnfnetlink])
         AC_CHECK_LIB([netfilter_queue], [nfq_set_queue_flags],AC_DEFINE_UNQUOTED([HAVE_NFQ_SET_QUEUE_FLAGS],[1],[Found nfq_set_queue_flags function in netfilter_queue]) ,,[-lnfnetlink])
+        AC_CHECK_LIB([netfilter_queue], [nfq_set_verdict_batch],AC_DEFINE_UNQUOTED([HAVE_NFQ_SET_VERDICT_BATCH],[1],[Found nfq_set_verdict_batch function in netfilter_queue]) ,,[-lnfnetlink])
 
         # check if the argument to nfq_get_payload is signed or unsigned
         AC_MSG_CHECKING([for signed nfq_get_payload payload argument])
@@ -677,6 +710,7 @@ AC_INIT(configure.ac)
         AC_COMPILE_IFELSE(
             [AC_LANG_PROGRAM(
                 [
+                #include <stdio.h>
                 #include <libnetfilter_queue/libnetfilter_queue.h>
                 ],
                 [
@@ -1013,11 +1047,19 @@ AC_INIT(configure.ac)
             echo
             exit 1
         fi
+        PKG_CHECK_MODULES(LIBHTPMAXVERSION, htp <= 0.3.0,[libhtp_maxver_found="yes"],[libhtp_maxver_found="no"])
+        if test "$libhtp_maxver_found" = "no"; then
+            echo
+            echo "   ERROR! libhtp 0.3.x was found but only 0.2.x is supported"
+            echo
+            exit 1
+        fi
 
         AC_CHECK_LIB([htp], [htp_config_register_request_uri_normalize],AC_DEFINE_UNQUOTED([HAVE_HTP_URI_NORMALIZE_HOOK],[1],[Found htp_config_register_request_uri_normalize function in libhtp]) ,,[-lhtp])
         # check for htp_tx_get_response_headers_raw
         AC_CHECK_LIB([htp], [htp_tx_get_response_headers_raw],AC_DEFINE_UNQUOTED([HAVE_HTP_TX_GET_RESPONSE_HEADERS_RAW],[1],[Found htp_tx_get_response_headers_raw in libhtp]) ,,[-lhtp])
-
+        AC_CHECK_LIB([htp], [htp_decode_query_inplace],AC_DEFINE_UNQUOTED([HAVE_HTP_DECODE_QUERY_INPLACE],[1],[Found htp_decode_query_inplace function in libhtp]) ,,[-lhtp])
+        AC_EGREP_HEADER(htp_config_set_path_decode_u_encoding, htp/htp.h, AC_DEFINE_UNQUOTED([HAVE_HTP_SET_PATH_DECODE_U_ENCODING],[1],[Found usable htp_config_set_path_decode_u_encoding function in libhtp]) )
     ])
 
     # even if we are using an installed htp lib we still need to gen Makefiles inside of htp
@@ -1026,6 +1068,7 @@ AC_INIT(configure.ac)
     AS_IF([test "x$enable_non_bundled_htp" = "xno"], [
         AC_DEFINE_UNQUOTED([HAVE_HTP_URI_NORMALIZE_HOOK],[1],[Assuming htp_config_register_request_uri_normalize function in bundled libhtp])
         AC_DEFINE_UNQUOTED([HAVE_HTP_TX_GET_RESPONSE_HEADERS_RAW],[1],[Assuming htp_tx_get_response_headers_raw function in bundled libhtp])
+        AC_DEFINE_UNQUOTED([HAVE_HTP_DECODE_QUERY_INPLACE],[1],[Assuming htp_decode_query_inplace function in bundled libhtp])
     ])
 
 
@@ -1147,7 +1190,7 @@ AC_INIT(configure.ac)
 
   # Check for DAG support.
     AC_ARG_ENABLE(dag,
-	        [  --enable-dag  Enable DAG capture],
+	        AS_HELP_STRING([--enable-dag],[Enable DAG capture]),
 	        [ enable_dag=yes ],
 	        [ enable_dag=no])
     AC_ARG_WITH(dag_includes,
@@ -1187,6 +1230,14 @@ AC_INIT(configure.ac)
 
   # libnspr
     enable_nspr="no"
+
+    # Try pkg-config first:
+    PKG_CHECK_MODULES([libnspr], nspr,, [with_pkgconfig_nspr=no])
+    if test "$with_pkgconfig_nspr" != "no"; then
+        CPPFLAGS="${CPPFLAGS} ${libnspr_CFLAGS}"
+        LIBS="${LIBS} ${libnspr_LIBS}"
+    fi
+
     AC_ARG_WITH(libnspr_includes,
             [  --with-libnspr-includes=DIR  libnspr include directory],
             [with_libnspr_includes="$withval"],[with_libnspr_includes=no])
@@ -1221,6 +1272,14 @@ AC_INIT(configure.ac)
 
   # libnss
     enable_nss="no"
+
+    # Try pkg-config first:
+    PKG_CHECK_MODULES([libnss], nss,, [with_pkgconfig_nss=no])
+    if test "$with_pkgconfig_nss" != "no"; then
+        CPPFLAGS="${CPPFLAGS} ${libnss_CFLAGS}"
+        LIBS="${LIBS} ${libnss_LIBS}"
+    fi
+
     AC_ARG_WITH(libnss_includes,
             [  --with-libnss-includes=DIR  libnss include directory],
             [with_libnss_includes="$withval"],[with_libnss_includes=no])
@@ -1290,7 +1349,7 @@ AC_INIT(configure.ac)
 
   # Napatech - Using the 3GD API
     AC_ARG_ENABLE(napatech,
-                [  --enable-napatech   Enabled Napatech Devices],
+                AS_HELP_STRING([--enable-napatech],[Enabled Napatech Devices]),
                 [ enable_napatech=yes ],
                 [ enable_napatech=no])
     AC_ARG_WITH(napatech_includes,
@@ -1323,7 +1382,7 @@ AC_INIT(configure.ac)
 
   # libluajit
     AC_ARG_ENABLE(luajit,
-	        [  --enable-luajit  Enable Luajit support],
+	        AS_HELP_STRING([--enable-luajit],[Enable Luajit support]),
 	        [ enable_luajit="yes"],
 	        [ enable_luajit="no"])
     AC_ARG_WITH(libluajit_includes,
@@ -1386,7 +1445,7 @@ AC_INIT(configure.ac)
 
   # libgeoip
     AC_ARG_ENABLE(geoip,
-	        [  --enable-geoip  Enable GeoIP support],
+	        AS_HELP_STRING([--enable-geoip],[Enable GeoIP support]),
 	        [ enable_geoip="yes"],
 	        [ enable_geoip="no"])
     AC_ARG_WITH(libgeoip_includes,
@@ -1414,6 +1473,7 @@ AC_INIT(configure.ac)
             echo "   from http://www.maxmind.com/en/geolite or your distribution:"
             echo
             echo "   Ubuntu: apt-get install libgeoip-dev"
+            echo "   Fedora: yum install GeoIP-devel"
             echo
             exit 1
         fi
@@ -1492,8 +1552,7 @@ AC_SUBST(e_magic_file)
 
 AC_OUTPUT(Makefile src/Makefile qa/Makefile qa/coccinelle/Makefile rules/Makefile doc/Makefile contrib/Makefile contrib/file_processor/Makefile contrib/file_processor/Action/Makefile contrib/file_processor/Processor/Makefile suricata.yaml scripts/Makefile scripts/suricatasc/Makefile scripts/suricatasc/suricatasc)
 
-echo "
-Suricata Configuration:
+SURICATA_BUILD_CONF="Suricata Configuration:
   AF_PACKET support:                       ${enable_af_packet}
   PF_RING support:                         ${enable_pfring}
   NFQueue support:                         ${enable_nfqueue}
@@ -1513,6 +1572,8 @@ Suricata Configuration:
   Old barnyard2 support:                   ${enable_old_barnyard2}
   CUDA enabled:                            ${enable_cuda}
 
+  Suricatasc install:                      ${enable_python}
+
   Unit tests enabled:                      ${enable_unittests}
   Debug output enabled:                    ${enable_debug}
   Debug validation enabled:                ${enable_debug_validation}
@@ -1528,8 +1589,15 @@ Generic build parameters:
   GCC binary:                              ${CC}
   GCC Protect enabled:                     ${enable_gccprotect}
   GCC march native enabled:                ${enable_gccmarch_native}
-  GCC Profile enabled:                     ${enable_gccprofile}
+  GCC Profile enabled:                     ${enable_gccprofile}"
 
+echo
+echo "$SURICATA_BUILD_CONF"
+echo "printf(" >${ac_builddir}/src/build-info.h
+echo "$SURICATA_BUILD_CONF" | sed -e 's/^/"/' | sed -e 's/$/\\n"/' >>${ac_builddir}/src/build-info.h
+echo ");" >>${ac_builddir}/src/build-info.h
+
+echo "
 To build and install run 'make' and 'make install'.
 
 You can run 'make install-conf' if you want to install initial configuration

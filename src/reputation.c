@@ -108,6 +108,7 @@ static int SRepCatSplitLine(char *line, uint8_t *cat, char *shortname, size_t sh
     char *ptrs[2] = {NULL,NULL};
     int i = 0;
     int idx = 0;
+    char *origline = line;
 
     while (i < (int)line_len) {
         if (line[i] == ',' || line[i] == '\n' || line[i] == '\0' || i == (int)(line_len - 1)) {
@@ -119,6 +120,8 @@ static int SRepCatSplitLine(char *line, uint8_t *cat, char *shortname, size_t sh
             line += (i+1);
             i = 0;
 
+            if (line >= origline + line_len)
+                break;
             if (strlen(line) == 0)
                 break;
             if (idx == 2)
@@ -155,6 +158,7 @@ static int SRepSplitLine(char *line, uint32_t *ip, uint8_t *cat, uint8_t *value)
     char *ptrs[3] = {NULL,NULL,NULL};
     int i = 0;
     int idx = 0;
+    char *origline = line;
 
     while (i < (int)line_len) {
         if (line[i] == ',' || line[i] == '\n' || line[i] == '\0' || i == (int)(line_len - 1)) {
@@ -166,6 +170,8 @@ static int SRepSplitLine(char *line, uint32_t *ip, uint8_t *cat, uint8_t *value)
             line += (i+1);
             i = 0;
 
+            if (line >= origline + line_len)
+                break;
             if (strlen(line) == 0)
                 break;
             if (idx == 3)
@@ -245,6 +251,8 @@ int SRepLoadCatFile(char *filename) {
 
     while(fgets(line, (int)sizeof(line), fp) != NULL) {
         size_t len = strlen(line);
+        if (len == 0)
+            continue;
 
         /* ignore comments and empty lines */
         if (line[0] == '\n' || line [0] == '\r' || line[0] == ' ' || line[0] == '#' || line[0] == '\t')
@@ -254,7 +262,10 @@ int SRepLoadCatFile(char *filename) {
 
         /* Check if we have a trailing newline, and remove it */
         len = strlen(line);
-        if (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+        if (len == 0)
+            continue;
+
+        if (line[len - 1] == '\n' || line[len - 1] == '\r') {
             line[len - 1] = '\0';
         }
 
@@ -293,6 +304,8 @@ static int SRepLoadFile(char *filename) {
 
     while(fgets(line, (int)sizeof(line), fp) != NULL) {
         size_t len = strlen(line);
+        if (len == 0)
+            continue;
 
         /* ignore comments and empty lines */
         if (line[0] == '\n' || line [0] == '\r' || line[0] == ' ' || line[0] == '#' || line[0] == '\t')
@@ -302,7 +315,10 @@ static int SRepLoadFile(char *filename) {
 
         /* Check if we have a trailing newline, and remove it */
         len = strlen(line);
-        if (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+        if (len == 0)
+            continue;
+
+        if (line[len - 1] == '\n' || line[len - 1] == '\r') {
             line[len - 1] = '\0';
         }
 
