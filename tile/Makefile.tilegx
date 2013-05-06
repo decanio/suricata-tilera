@@ -121,7 +121,7 @@ configure:
 	    --sysconfdir=/etc \
 	    --localstatedir=/var
 	sed -e 's/LDFLAGS =/LDFLAGS = -static/' src/Makefile > src/Makefile.tmp
-	sed -e 's/-I\/usr\/include//' src/Makefile.tmp > src/Makefile
+	cp src/Makefile.tmp src/Makefile
 	rm src/Makefile.tmp
 
 #
