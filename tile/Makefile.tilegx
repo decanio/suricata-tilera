@@ -79,9 +79,9 @@ autogen:
 	./autogen.sh
 
 #
-# Rebuild everything from after autoconf.sh (cross compilation)
+# Run configure using chosen options. (cross compilation)
 #
-xbuild:
+xconfigure:
 	echo Running configure
 	LIBS="-lgxpci -lgxio -ltmc" ./configure --host=tile --prefix=$(INSTALL_DIR) \
             --disable-gccmarch-native \
@@ -101,14 +101,11 @@ xbuild:
 	sed -e 's/LDFLAGS =/LDFLAGS = -static/' src/Makefile > src/Makefile.tmp
 	sed -e 's/-I\/usr\/include//' src/Makefile.tmp > src/Makefile
 	rm src/Makefile.tmp
-	echo building Suricata
-	make clean
-	make
 
 #
-# Rebuild everything from after autoconf.sh (native compilation)
+# Run configure using chosen options. (native compilation)
 #
-build:
+configure:
 	echo Running configure
 	LIBS="-lgxpci -lgxio -ltmc" ./configure \
             --disable-gccmarch-native \
@@ -126,6 +123,19 @@ build:
 	sed -e 's/LDFLAGS =/LDFLAGS = -static/' src/Makefile > src/Makefile.tmp
 	sed -e 's/-I\/usr\/include//' src/Makefile.tmp > src/Makefile
 	rm src/Makefile.tmp
+
+#
+# Rebuild everything from after autoconf.sh (cross compilation)
+#
+xbuild: xconfigure
+	echo building Suricata
+	make clean
+	make
+
+#
+# Rebuild everything from after autoconf.sh (native compilation)
+#
+build: configure
 	echo building Suricata
 	make clean
 	make -j 30
