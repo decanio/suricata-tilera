@@ -96,12 +96,12 @@ void RunModeIdsTileMpipeRegister(void)
                               "Workers tilegx mpipe mode, each thread does all"
                               " tasks from acquisition to logging",
                               RunModeIdsTileMpipeWorkers);
-    mpipe_default_mode = "auto";
+    mpipe_default_mode = "workers";
 
     return;
 }
 
-#define MAX_MPIPE_PIPES 12
+#define MAX_MPIPE_PIPES 72
 
 static char pickup_queue[MAX_MPIPE_PIPES][32];
 static char stream_queue[MAX_MPIPE_PIPES][32];
@@ -653,18 +653,12 @@ int RunModeIdsTileMpipeWorkers(DetectEngineCtx *de_ctx) {
     SCEnter();
     char tname[32];
     char *thread_name;
-    uint16_t cpu = 0;
     TmModule *tm_module;
-    uint16_t thread;
-    uint32_t tile = 1;
     int pipe;
-    unsigned int poll_n = TileNumPipelinesPerRx;
     char *detectmode = NULL;
     int pool_detect_threads = 0;
     extern TmEcode ReceiveMpipeInit(void); // move this
 
-    //SCLogInfo("RunModeIdsTileMpipeWorkers");
-    
     if (ConfGet("tile.detect", &detectmode) == 1) {
         if (detectmode) {
         	SCLogInfo("DEBUG: detectmode %s", detectmode);
@@ -682,8 +676,6 @@ int RunModeIdsTileMpipeWorkers(DetectEngineCtx *de_ctx) {
     cpu_set_t cpus;
     tmc_cpus_get_dataplane_cpus(&cpus);
     uint16_t ncpus = tmc_cpus_count(&cpus);
-
-    //SCLogInfo("ncpus: %d", ncpus);
 
     TimeModeSetLive();
 
